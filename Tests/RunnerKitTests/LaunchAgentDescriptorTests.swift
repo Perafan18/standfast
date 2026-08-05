@@ -16,7 +16,16 @@ private func fixture(_ name: String) -> URL {
   #expect(descriptor.workingDirectory.path == "/Users/ci/actions-runner")
 }
 
-@Test func ignoresTheKeysWeDoNotNeed() throws {
+/// Both formats launchd accepts. The runner ships XML, but `plutil -convert`
+/// and several MDM tools rewrite agents as binary, and the file stops being
+/// readable as text without anything announcing it.
+@Test(arguments: [
+  PropertyListSerialization.PropertyListFormat.xml,
+  PropertyListSerialization.PropertyListFormat.binary,
+])
+func ignoresTheKeysWeDoNotNeed(
+  format: PropertyListSerialization.PropertyListFormat
+) throws {
   // Real plists also carry program arguments, log paths, environment and
   // process options, and which of them are present varies between runner
   // releases. Decoding must not depend on that set.
@@ -30,7 +39,7 @@ private func fixture(_ name: String) -> URL {
     "EnvironmentVariables": ["PATH": "/usr/bin"],
     "KeyFromSomeFutureRunnerRelease": true,
   ]
-  try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+  try PropertyListSerialization.data(fromPropertyList: plist, format: format, options: 0)
     .write(to: url)
 
   let descriptor = try LaunchAgentDescriptor(contentsOf: url)

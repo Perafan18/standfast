@@ -21,3 +21,29 @@ import Testing
       .utf8)
   #expect(try RunnerConfig(data: data).agentId == 7)
 }
+
+@Test func survivesAFileMissingItsCosmeticFields() throws {
+  // Only agentId and gitHubUrl cannot be reconstructed from anywhere else. If
+  // a future runner release renames the rest, the runner must still be found
+  // rather than silently disappearing from the menu.
+  let data = Data(#"{"agentId":7,"gitHubUrl":"https://github.com/a/b"}"#.utf8)
+  let config = try RunnerConfig(data: data)
+
+  #expect(config.agentId == 7)
+  #expect(config.agentName == "")
+  #expect(config.workFolder == "_work")
+}
+
+@Test func refusesFilesItCannotTrust() {
+  // Half a config is worse than none: it would name a runner the API cannot
+  // be asked about.
+  #expect(throws: (any Error).self) {
+    try RunnerConfig(data: Data("not json at all".utf8))
+  }
+  #expect(throws: (any Error).self) {
+    try RunnerConfig(data: Data(#"{"agentName":"n","workFolder":"_work"}"#.utf8))
+  }
+  #expect(throws: (any Error).self) {
+    try RunnerConfig(data: Data(#"{"agentId":7}"#.utf8))
+  }
+}

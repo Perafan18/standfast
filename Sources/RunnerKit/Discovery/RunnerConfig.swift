@@ -5,10 +5,30 @@ import Foundation
 /// it belongs to and, crucially, its `agentId` — the only way to ask the API
 /// about *this* runner rather than whichever one happens to be listed first.
 public struct RunnerConfig: Decodable, Equatable, Sendable {
+  /// Identifies this runner to the API. Nothing else can stand in for it, so
+  /// a file without one does not describe a runner we can ask about.
   public let agentId: Int
+  /// Empty when the file carries no name. Discovery falls back to the
+  /// LaunchAgent label so that what reaches the menu is never blank.
   public let agentName: String
   public let gitHubUrl: String
   public let workFolder: String
+
+  enum CodingKeys: String, CodingKey {
+    case agentId, agentName, gitHubUrl, workFolder
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    // Only the two fields that cannot be reconstructed from anywhere else are
+    // required. Demanding the cosmetic ones would mean a future runner release
+    // renaming one of them empties the menu, with nothing on screen to say so.
+    agentId = try container.decode(Int.self, forKey: .agentId)
+    gitHubUrl = try container.decode(String.self, forKey: .gitHubUrl)
+    agentName = try container.decodeIfPresent(String.self, forKey: .agentName) ?? ""
+    workFolder =
+      try container.decodeIfPresent(String.self, forKey: .workFolder) ?? "_work"
+  }
 }
 
 extension RunnerConfig {
@@ -25,7 +45,7 @@ extension RunnerConfig {
     // three bytes as garbage before the opening brace and refuses the file,
     // so they come off first.
     let bom: [UInt8] = [0xEF, 0xBB, 0xBF]
-    let payload = data.starts(with: bom) ? data.dropFirst(bom.count) : data.dropFirst(0)
+    let payload = data.starts(with: bom) ? data.dropFirst(bom.count) : data[...]
     self = try JSONDecoder().decode(RunnerConfig.self, from: Data(payload))
   }
 }

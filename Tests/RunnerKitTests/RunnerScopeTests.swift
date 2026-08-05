@@ -29,6 +29,15 @@ import Testing
   #expect(RunnerScope(gitHubURL: "") == nil)
 }
 
+@Test func rejectsStringsThatAreNotWebURLs() {
+  // Counting path components is not enough: plenty of junk splits into two
+  // parts. This initialiser is failable so that junk stops here, rather than
+  // becoming a scope that builds plausible-looking API paths for nothing.
+  #expect(RunnerScope(gitHubURL: "n/a") == nil)
+  #expect(RunnerScope(gitHubURL: "git@github.com:acme/widget.git") == nil)
+  #expect(RunnerScope(gitHubURL: "/Users/ci/actions-runner") == nil)
+}
+
 @Test func buildsAPIPathForEachScope() {
   #expect(
     RunnerScope.repository(owner: "acme", name: "w").runnerAPIPath(id: 4)
@@ -48,4 +57,7 @@ import Testing
   #expect(
     RunnerScope.organization("acme").settingsURL.absoluteString
       == "https://github.com/organizations/acme/settings/actions/runners")
+  #expect(
+    RunnerScope.enterprise("acme").settingsURL.absoluteString
+      == "https://github.com/enterprises/acme/settings/actions/runners")
 }

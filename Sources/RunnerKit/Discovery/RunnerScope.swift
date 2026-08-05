@@ -12,7 +12,12 @@ extension RunnerScope {
   /// Derived from `.runner`'s `gitHubUrl`, which is unambiguous — unlike the
   /// LaunchAgent label, where `owner-repo-with-dashes` cannot be split back.
   public init?(gitHubURL: String) {
-    guard let url = URL(string: gitHubURL) else { return nil }
+    // Scheme and host are what separate a URL from a string that merely
+    // happens to contain a slash: "n/a" and an SSH remote both split into two
+    // components and would otherwise pass for a repository.
+    guard let url = URL(string: gitHubURL), url.scheme != nil,
+      let host = url.host, !host.isEmpty
+    else { return nil }
     let parts = url.path.split(separator: "/").map(String.init)
     switch parts.count {
     case 2 where parts[0] == "enterprises": self = .enterprise(parts[1])
