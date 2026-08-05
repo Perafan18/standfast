@@ -35,10 +35,10 @@ extension KeyedDecodingContainer {
   /// come back as the default, because the runner is worth more than any of
   /// these values and all three failures are equally unusable.
   fileprivate func cosmeticString(forKey key: Key, default fallback: String) -> String {
-    guard let decoded = try? decodeIfPresent(String.self, forKey: key) else {
-      return fallback
-    }
-    return decoded ?? fallback
+    // One `??` covers all three failures: `try?` flattens the optional that
+    // `decodeIfPresent` returns, so an absent key, an explicit null and a value
+    // of the wrong type all arrive here as nil.
+    (try? decodeIfPresent(String.self, forKey: key)) ?? fallback
   }
 }
 

@@ -23,7 +23,8 @@ public enum AggregateState {
     // lets the menu name the fix, and dropping it here would waste the work
     // done to keep it. The first one wins — with runners failing for different
     // reasons there is no single right headline.
-    if let unknown = states.first(where: { if case .unknown = $0 { true } else { false } }) {
+    if let unknown = states.first(where: { if case .unknown = $0 { true } else { false } })
+    {
       return unknown
     }
     // Idle over stopped: "this machine is available" is the more useful

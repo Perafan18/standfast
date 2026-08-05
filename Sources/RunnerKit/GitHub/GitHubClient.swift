@@ -1,7 +1,10 @@
 import Foundation
 
-/// What GitHub thinks of one runner. Two independent facts: a runner can be
-/// online and idle, online and busy, or offline — but never offline and busy.
+/// What GitHub thinks of one runner: whether it is connected, and whether it
+/// has a job. Two independent facts, and this type deliberately constrains
+/// neither — offline-and-busy is what a machine that died mid-job looks like,
+/// so callers have to decide which of the two to lead with rather than assume
+/// the combination cannot arise.
 public struct RemoteStatus: Equatable, Sendable {
   public let online: Bool
   public let busy: Bool
@@ -51,6 +54,32 @@ public struct GHLocation: Equatable, Sendable {
 public struct GHCommandLineClient: GitHubClient {
   private let commandRunner: any CommandRunning
   private let locations: [GHLocation]
+  private let found = FoundLocation()
+
+  /// Remembers which candidate answered, so the search happens once instead of
+  /// once per question.
+  ///
+  /// Shared between copies of the struct on purpose: the client is created per
+  /// use in places, and a cache that reset with every copy would not be one. It
+  /// is only ever an optimisation — losing it costs two failed spawns, and a
+  /// wrong answer is impossible, because a remembered location that no longer
+  /// works simply falls through to the full search again.
+  private final class FoundLocation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var location: GHLocation?
+
+    var current: GHLocation? {
+      lock.lock()
+      defer { lock.unlock() }
+      return location
+    }
+
+    func remember(_ new: GHLocation) {
+      lock.lock()
+      defer { lock.unlock() }
+      location = new
+    }
+  }
 
   /// Where to look for `gh`, in order.
   ///
@@ -62,8 +91,10 @@ public struct GHCommandLineClient: GitHubClient {
   /// Without this fallback the app's default state, for most users, is a
   /// permanent "gh is not installed" about a gh that is installed.
   ///
-  /// Probing costs at most two extra `posix_spawn` calls that fail
-  /// immediately, and only on machines where PATH did not work.
+  /// The search runs once and the winner is remembered. That matters more than
+  /// it looks: on exactly the machines the fallback exists for, PATH fails
+  /// *every* time, so an unremembered search would spend a doomed spawn on
+  /// every question, for every runner, on every refresh — not once.
   public static let standardLocations = [
     GHLocation(executable: "/usr/bin/env", leadingArguments: ["gh"]),
     GHLocation(executable: "/opt/homebrew/bin/gh"),
@@ -95,23 +126,45 @@ public struct GHCommandLineClient: GitHubClient {
     // silently shadowed this one.
     let arguments = ["api", scope.runnerAPIPath(id: id), "--jq", Self.statusFilter]
 
+    // Whatever worked last time. On the machine this app is aimed at — Homebrew
+    // gh, launched from Finder — the search ends at the second candidate, so
+    // without this every question from every runner on every refresh would pay
+    // for a spawn that is known in advance to fail.
+    if let remembered = found.current,
+      let result = try attempt(remembered, arguments)
+    {
+      return try status(from: result)
+    }
+
+    // Either nothing was remembered, or gh has moved or been uninstalled since.
+    // Either way the search below overwrites the memory with whatever answers
+    // now, so there is nothing to clear first.
     for location in locations {
-      do {
-        let result = try commandRunner.run(location.executable, location.command(arguments))
-        // Nothing at this path either. Keep looking.
-        if result.exitCode == Self.commandNotFound { continue }
-        return try status(from: result)
-      } catch let failure as CommandError {
-        switch failure {
-        // No such executable: this prefix does not exist on this Mac.
-        case .couldNotLaunch: continue
-        // It is installed, it just did not finish. Trying the remaining
-        // candidates would spend the whole timeout again for the same silence.
-        case .timedOut: throw GitHubError.noAnswer
-        }
-      }
+      guard let result = try attempt(location, arguments) else { continue }
+      found.remember(location)
+      return try status(from: result)
     }
     throw GitHubError.cliUnavailable
+  }
+
+  /// Nil when there is no `gh` at this location. A result — of any exit code —
+  /// means one ran, and its answer is the final one.
+  private func attempt(
+    _ location: GHLocation, _ arguments: [String]
+  ) throws -> CommandResult? {
+    do {
+      let result = try commandRunner.run(location.executable, location.command(arguments))
+      // Nothing at this path. Keep looking.
+      return result.exitCode == Self.commandNotFound ? nil : result
+    } catch let failure as CommandError {
+      switch failure {
+      // No such executable: this prefix does not exist on this Mac.
+      case .couldNotLaunch: return nil
+      // It is installed, it just did not finish. Trying the remaining
+      // candidates would spend the whole timeout again for the same silence.
+      case .timedOut: throw GitHubError.noAnswer
+      }
+    }
   }
 
   private func status(from result: CommandResult) throws -> RemoteStatus {
@@ -120,14 +173,27 @@ public struct GHCommandLineClient: GitHubClient {
     }
     // The exit code, never stdout, is what says whether there is an answer at
     // all: `gh api` responds to an API error by printing the raw JSON body and
-    // ignoring `--jq`. That body carries a "status" field, so a filter applied
-    // to it would render a 404 as the perfectly parseable "404 null".
+    // ignoring `--jq`. This is not a precaution against something hypothetical.
+    // The measured 404 body begins `{"message":"Not Found",` — and because
+    // "Not Found" has a space in it, the raw body splits into exactly two
+    // fields. Without this check a 404 parses cleanly, today, into
+    // `online: false, busy: false`, and the menu shows a perfectly healthy
+    // repository as a disconnected runner.
     guard result.exitCode == 0 else { throw GitHubError.noAnswer }
 
     let fields = result.standardOutput
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .split(separator: " ")
-    guard fields.count == 2 else { throw GitHubError.noAnswer }
+    // The status is checked against both spellings rather than read as
+    // "online, or else offline", because there is no safe way to guess at a
+    // third one. Treating an unrecognised status as online hides a runner that
+    // will never be sent work — the exact failure `.disconnected` exists to
+    // surface — and treating it as offline raises the alarm about a healthy
+    // one. "Could not tell" is the only honest answer, and this app already
+    // has the vocabulary for it.
+    guard fields.count == 2, fields[0] == "online" || fields[0] == "offline" else {
+      throw GitHubError.noAnswer
+    }
     return RemoteStatus(online: fields[0] == "online", busy: fields[1] == "true")
   }
 }

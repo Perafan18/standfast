@@ -33,7 +33,7 @@ private func resolve(
   RunnerStateResolver(
     isServiceRunning: { _ in localRunning },
     github: StubGitHub(result: remote, asked: StubGitHub.Recorder())
-  ).state(for: runner)
+  ).blockingState(for: runner)
 }
 
 private let online = RemoteStatus(online: true, busy: false)
@@ -48,6 +48,15 @@ private let online = RemoteStatus(online: true, busy: false)
   #expect(
     resolve(localRunning: true, remote: .success(RemoteStatus(online: true, busy: true)))
       == .busy)
+}
+
+@Test func aRunnerThatWentOfflineMidJobLeadsWithTheDisconnection() {
+  // GitHub reports a Mac that died with a job assigned as offline and busy at
+  // once, so the two flags do have to be ranked. The connection is what needs
+  // fixing; "busy" would suggest work is progressing when nothing is.
+  #expect(
+    resolve(localRunning: true, remote: .success(RemoteStatus(online: false, busy: true)))
+      == .disconnected)
 }
 
 @Test func disconnectedWhenAliveLocallyButGitHubDoesNotSeeIt() {
@@ -107,7 +116,7 @@ private let online = RemoteStatus(online: true, busy: false)
   _ = RunnerStateResolver(
     isServiceRunning: { _ in true },
     github: StubGitHub(result: .success(online), asked: recorder)
-  ).state(for: runner)
+  ).blockingState(for: runner)
 
   #expect(recorder.questions.count == 1)
   #expect(recorder.questions.first?.id == 21)
@@ -122,9 +131,12 @@ private let online = RemoteStatus(online: true, busy: false)
   }
   let seen = Seen()
   _ = RunnerStateResolver(
-    isServiceRunning: { seen.labels.append($0.label); return true },
+    isServiceRunning: {
+      seen.labels.append($0.label)
+      return true
+    },
     github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
-  ).state(for: runner)
+  ).blockingState(for: runner)
 
   #expect(seen.labels == ["actions.runner.acme-widget.build-mac"])
 }
@@ -139,7 +151,7 @@ private let online = RemoteStatus(online: true, busy: false)
   let state = RunnerStateResolver(
     probe: LaunchctlProbe(commandRunner: fake),
     github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
-  ).state(for: runner)
+  ).blockingState(for: runner)
 
   #expect(state == .idle)
 }
@@ -157,9 +169,70 @@ private struct BrokenGitHub: GitHubClient {
   // a healthy runner on the strength of an error nobody recognised.
   let state = RunnerStateResolver(
     isServiceRunning: { _ in true }, github: BrokenGitHub()
-  ).state(for: runner)
+  ).blockingState(for: runner)
 
   #expect(state == .unknown(.noAnswer))
+}
+
+// MARK: - The async facade
+
+/// The label of the dispatch queue the calling thread is running on.
+///
+/// The only signal that separates Swift's cooperative pool from
+/// `DispatchQueue.global()`: the former labels itself
+/// `com.apple.root.default-qos.cooperative`, the latter drops the suffix.
+/// `Thread.isMainThread` cannot tell them apart — it is false for both, because
+/// a nonisolated `async` function called from the main actor already hops off
+/// the main thread and onto the cooperative pool, which is precisely the pool
+/// that must not be blocked.
+private func currentQueueLabel() -> String {
+  String(cString: __dispatch_queue_get_label(nil))
+}
+
+@Test @MainActor func theAsyncFacadeKeepsItsBlockingOffTheCooperativePool() async {
+  // The reason this overload exists. `blockingState(for:)` parks a whole
+  // thread inside waitUntilExit, twice per call, for up to the command
+  // timeout. The cooperative pool has one thread per core and runs every
+  // `Task {}` and `Task.detached {}`, so resolving several runners there with
+  // the network hanging would stall the pool and everything queued behind it.
+  final class Where: @unchecked Sendable {
+    var queue: String?
+    var onMainThread: Bool?
+  }
+  let ran = Where()
+  let resolver = RunnerStateResolver(
+    isServiceRunning: { _ in
+      ran.queue = currentQueueLabel()
+      ran.onMainThread = Thread.isMainThread
+      return true
+    },
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()))
+
+  let state = await resolver.state(for: runner)
+
+  #expect(state == .idle)
+  #expect(ran.onMainThread == false)
+  #expect(ran.queue?.hasSuffix(".cooperative") == false)
+}
+
+@Test func theAsyncFacadeAndTheBlockingCallAgreeOnEveryOutcome() async {
+  // The hop must not quietly change any answer.
+  let cases: [(Bool, Result<RemoteStatus, GitHubError>)] = [
+    (true, .success(online)),
+    (true, .success(RemoteStatus(online: true, busy: true))),
+    (true, .success(RemoteStatus(online: false, busy: false))),
+    (false, .success(online)),
+    (true, .failure(.cliUnavailable)),
+    (true, .failure(.notAuthenticated)),
+    (true, .failure(.noAnswer)),
+    (false, .failure(.noAnswer)),
+  ]
+  for (localRunning, remote) in cases {
+    let resolver = RunnerStateResolver(
+      isServiceRunning: { _ in localRunning },
+      github: StubGitHub(result: remote, asked: StubGitHub.Recorder()))
+    #expect(await resolver.state(for: runner) == resolver.blockingState(for: runner))
+  }
 }
 
 @Test func doesNotAskGitHubAboutARunnerThatIsNotEvenRunning() {
@@ -170,7 +243,7 @@ private struct BrokenGitHub: GitHubClient {
   let state = RunnerStateResolver(
     isServiceRunning: { _ in false },
     github: StubGitHub(result: .success(online), asked: recorder)
-  ).state(for: runner)
+  ).blockingState(for: runner)
 
   #expect(state == .stopped)
   #expect(recorder.questions.isEmpty)

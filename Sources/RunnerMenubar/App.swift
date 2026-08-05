@@ -90,7 +90,11 @@ final class RunnerModel: ObservableObject {
   func refresh() {
     Task.detached { [discovery, resolver] in
       let found = discovery.discover()
-      let states = found.runners.map { resolver.state(for: $0) }
+      // Sequential, and through the async facade: each call blocks a thread on
+      // launchctl and then on gh, and the facade keeps that off the pool this
+      // task is running on.
+      var states: [RunnerState] = []
+      for runner in found.runners { states.append(await resolver.state(for: runner)) }
       await MainActor.run {
         self.runners = found.runners
         self.states = states

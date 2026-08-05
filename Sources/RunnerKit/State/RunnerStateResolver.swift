@@ -1,42 +1,5 @@
 import Foundation
 
-/// Why the state could not be determined. Kept as data rather than a string so
-/// the UI can suggest the right fix instead of shrugging: each case has a
-/// different next step, and "unknown" on its own has none.
-public enum UnknownReason: Equatable, Sendable {
-  /// No `gh` on PATH and none at the usual install prefixes.
-  case cliUnavailable
-  /// `gh` is installed but holds no credentials.
-  case notAuthenticated
-  /// `gh` ran, was authenticated, and still said nothing usable: no network, a
-  /// token without the scope for this endpoint, a runner GitHub has forgotten.
-  case noAnswer
-}
-
-extension UnknownReason {
-  init(_ error: GitHubError) {
-    switch error {
-    case .cliUnavailable: self = .cliUnavailable
-    case .notAuthenticated: self = .notAuthenticated
-    case .noAnswer: self = .noAnswer
-    }
-  }
-}
-
-public enum RunnerState: Equatable, Sendable {
-  /// Registered, connected, waiting for work.
-  case idle
-  /// Executing a job right now.
-  case busy
-  /// Running locally but GitHub does not see it. Worth its own case: "the
-  /// process is up" and "GitHub will send it work" are different claims, and
-  /// only the second one matters.
-  case disconnected
-  /// The LaunchAgent is not running.
-  case stopped
-  case unknown(UnknownReason)
-}
-
 /// Combines the two things worth knowing about a runner into one answer.
 ///
 /// They are deliberately separate sources. `launchctl` says whether the local
@@ -66,8 +29,30 @@ public struct RunnerStateResolver: Sendable {
     self.init(isServiceRunning: { probe.isRunning(label: $0.label) }, github: github)
   }
 
-  /// Does network I/O on the calling thread. Call it off the main actor.
-  public func state(for runner: DiscoveredRunner) -> RunnerState {
+  /// Resolves one runner's state without tying up a thread the runtime needs.
+  ///
+  /// This is the entry point to use. `blockingState(for:)` parks a whole thread
+  /// inside `waitUntilExit()` — twice per call, for as long as the command
+  /// timeout allows. Swift's cooperative pool has only as many threads as the
+  /// machine has cores, and *both* `Task {}` and `Task.detached {}` run there,
+  /// so a task group resolving N runners with the network hanging would stall
+  /// N of those threads at once and starve everything else in the app,
+  /// including the UI. Dispatching to `DispatchQueue.global()` moves the
+  /// blocking to a pool that is allowed to grow instead.
+  public func state(for runner: DiscoveredRunner) async -> RunnerState {
+    await withCheckedContinuation { continuation in
+      DispatchQueue.global().async {
+        continuation.resume(returning: blockingState(for: runner))
+      }
+    }
+  }
+
+  /// Blocks the calling thread — first on `launchctl`, then on `gh` doing
+  /// network I/O — for up to the command runner's timeout each time. Safe to
+  /// call directly only from a thread that is yours to block, which rules out
+  /// the main actor and the cooperative pool behind every `Task`. Prefer the
+  /// `async` overload above, which makes the hop for you.
+  public func blockingState(for runner: DiscoveredRunner) -> RunnerState {
     // Asked first, and allowed to settle it alone. A stopped service is the
     // one thing known for certain: GitHub keeps calling a just-stopped runner
     // online for a few seconds, so trusting it here would show "idle" right
@@ -78,6 +63,10 @@ public struct RunnerStateResolver: Sendable {
 
     do {
       let remote = try github.runnerStatus(id: runner.agentId, scope: runner.scope)
+      // Connection before occupation, and the order is load-bearing: GitHub
+      // describes a machine that died mid-job as offline with the job still
+      // assigned to it. Calling that "busy" would suggest work is progressing
+      // when nothing is; what needs fixing is the connection.
       if !remote.online { return .disconnected }
       return remote.busy ? .busy : .idle
     } catch let failure as GitHubError {

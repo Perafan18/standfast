@@ -17,6 +17,14 @@ private func onPath(_ path: String = runnerPath) -> [String] {
   ["/usr/bin/env", "gh"] + ghArguments(path)
 }
 
+private func atHomebrew(_ path: String = runnerPath) -> [String] {
+  ["/opt/homebrew/bin/gh"] + ghArguments(path)
+}
+
+private func atIntelHomebrew(_ path: String = runnerPath) -> [String] {
+  ["/usr/local/bin/gh"] + ghArguments(path)
+}
+
 private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope) throws
   -> RemoteStatus
 {
@@ -68,9 +76,11 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
 
 @Test func asksTheEndpointThatMatchesTheScope() throws {
   let path = "orgs/acme/actions/runners/21"
-  let fake = FakeCommandRunner([["/usr/bin/env", "gh"] + ghArguments(path): "online true\n"])
+  let command = ["/usr/bin/env", "gh"] + ghArguments(path)
+  let fake = FakeCommandRunner([command: "online true\n"])
+  let status = try ask(fake, scope: .organization("acme"))
 
-  #expect(try ask(fake, scope: .organization("acme")) == RemoteStatus(online: true, busy: true))
+  #expect(status == RemoteStatus(online: true, busy: true))
 }
 
 // MARK: - Finding gh at all
@@ -82,7 +92,7 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
   // Since this app ships as a double-clicked .app and gh is a brew install for
   // almost everyone, that is the default case, not an edge case — reporting
   // "gh is not installed" to someone who has gh installed is a dead end.
-  let fake = FakeCommandRunner([["/opt/homebrew/bin/gh"] + ghArguments(runnerPath): "online true\n"])
+  let fake = FakeCommandRunner([atHomebrew(): "online true\n"])
   fake.exitCodes = [onPath(): 127]
 
   #expect(try ask(fake) == RemoteStatus(online: true, busy: true))
@@ -92,7 +102,7 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
 @Test func fallsBackToTheIntelHomebrewPrefix() throws {
   // An Intel Mac has no /opt/homebrew at all, so that candidate does not exit
   // 127 — it fails to launch.
-  let fake = FakeCommandRunner([["/usr/local/bin/gh"] + ghArguments(runnerPath): "offline false\n"])
+  let fake = FakeCommandRunner([atIntelHomebrew(): "offline false\n"])
   fake.exitCodes = [onPath(): 127]
   fake.failingExecutables = ["/opt/homebrew/bin/gh"]
 
@@ -107,7 +117,7 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
   // known prefixes are a fallback, never an override.
   let fake = FakeCommandRunner([
     onPath(): "online false\n",
-    ["/opt/homebrew/bin/gh"] + ghArguments(runnerPath): "online true\n",
+    atHomebrew(): "online true\n",
   ])
 
   #expect(try ask(fake) == RemoteStatus(online: true, busy: false))
@@ -144,12 +154,23 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
   fake.exitCodes = [onPath(): 4]
 
   #expect(throws: GitHubError.notAuthenticated) { try ask(fake) }
+  // And it settles the question. gh's credentials live in a config directory
+  // shared by every copy on the machine, so a second binary would refuse in
+  // exactly the same way.
+  #expect(fake.invocations.count == 1)
 }
 
 @Test func doesNotReadAnAPIErrorBodyAsAStatus() {
-  // Measured: on a 404 or a 403, `gh api` prints the raw JSON body on stdout,
-  // ignoring --jq entirely, and exits 1.
-  let notFound = #"{"message":"Not Found","documentation_url":"https://docs.github.com/rest","status":"404"}"#
+  // Measured on a 404: `gh api` prints the raw JSON body on stdout, ignoring
+  // --jq entirely, and exits 1. This is not a hypothetical hazard. Because
+  // "Not Found" carries a space, that body splits into exactly two fields, so
+  // without the exit-code check it parses today into online: false, busy:
+  // false — and a repository that is merely misspelled, or a token missing a
+  // scope, is drawn in the menu as a disconnected runner.
+  //
+  // The documentation_url is elided for width; the leading message is the part
+  // that does the damage.
+  let notFound = #"{"message":"Not Found","status":"404"}"#
   let fake = FakeCommandRunner([onPath(): notFound])
   fake.exitCodes = [onPath(): 1]
 
@@ -159,13 +180,12 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
 }
 
 @Test func neverParsesTheOutputOfACommandThatFailed() {
-  // Not a shape gh prints today, and that is the point: the error body it does
-  // print carries a "status" field, so `.status + " " + (.busy|tostring)`
-  // applied to a 404 would yield exactly "404 null" — two fields, parsing
-  // cleanly into online: false, busy: false, which the UI would show as
-  // "disconnected" instead of "could not tell". The exit code is what keeps a
-  // refusal from ever reaching the parser.
-  let fake = FakeCommandRunner([onPath(): "404 null\n"])
+  // Deliberately the strongest possible input: stdout that is a flawless
+  // status, on a command that failed. The rule is that a non-zero exit ends
+  // the matter, and it has to hold on its own rather than leaning on the
+  // status whitelist below happening to reject today's error bodies — that
+  // overlap is a coincidence of what GitHub's JSON starts with, not a design.
+  let fake = FakeCommandRunner([onPath(): "online true\n"])
   fake.exitCodes = [onPath(): 1]
 
   #expect(throws: GitHubError.noAnswer) { try ask(fake) }
@@ -177,4 +197,66 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
   let fake = FakeCommandRunner([onPath(): "online\n"])
 
   #expect(throws: GitHubError.noAnswer) { try ask(fake) }
+}
+
+@Test func refusesAnAnswerWithMoreFieldsThanAStatus() {
+  let fake = FakeCommandRunner([onPath(): "online false extra\n"])
+
+  #expect(throws: GitHubError.noAnswer) { try ask(fake) }
+}
+
+@Test func refusesAStatusItDoesNotRecognise() {
+  // There is no safe way to guess. Reading an unknown status as online would
+  // hide a runner that will never be sent work, which is the failure
+  // `.disconnected` exists to catch; reading it as offline would raise the
+  // alarm about a healthy one. Both are worse than admitting ignorance.
+  let fake = FakeCommandRunner([onPath(): "quarantined false\n"])
+
+  #expect(throws: GitHubError.noAnswer) { try ask(fake) }
+}
+
+@Test func doesNotMistakeAnUnknownStatusForAHealthyRunner() {
+  // The direction that matters. Stated separately from the test above because
+  // it is the invariant, not the mechanism: whatever this client does with an
+  // unrecognised status, it must never come back saying the runner is online.
+  let fake = FakeCommandRunner([onPath(): "provisioning true\n"])
+
+  #expect((try? ask(fake))?.online != true)
+}
+
+// MARK: - Finding gh once
+
+@Test func remembersWhereItFoundGhInsteadOfSearchingEveryTime() throws {
+  // On the machine this fallback exists for, PATH fails every single time.
+  // Searching per question would spend a doomed spawn on every runner on every
+  // refresh, for as long as the app is open.
+  let fake = FakeCommandRunner([atHomebrew(): "online true\n"])
+  fake.exitCodes = [onPath(): 127]
+  let client = GHCommandLineClient(commandRunner: fake)
+
+  _ = try client.runnerStatus(id: 21, scope: repositoryScope)
+  _ = try client.runnerStatus(id: 21, scope: repositoryScope)
+
+  #expect(
+    fake.invocations.map(\.executable)
+      == ["/usr/bin/env", "/opt/homebrew/bin/gh", "/opt/homebrew/bin/gh"])
+}
+
+@Test func searchesAgainWhenTheRememberedGhStopsWorking() throws {
+  // Homebrew upgrades and uninstalls happen while the app is running. A
+  // remembered location is an optimisation, never a commitment.
+  let fake = FakeCommandRunner([
+    atHomebrew(): "online true\n", onPath(): "offline false\n",
+  ])
+  fake.exitCodes = [onPath(): 127]
+  let client = GHCommandLineClient(commandRunner: fake)
+  _ = try client.runnerStatus(id: 21, scope: repositoryScope)
+
+  // gh leaves /opt/homebrew and lands back on PATH.
+  fake.failingExecutables = ["/opt/homebrew/bin/gh"]
+  fake.exitCodes = [:]
+
+  #expect(
+    try client.runnerStatus(id: 21, scope: repositoryScope)
+      == RemoteStatus(online: false, busy: false))
 }
