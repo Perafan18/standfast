@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the menu bar shows, in the order the icon cares about.
-enum RunnerState: Equatable {
+public enum RunnerState: Equatable {
   /// Registered, connected, waiting for work.
   case idle
   /// Executing a job right now.
@@ -29,9 +29,14 @@ enum RunnerState: Equatable {
 /// expired keeps its process happily running while GitHub has written it off.
 /// Showing only the local view would report "fine" for a runner that will
 /// never receive another job.
-struct RunnerService {
+public struct RunnerService: Sendable {
   var runnerDirectory: URL
   var repository: String  // "owner/repo"
+
+  public init(runnerDirectory: URL, repository: String) {
+    self.runnerDirectory = runnerDirectory
+    self.repository = repository
+  }
 
   /// Runs a command and returns stdout, or nil if it could not be launched.
   private func shell(_ launchPath: String, _ args: [String], cwd: URL? = nil)
@@ -82,7 +87,7 @@ struct RunnerService {
     return (online: parts[0] == "online", busy: parts[1] == "true")
   }
 
-  func currentState() -> RunnerState {
+  public func currentState() -> RunnerState {
     let local = localServiceRunning()
     guard let remote = remoteStatus() else {
       // No answer from GitHub. Report what is actually known rather than
@@ -95,15 +100,15 @@ struct RunnerService {
   }
 
   @discardableResult
-  func start() -> Bool { runSvc("start") }
+  public func start() -> Bool { runSvc("start") }
 
   @discardableResult
-  func stop() -> Bool { runSvc("stop") }
+  public func stop() -> Bool { runSvc("stop") }
 
   /// Stop then start. Sequential on purpose: `svc.sh` has no restart, and
   /// firing both at once leaves launchd racing itself.
   @discardableResult
-  func restart() -> Bool {
+  public func restart() -> Bool {
     guard runSvc("stop") else { return false }
     Thread.sleep(forTimeInterval: 1.5)
     return runSvc("start")
