@@ -5,12 +5,50 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   public let label: String
   public let directory: URL
   public let agentId: Int
+  /// Never empty: discovery falls back to the label when `.runner` carries no
+  /// name of its own.
   public let agentName: String
   public let scope: RunnerScope
 
   public var id: String { label }
   public var workDirectory: URL { directory.appendingPathComponent(workFolder) }
   let workFolder: String
+
+  /// `workFolder` is internal, so the memberwise init is too, which would put
+  /// this type out of reach of the app target — SwiftUI previews need to build
+  /// one without a runner installed.
+  public init(
+    label: String, directory: URL, agentId: Int, agentName: String,
+    scope: RunnerScope, workFolder: String = "_work"
+  ) {
+    self.label = label
+    self.directory = directory
+    self.agentId = agentId
+    self.agentName = agentName
+    self.scope = scope
+    self.workFolder = workFolder
+  }
+}
+
+/// The outcome of one scan.
+///
+/// The failures are kept instead of being folded into an empty list. "No
+/// runner is installed" and "two are installed and neither could be read"
+/// both come out as no runners, and only the second means something is
+/// wrong — telling that user to install a runner is the one answer certain
+/// to be useless.
+public struct DiscoveryResult: Equatable, Sendable {
+  public let runners: [DiscoveredRunner]
+  /// LaunchAgents that announced themselves as runners and could not be
+  /// resolved: unreadable plist, missing or corrupt `.runner`, permissions.
+  /// Paths rather than errors — enough to name the file that needs looking
+  /// at, without a diagnosis this version could not act on anyway.
+  public let unreadable: [URL]
+
+  public init(runners: [DiscoveredRunner], unreadable: [URL] = []) {
+    self.runners = runners
+    self.unreadable = unreadable
+  }
 }
 
 /// Finds every self-hosted runner on this machine without asking the user
@@ -27,18 +65,48 @@ public struct RunnerDiscovery: Sendable {
         .appendingPathComponent("Library/LaunchAgents")
   }
 
-  public func discover() -> [DiscoveredRunner] {
+  /// Reads the whole LaunchAgents directory and a file from each runner, on
+  /// the calling thread. Call it off the main actor.
+  public func discover() -> DiscoveryResult {
     let entries =
       (try? FileManager.default.contentsOfDirectory(
         at: launchAgentsDirectory,
         includingPropertiesForKeys: nil)) ?? []
 
-    return
+    let candidates =
       entries
       .filter { $0.lastPathComponent.hasPrefix("actions.runner.") }
       .filter { $0.pathExtension == "plist" }
-      .compactMap(runner(fromPlistAt:))
-      .sorted { $0.label < $1.label }
+
+    var runners: [DiscoveredRunner] = []
+    var unreadable: [URL] = []
+    for candidate in candidates {
+      if let runner = runner(fromPlistAt: candidate) {
+        runners.append(runner)
+      } else {
+        unreadable.append(candidate)
+      }
+    }
+
+    return DiscoveryResult(
+      runners: deduplicatedByLabel(runners),
+      unreadable: unreadable.sorted { $0.path < $1.path })
+  }
+
+  /// One entry per label. Duplicating a plist in Finder yields "… copy.plist",
+  /// which keeps the prefix and the extension while describing the same
+  /// runner; the label is what launchd registers and what `id` is built from,
+  /// and a repeated `id` is undefined behaviour in the menu's `ForEach`.
+  ///
+  /// Sorting before the sweep does double duty: the menu is ordered by the
+  /// name it shows, and which duplicate survives stops depending on the order
+  /// the filesystem happened to hand back.
+  private func deduplicatedByLabel(_ runners: [DiscoveredRunner]) -> [DiscoveredRunner] {
+    runners
+      .sorted { ($0.label, $0.directory.path) < ($1.label, $1.directory.path) }
+      .reduce(into: [DiscoveredRunner]()) { unique, runner in
+        if unique.last?.label != runner.label { unique.append(runner) }
+      }
   }
 
   private func runner(fromPlistAt url: URL) -> DiscoveredRunner? {
@@ -54,7 +122,9 @@ public struct RunnerDiscovery: Sendable {
       label: agent.label,
       directory: agent.workingDirectory,
       agentId: config.agentId,
-      agentName: config.agentName,
+      // The label is the only other name on hand, and a blank row in the menu
+      // would be worse than a verbose one.
+      agentName: config.agentName.isEmpty ? agent.label : config.agentName,
       scope: scope,
       workFolder: config.workFolder)
   }

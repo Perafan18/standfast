@@ -4,21 +4,21 @@ import Foundation
 /// time. It is the authoritative description of a runner: which GitHub scope
 /// it belongs to and, crucially, its `agentId` — the only way to ask the API
 /// about *this* runner rather than whichever one happens to be listed first.
-public struct RunnerConfig: Decodable, Equatable, Sendable {
+struct RunnerConfig: Decodable, Equatable, Sendable {
   /// Identifies this runner to the API. Nothing else can stand in for it, so
   /// a file without one does not describe a runner we can ask about.
-  public let agentId: Int
+  let agentId: Int
   /// Empty when the file carries no name. Discovery falls back to the
   /// LaunchAgent label so that what reaches the menu is never blank.
-  public let agentName: String
-  public let gitHubUrl: String
-  public let workFolder: String
+  let agentName: String
+  let gitHubUrl: String
+  let workFolder: String
 
   enum CodingKeys: String, CodingKey {
     case agentId, agentName, gitHubUrl, workFolder
   }
 
-  public init(from decoder: any Decoder) throws {
+  init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     // Only the two fields that cannot be reconstructed from anywhere else are
     // required. Demanding the cosmetic ones would mean a future runner release
@@ -32,11 +32,11 @@ public struct RunnerConfig: Decodable, Equatable, Sendable {
 }
 
 extension RunnerConfig {
-  public init(data: Data) throws {
+  init(data: Data) throws {
     try self.init(decoding: data)
   }
 
-  public init(contentsOf url: URL) throws {
+  init(contentsOf url: URL) throws {
     try self.init(decoding: Data(contentsOf: url))
   }
 

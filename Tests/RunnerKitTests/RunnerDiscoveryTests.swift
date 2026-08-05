@@ -5,12 +5,24 @@ import Testing
 
 /// Builds a throwaway LaunchAgents directory plus runner directories.
 private struct Sandbox {
+  /// What to leave in the runner's own directory.
+  enum RunnerFile {
+    case complete
+    /// A file from a release that stopped writing the cosmetic fields.
+    case withoutAgentName
+    /// Nothing at all — what a half-finished uninstall leaves behind.
+    case missing
+  }
+
   let root: URL
   var launchAgents: URL { root.appendingPathComponent("LaunchAgents") }
 
   init() throws {
+    // The space is deliberate. Runners get installed under "Mobile Documents"
+    // and worse, and a path joined as a string instead of a URL survives every
+    // test until it meets one.
     root = URL(fileURLWithPath: NSTemporaryDirectory())
-      .appendingPathComponent("discovery-\(UUID().uuidString)")
+      .appendingPathComponent("runner discovery-\(UUID().uuidString)")
     try FileManager.default.createDirectory(
       at: launchAgents, withIntermediateDirectories: true)
   }
@@ -18,21 +30,21 @@ private struct Sandbox {
   @discardableResult
   func addRunner(
     label: String, agentId: Int, gitHubUrl: String,
-    createRunnerFile: Bool = true
+    runnerFile: RunnerFile = .complete, fileName: String? = nil
   ) throws -> URL {
     let dir = root.appendingPathComponent(label)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    if createRunnerFile {
-      let json = """
-        {"agentId": \(agentId), "agentName": "\(label)", \
-        "gitHubUrl": "\(gitHubUrl)", "workFolder": "_work"}
-        """
+    if runnerFile != .missing {
+      var fields: [String: Any] = [
+        "agentId": agentId, "gitHubUrl": gitHubUrl, "workFolder": "_work",
+      ]
+      if runnerFile == .complete { fields["agentName"] = label }
       var data = Data([0xEF, 0xBB, 0xBF])  // same BOM the real agent writes
-      data.append(Data(json.utf8))
+      data.append(try JSONSerialization.data(withJSONObject: fields))
       try data.write(to: dir.appendingPathComponent(".runner"))
     }
     try addLaunchAgentFile(
-      named: "\(label).plist", label: label, workingDirectory: dir)
+      named: fileName ?? "\(label).plist", label: label, workingDirectory: dir)
     return dir
   }
 
@@ -61,10 +73,11 @@ private struct Sandbox {
 
   let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
 
-  #expect(found.count == 1)
-  #expect(found[0].agentId == 21)
-  #expect(found[0].scope == .repository(owner: "acme", name: "widget"))
-  #expect(found[0].label == "actions.runner.acme-widget.build-mac")
+  #expect(found.runners.count == 1)
+  #expect(found.runners[0].agentId == 21)
+  #expect(found.runners[0].scope == .repository(owner: "acme", name: "widget"))
+  #expect(found.runners[0].label == "actions.runner.acme-widget.build-mac")
+  #expect(found.unreadable.isEmpty)
 }
 
 @Test func discoversSeveralRunnersOnOneMachine() throws {
@@ -78,10 +91,66 @@ private struct Sandbox {
     agentId: 2, gitHubUrl: "https://github.com/acme")
 
   let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents)
-    .discover().sorted { $0.agentId < $1.agentId }
+    .discover().runners.sorted { $0.agentId < $1.agentId }
 
   #expect(found.count == 2)
   #expect(found[1].scope == .organization("acme"))
+}
+
+@Test func returnsRunnersSortedByLabel() throws {
+  // The file names are ordered against the labels on purpose: sorting the
+  // directory listing would pass this by accident, and the menu orders by
+  // what it displays, which is the label.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.zulu", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget",
+    fileName: "actions.runner.acme-widget.alpha.plist")
+  try box.addRunner(
+    label: "actions.runner.acme-widget.alpha", agentId: 2,
+    gitHubUrl: "https://github.com/acme/widget",
+    fileName: "actions.runner.acme-widget.zulu.plist")
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(
+    found.runners.map(\.label) == [
+      "actions.runner.acme-widget.alpha", "actions.runner.acme-widget.zulu",
+    ])
+}
+
+@Test func reportsEachRunnerOnceEvenIfItsPlistWasDuplicated() throws {
+  // "name copy.plist" is what Finder produces, and it keeps both the prefix
+  // and the extension while describing the same runner. Identifiable exists
+  // for the menu's ForEach, where a repeated id is undefined behaviour that
+  // nothing traces back to here.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let dir = try box.addRunner(
+    label: "actions.runner.acme-widget.mac-a", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget")
+  try box.addLaunchAgentFile(
+    named: "actions.runner.acme-widget.mac-a copy.plist",
+    label: "actions.runner.acme-widget.mac-a", workingDirectory: dir)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.count == 1)
+  #expect(Set(found.runners.map(\.id)).count == found.runners.count)
+}
+
+@Test func fallsBackToTheLabelWhenTheRunnerFileHasNoName() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.mac-a", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.count == 1)
+  #expect(found.runners[0].agentName == "actions.runner.acme-widget.mac-a")
 }
 
 @Test func skipsLaunchAgentsThatAreNotRunners() throws {
@@ -93,7 +162,11 @@ private struct Sandbox {
   try Data("<plist/>".utf8).write(
     to: box.launchAgents.appendingPathComponent("com.spotify.client.plist"))
 
-  #expect(RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover().count == 1)
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.count == 1)
+  // Somebody else's broken agent is not this app's problem to report.
+  #expect(found.unreadable.isEmpty)
 }
 
 @Test func skipsForeignLaunchAgentsEvenWhenEverythingElseFits() throws {
@@ -112,8 +185,8 @@ private struct Sandbox {
 
   let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
 
-  #expect(found.count == 1)
-  #expect(found[0].label == "actions.runner.acme-widget.mac-a")
+  #expect(found.runners.count == 1)
+  #expect(found.runners[0].label == "actions.runner.acme-widget.mac-a")
 }
 
 @Test func skipsRunnerFilesThatLaunchdWouldNotLoad() throws {
@@ -131,8 +204,8 @@ private struct Sandbox {
 
   let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
 
-  #expect(found.count == 1)
-  #expect(found[0].label == "actions.runner.acme-widget.mac-a")
+  #expect(found.runners.count == 1)
+  #expect(found.runners[0].label == "actions.runner.acme-widget.mac-a")
 }
 
 @Test func skipsHalfUninstalledRunners() throws {
@@ -143,12 +216,40 @@ private struct Sandbox {
   try box.addRunner(
     label: "actions.runner.acme-widget.ghost",
     agentId: 9, gitHubUrl: "https://github.com/acme/widget",
-    createRunnerFile: false)
+    runnerFile: .missing)
 
-  #expect(RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover().isEmpty)
+  #expect(RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover().runners.isEmpty)
+}
+
+@Test func separatesAnEmptyMachineFromOneWhereNothingCouldBeRead() throws {
+  // Both end up with no runners, and the difference decides what the menu is
+  // allowed to say. Telling someone to install a runner when three are
+  // installed and unreadable is the one answer guaranteed to be wrong.
+  let bare = try Sandbox()
+  defer { bare.cleanUp() }
+
+  let broken = try Sandbox()
+  defer { broken.cleanUp() }
+  try broken.addRunner(
+    label: "actions.runner.acme-widget.ghost", agentId: 9,
+    gitHubUrl: "https://github.com/acme/widget", runnerFile: .missing)
+
+  let nothingInstalled = RunnerDiscovery(launchAgentsDirectory: bare.launchAgents).discover()
+  let nothingReadable = RunnerDiscovery(launchAgentsDirectory: broken.launchAgents).discover()
+
+  #expect(nothingInstalled.runners.isEmpty)
+  #expect(nothingInstalled.unreadable.isEmpty)
+
+  #expect(nothingReadable.runners.isEmpty)
+  #expect(
+    nothingReadable.unreadable.map(\.lastPathComponent)
+      == ["actions.runner.acme-widget.ghost.plist"])
 }
 
 @Test func returnsEmptyWhenThereIsNoLaunchAgentsDirectory() {
   let missing = URL(fileURLWithPath: "/nope/does/not/exist")
-  #expect(RunnerDiscovery(launchAgentsDirectory: missing).discover().isEmpty)
+  let found = RunnerDiscovery(launchAgentsDirectory: missing).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(found.unreadable.isEmpty)
 }
