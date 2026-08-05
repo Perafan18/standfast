@@ -3,124 +3,72 @@ import SwiftUI
 
 @main
 struct RunnerMenubarApp: App {
-  @StateObject private var model = RunnerModel()
+  @StateObject private var fleet = RunnerFleetModel()
 
   var body: some Scene {
     MenuBarExtra {
-      Text(model.statusLabel)
-      Divider()
-      Button("Arrancar") { model.start() }
-        .disabled(model.summary == .idle || model.summary == .busy)
-      Button("Parar") { model.stop() }
-        .disabled(model.summary == .stopped)
-      Button("Reiniciar") { model.restart() }
-      Divider()
-      Button("Abrir en GitHub") { model.openOnGitHub() }
-        .disabled(model.runners.isEmpty)
-      Button("Actualizar ahora") { model.refresh() }
-      Divider()
-      Button("Salir") { NSApplication.shared.terminate(nil) }
+      FleetMenu(fleet: fleet)
     } label: {
-      Image(systemName: model.symbolName)
+      Image(systemName: FleetSummary.symbolName(for: fleet.snapshots.map(\.display)))
     }
   }
 }
 
-/// PROVISIONAL — Unit 5 replaces this whole file with the multi-runner UI.
-///
-/// It exists in this shape for one reason: `swift test` builds every target in
-/// the package, so leaving this file broken after `RunnerService` was split
-/// into discovery, probe, controller and GitHub client would mean not a single
-/// test in the suite could run. The menu is the previous one verbatim, still in
-/// Spanish, rewired with the least code that makes it true. Nothing here is
-/// meant to survive.
-///
-/// The one behaviour change forced by discovery: there is no longer "the"
-/// runner. The buttons act on every runner found, which on a one-runner
-/// machine is exactly what they did before.
-@MainActor
-final class RunnerModel: ObservableObject {
-  @Published private(set) var runners: [DiscoveredRunner] = []
-  @Published private(set) var states: [RunnerState] = []
+private struct FleetMenu: View {
+  @ObservedObject var fleet: RunnerFleetModel
 
-  private let discovery = RunnerDiscovery()
-  private let resolver = RunnerStateResolver()
-  private let controller = ServiceController()
-  private var timer: Timer?
-
-  init() {
-    refresh()
-    // 15s: fast enough that "did my build start?" is answered by looking up,
-    // slow enough not to spend a GitHub API call every second all day.
-    timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-      Task { @MainActor in self?.refresh() }
+  var body: some View {
+    // One section per runner. One runner reads as a flat menu; several read as
+    // one group each, which is the only way the per-runner buttons make sense.
+    ForEach(fleet.snapshots) { snapshot in
+      RunnerSection(snapshot: snapshot, fleet: fleet)
+      Divider()
     }
-  }
-
-  /// Nil when this Mac has no runners at all, which is not an error state.
-  var summary: RunnerState? { AggregateState.summarising(states) }
-
-  /// The icon carries the state, because that is the whole point of living in
-  /// the menu bar: the answer should be readable without a click.
-  var symbolName: String {
-    switch summary {
-    case .idle?: "checkmark.circle"
-    case .busy?: "gearshape.2.fill"
-    case .disconnected?: "exclamationmark.triangle"
-    case .stopped?: "moon.zzz"
-    case .unknown?, nil: "questionmark.circle"
+    if let notice = fleet.notice {
+      NoticeSection(notice: notice)
+      Divider()
     }
+    Button(L10n.refreshNow) { fleet.refresh() }
+    Button(L10n.quit) { NSApplication.shared.terminate(nil) }
   }
+}
 
-  var statusLabel: String {
-    switch summary {
-    case .idle?: "Inactivo — listo para trabajos"
-    case .busy?: "Ejecutando un job"
-    // Named separately from "stopped" because the fix is different: the
-    // process is alive but GitHub will not send it work.
-    case .disconnected?: "Proceso vivo, pero GitHub no lo ve"
-    case .stopped?: "Detenido"
-    case .unknown(.cliUnavailable)?: "Desconocido — falta gh"
-    case .unknown(.notAuthenticated)?: "Desconocido — gh sin credenciales"
-    case .unknown(.noAnswer)?: "Desconocido — sin respuesta de GitHub"
-    case nil: "No hay runners instalados"
-    }
+private struct RunnerSection: View {
+  let snapshot: RunnerSnapshot
+  let fleet: RunnerFleetModel
+
+  var body: some View {
+    // `displayName`, not `agentName`: the `.runner` file does not always carry
+    // a name, and that runner would render as a blank row followed by four
+    // buttons belonging to nobody.
+    Text("\(snapshot.runner.displayName) — \(snapshot.display.summary)")
+    // Each button reads this runner's own state. Nothing here consults the
+    // fleet summary, which is for the icon and only the icon.
+    Button(L10n.start) { fleet.start(snapshot.runner) }
+      .disabled(!snapshot.display.canStart)
+    Button(L10n.stop) { fleet.stop(snapshot.runner) }
+      .disabled(!snapshot.display.canStop)
+    Button(L10n.restart) { fleet.restart(snapshot.runner) }
+      .disabled(!snapshot.display.canRestart)
+    Button(L10n.openOnGitHub) { fleet.openSettings(snapshot.runner) }
   }
+}
 
-  func refresh() {
-    Task.detached { [discovery, resolver] in
-      let found = discovery.discover()
-      // Sequential, and through the async facade: each call blocks a thread on
-      // launchctl and then on gh, and the facade keeps that off the pool this
-      // task is running on.
-      var states: [RunnerState] = []
-      for runner in found.runners { states.append(await resolver.state(for: runner)) }
-      await MainActor.run {
-        self.runners = found.runners
-        self.states = states
+private struct NoticeSection: View {
+  let notice: FleetNotice
+
+  var body: some View {
+    switch notice {
+    case .noRunnersInstalled:
+      Text(L10n.noRunnersFound)
+    case .unreadable(let paths):
+      Text(L10n.someRunnersUnreadable)
+      // The path, not the file name. Going and looking at the file is the
+      // entire point of printing these, and the file name alone does not say
+      // where it is.
+      ForEach(paths, id: \.self) { path in
+        Text((path.path as NSString).abbreviatingWithTildeInPath)
       }
     }
-  }
-
-  func start() { act { try $0.start(in: $1.directory) } }
-  func stop() { act { try $0.stop(in: $1.directory) } }
-  func restart() { act { try await $0.restart(in: $1.directory) } }
-
-  private func act(
-    _ work: @escaping @Sendable (ServiceController, DiscoveredRunner) async throws -> Void
-  ) {
-    Task.detached { [controller, runners] in
-      for runner in runners { try? await work(controller, runner) }
-      // `svc.sh start` exits 0 even when the launchctl underneath it printed a
-      // failure, so its exit code says nothing. Re-probing is the only honest
-      // feedback, and launchd needs a moment before it answers truthfully.
-      try? await Task.sleep(for: .seconds(2))
-      await MainActor.run { self.refresh() }
-    }
-  }
-
-  func openOnGitHub() {
-    guard let scope = runners.first?.scope else { return }
-    NSWorkspace.shared.open(scope.settingsURL)
   }
 }

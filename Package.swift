@@ -19,5 +19,15 @@ let package = Package(
       path: "Tests/RunnerKitTests",
       resources: [.copy("Fixtures")]
     ),
+    // Tests the executable target directly, which SwiftPM allows on macOS.
+    // The alternative — a library target holding the presentation logic — buys
+    // nothing here: the menu's copy, its per-runner button rules and the
+    // settling window are all plain values, and moving them out would only put
+    // a package boundary between them and the one app that uses them.
+    .testTarget(
+      name: "RunnerMenubarTests",
+      dependencies: ["RunnerMenubar", "RunnerKit"],
+      path: "Tests/RunnerMenubarTests"
+    ),
   ]
 )
