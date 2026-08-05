@@ -31,11 +31,22 @@ private struct Sandbox {
       data.append(Data(json.utf8))
       try data.write(to: dir.appendingPathComponent(".runner"))
     }
-    let plist: [String: Any] = ["Label": label, "WorkingDirectory": dir.path]
+    try addLaunchAgentFile(
+      named: "\(label).plist", label: label, workingDirectory: dir)
+    return dir
+  }
+
+  /// Writes a well-formed LaunchAgent under an arbitrary file name, so a test
+  /// can vary the name independently of the contents.
+  func addLaunchAgentFile(
+    named name: String, label: String, workingDirectory: URL
+  ) throws {
+    let plist: [String: Any] = [
+      "Label": label, "WorkingDirectory": workingDirectory.path,
+    ]
     let encoded = try PropertyListSerialization.data(
       fromPropertyList: plist, format: .xml, options: 0)
-    try encoded.write(to: launchAgents.appendingPathComponent("\(label).plist"))
-    return dir
+    try encoded.write(to: launchAgents.appendingPathComponent(name))
   }
 
   func cleanUp() { try? FileManager.default.removeItem(at: root) }
@@ -83,6 +94,45 @@ private struct Sandbox {
     to: box.launchAgents.appendingPathComponent("com.spotify.client.plist"))
 
   #expect(RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover().count == 1)
+}
+
+@Test func skipsForeignLaunchAgentsEvenWhenEverythingElseFits() throws {
+  // Nothing stops an unrelated agent from being well-formed and from running
+  // out of a directory that happens to hold a .runner — a second LaunchAgent
+  // parked in the runner's own directory is enough. Past that point the label
+  // prefix is the only thing telling the two apart.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let dir = try box.addRunner(
+    label: "actions.runner.acme-widget.mac-a",
+    agentId: 1, gitHubUrl: "https://github.com/acme/widget")
+  try box.addLaunchAgentFile(
+    named: "com.spotify.client.plist", label: "com.spotify.client",
+    workingDirectory: dir)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.count == 1)
+  #expect(found[0].label == "actions.runner.acme-widget.mac-a")
+}
+
+@Test func skipsRunnerFilesThatLaunchdWouldNotLoad() throws {
+  // A backup or editor leftover beside the real plist: right prefix, valid
+  // contents, wrong extension. launchd loads only `.plist`, so anything else
+  // describes a runner that is not actually installed.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let dir = try box.addRunner(
+    label: "actions.runner.acme-widget.mac-a",
+    agentId: 1, gitHubUrl: "https://github.com/acme/widget")
+  try box.addLaunchAgentFile(
+    named: "actions.runner.acme-widget.mac-b.txt",
+    label: "actions.runner.acme-widget.mac-b", workingDirectory: dir)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.count == 1)
+  #expect(found[0].label == "actions.runner.acme-widget.mac-a")
 }
 
 @Test func skipsHalfUninstalledRunners() throws {
