@@ -30,8 +30,8 @@ public enum RunnerState: Equatable {
 /// Showing only the local view would report "fine" for a runner that will
 /// never receive another job.
 public struct RunnerService: Sendable {
-  var runnerDirectory: URL
-  var repository: String  // "owner/repo"
+  let runnerDirectory: URL
+  let repository: String  // "owner/repo"
 
   public init(runnerDirectory: URL, repository: String) {
     self.runnerDirectory = runnerDirectory
