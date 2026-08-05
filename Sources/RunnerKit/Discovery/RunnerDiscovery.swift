@@ -5,14 +5,34 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   public let label: String
   public let directory: URL
   public let agentId: Int
-  /// Never empty: discovery falls back to the label when `.runner` carries no
-  /// name of its own.
+  /// What the runner calls itself, empty when `.runner` carries no usable
+  /// name. Left as found: a caller that wants to mark a nameless runner as
+  /// such needs to be able to tell.
   public let agentName: String
   public let scope: RunnerScope
 
   public var id: String { label }
   public var workDirectory: URL { directory.appendingPathComponent(workFolder) }
   let workFolder: String
+
+  /// A name that is never blank, for callers that just need to render one.
+  ///
+  /// The label is the only fallback available, minus the prefix every runner
+  /// agent carries — fifteen characters of noise in front of every row. What
+  /// remains still holds the scope slug, so this reads
+  /// `acme-widget.build-mac` rather than the machine name alone. Recovering
+  /// just the latter would mean splitting the slug back apart, and that
+  /// undocumented naming convention is exactly what discovery avoids relying
+  /// on everywhere else.
+  public var displayName: String {
+    if !agentName.isEmpty { return agentName }
+    guard label.hasPrefix(Self.labelPrefix) else { return label }
+    return String(label.dropFirst(Self.labelPrefix.count))
+  }
+
+  /// Every runner LaunchAgent is labelled `actions.runner.<scope>.<name>`,
+  /// which is also how discovery picks them out of the directory.
+  static let labelPrefix = "actions.runner."
 
   /// `workFolder` is internal, so the memberwise init is too, which would put
   /// this type out of reach of the app target — SwiftUI previews need to build
@@ -75,7 +95,7 @@ public struct RunnerDiscovery: Sendable {
 
     let candidates =
       entries
-      .filter { $0.lastPathComponent.hasPrefix("actions.runner.") }
+      .filter { $0.lastPathComponent.hasPrefix(DiscoveredRunner.labelPrefix) }
       .filter { $0.pathExtension == "plist" }
 
     var runners: [DiscoveredRunner] = []
@@ -122,9 +142,7 @@ public struct RunnerDiscovery: Sendable {
       label: agent.label,
       directory: agent.workingDirectory,
       agentId: config.agentId,
-      // The label is the only other name on hand, and a blank row in the menu
-      // would be worse than a verbose one.
-      agentName: config.agentName.isEmpty ? agent.label : config.agentName,
+      agentName: config.agentName,
       scope: scope,
       workFolder: config.workFolder)
   }

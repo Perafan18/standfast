@@ -140,7 +140,10 @@ private struct Sandbox {
   #expect(Set(found.runners.map(\.id)).count == found.runners.count)
 }
 
-@Test func fallsBackToTheLabelWhenTheRunnerFileHasNoName() throws {
+@Test func reportsAMissingNameAsMissingAndStillHasSomethingToShow() throws {
+  // agentName stays truthful so the menu can render a nameless runner
+  // differently; displayName is what it falls back to when it just needs a
+  // string.
   let box = try Sandbox()
   defer { box.cleanUp() }
   try box.addRunner(
@@ -150,7 +153,30 @@ private struct Sandbox {
   let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
 
   #expect(found.runners.count == 1)
-  #expect(found.runners[0].agentName == "actions.runner.acme-widget.mac-a")
+  #expect(found.runners[0].agentName == "")
+  #expect(found.runners[0].displayName == "acme-widget.mac-a")
+}
+
+@Test func prefersTheRunnersOwnNameForDisplay() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.mac-a", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget")
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners[0].displayName == found.runners[0].agentName)
+}
+
+@Test func showsTheWholeLabelWhenItIsNotShapedLikeARunners() {
+  // The prefix is stripped as noise, not parsed. A Label that does not carry
+  // it is shown whole rather than mangled.
+  let odd = DiscoveredRunner(
+    label: "com.example.oddly-labelled", directory: URL(fileURLWithPath: "/tmp"),
+    agentId: 1, agentName: "", scope: .organization("acme"))
+
+  #expect(odd.displayName == "com.example.oddly-labelled")
 }
 
 @Test func skipsLaunchAgentsThatAreNotRunners() throws {
@@ -208,22 +234,12 @@ private struct Sandbox {
   #expect(found.runners[0].label == "actions.runner.acme-widget.mac-a")
 }
 
-@Test func skipsHalfUninstalledRunners() throws {
-  // A plist left behind after someone deleted the runner directory. Reporting
-  // it would produce a permanently broken entry in the menu.
-  let box = try Sandbox()
-  defer { box.cleanUp() }
-  try box.addRunner(
-    label: "actions.runner.acme-widget.ghost",
-    agentId: 9, gitHubUrl: "https://github.com/acme/widget",
-    runnerFile: .missing)
-
-  #expect(RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover().runners.isEmpty)
-}
-
 @Test func separatesAnEmptyMachineFromOneWhereNothingCouldBeRead() throws {
-  // Both end up with no runners, and the difference decides what the menu is
-  // allowed to say. Telling someone to install a runner when three are
+  // The half-uninstalled runner below — a plist whose directory someone
+  // deleted — must not reach the menu as a permanently broken row.
+  //
+  // Both machines end up with no runners, and the difference decides what the
+  // menu is allowed to say. Telling someone to install a runner when one is
   // installed and unreadable is the one answer guaranteed to be wrong.
   let bare = try Sandbox()
   defer { bare.cleanUp() }

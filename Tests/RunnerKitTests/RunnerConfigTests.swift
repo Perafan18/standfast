@@ -34,6 +34,20 @@ import Testing
   #expect(config.workFolder == "_work")
 }
 
+@Test func survivesCosmeticFieldsThatChangedType() throws {
+  // Tolerating a missing field but not one that turned into a number is half
+  // a guarantee: either way the value is unusable, and either way losing the
+  // runner over it is the wrong trade.
+  let data = Data(
+    #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","agentName":123,"workFolder":[]}"#
+      .utf8)
+  let config = try RunnerConfig(data: data)
+
+  #expect(config.agentId == 7)
+  #expect(config.agentName == "")
+  #expect(config.workFolder == "_work")
+}
+
 @Test func refusesFilesItCannotTrust() {
   // Half a config is worse than none: it would name a runner the API cannot
   // be asked about.
@@ -45,5 +59,12 @@ import Testing
   }
   #expect(throws: (any Error).self) {
     try RunnerConfig(data: Data(#"{"agentId":7}"#.utf8))
+  }
+  // The leniency above stops at the two fields nothing can replace.
+  #expect(throws: (any Error).self) {
+    try RunnerConfig(data: Data(#"{"agentId":"7","gitHubUrl":"https://github.com/a/b"}"#.utf8))
+  }
+  #expect(throws: (any Error).self) {
+    try RunnerConfig(data: Data(#"{"agentId":7,"gitHubUrl":null}"#.utf8))
   }
 }

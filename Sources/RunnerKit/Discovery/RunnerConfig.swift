@@ -8,8 +8,8 @@ struct RunnerConfig: Decodable, Equatable, Sendable {
   /// Identifies this runner to the API. Nothing else can stand in for it, so
   /// a file without one does not describe a runner we can ask about.
   let agentId: Int
-  /// Empty when the file carries no name. Discovery falls back to the
-  /// LaunchAgent label so that what reaches the menu is never blank.
+  /// Empty when the file carries no usable name: absent, null, or not a
+  /// string at all. What to show instead is the caller's decision.
   let agentName: String
   let gitHubUrl: String
   let workFolder: String
@@ -25,9 +25,20 @@ struct RunnerConfig: Decodable, Equatable, Sendable {
     // renaming one of them empties the menu, with nothing on screen to say so.
     agentId = try container.decode(Int.self, forKey: .agentId)
     gitHubUrl = try container.decode(String.self, forKey: .gitHubUrl)
-    agentName = try container.decodeIfPresent(String.self, forKey: .agentName) ?? ""
-    workFolder =
-      try container.decodeIfPresent(String.self, forKey: .workFolder) ?? "_work"
+    agentName = container.cosmeticString(forKey: .agentName, default: "")
+    workFolder = container.cosmeticString(forKey: .workFolder, default: "_work")
+  }
+}
+
+extension KeyedDecodingContainer {
+  /// Reads a field the app can do without. Absent, null and changed-type all
+  /// come back as the default, because the runner is worth more than any of
+  /// these values and all three failures are equally unusable.
+  fileprivate func cosmeticString(forKey key: Key, default fallback: String) -> String {
+    guard let decoded = try? decodeIfPresent(String.self, forKey: key) else {
+      return fallback
+    }
+    return decoded ?? fallback
   }
 }
 
