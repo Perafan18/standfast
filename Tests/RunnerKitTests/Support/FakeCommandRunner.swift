@@ -18,6 +18,16 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
   private let responses: [[String]: String]
   private(set) var invocations: [Invocation] = []
   var failingExecutables: Set<String> = []
+  /// Executables that run and never finish. Distinct from `failingExecutables`
+  /// because the two mean opposite things to a caller looking for `gh`: one
+  /// says "nothing is installed here", the other says "it is installed and it
+  /// did not answer".
+  var timingOutExecutables: Set<String> = []
+  /// Exit codes for commands that ran and failed, keyed like `responses`.
+  /// Absent means 0. Needed because the interesting `gh` failures are all
+  /// exit-code-only: 127 when it is not on PATH, 4 when it is not
+  /// authenticated, both with an empty stdout.
+  var exitCodes: [[String]: Int32] = [:]
 
   /// Keyed by the argument list rather than by a joined string: `["gh", "a b"]`
   /// and `["gh", "a", "b"]` are different commands, and a `gh --jq` filter is
@@ -35,7 +45,11 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
       throw CommandError.couldNotLaunch(
         executable: executable, underlying: LaunchFailure())
     }
+    if timingOutExecutables.contains(executable) {
+      throw CommandError.timedOut(executable: executable)
+    }
+    let command = [executable] + arguments
     return CommandResult(
-      standardOutput: responses[[executable] + arguments] ?? "", exitCode: 0)
+      standardOutput: responses[command] ?? "", exitCode: exitCodes[command] ?? 0)
   }
 }
