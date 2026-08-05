@@ -1,0 +1,7 @@
+﻿{
+  "agentId": 21,
+  "agentName": "mac-mini-m4",
+  "poolId": 1,
+  "gitHubUrl": "https://github.com/acme/widget-factory",
+  "workFolder": "_work"
+}
