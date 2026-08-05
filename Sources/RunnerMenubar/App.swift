@@ -58,7 +58,7 @@ final class RunnerModel: ObservableObject {
   }
 
   /// Nil when this Mac has no runners at all, which is not an error state.
-  var summary: RunnerState? { states.first }
+  var summary: RunnerState? { AggregateState.summarising(states) }
 
   /// The icon carries the state, because that is the whole point of living in
   /// the menu bar: the answer should be readable without a click.
