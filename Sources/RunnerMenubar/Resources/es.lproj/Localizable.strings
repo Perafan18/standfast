@@ -1,0 +1,19 @@
+"menu.start" = "Arrancar";
+"menu.stop" = "Parar";
+"menu.restart" = "Reiniciar";
+"menu.openOnGitHub" = "Abrir en GitHub";
+"menu.refreshNow" = "Actualizar ahora";
+"menu.quit" = "Salir";
+
+"state.noRunners" = "No hay runners instalados en esta Mac";
+"state.unreadable" = "No se pudieron leer algunos archivos de runner:";
+
+"state.idle" = "Inactivo — listo para trabajos";
+"state.busy" = "Ejecutando un job";
+"state.disconnected" = "Corriendo en local, pero GitHub no lo ve";
+"state.stopped" = "Detenido";
+"state.starting" = "Arrancando — esperando a que GitHub lo vea";
+
+"state.unknown.noCLI" = "Desconocido — instala la CLI de GitHub (gh)";
+"state.unknown.notAuthenticated" = "Desconocido — ejecuta gh auth login en una terminal";
+"state.unknown.noAnswer" = "Desconocido — gh no obtuvo respuesta; revisa tu red";

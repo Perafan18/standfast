@@ -10,7 +10,8 @@ let package = Package(
     .executableTarget(
       name: "RunnerMenubar",
       dependencies: ["RunnerKit"],
-      path: "Sources/RunnerMenubar"
+      path: "Sources/RunnerMenubar",
+      resources: [.process("Resources")]
     ),
     .testTarget(
       name: "RunnerKitTests",
