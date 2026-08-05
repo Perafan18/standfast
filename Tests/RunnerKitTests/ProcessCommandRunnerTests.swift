@@ -46,29 +46,51 @@ private let runner = ProcessCommandRunner()
 }
 
 /// Carries a result off the thread the command was run on.
-private final class Box: @unchecked Sendable { var count: Int? }
+private final class Box: @unchecked Sendable { var output: String? }
 
-@Test func readsOutputBiggerThanThePipeBuffer() throws {
-  // A pipe holds ~64 KB. Waiting for the child before draining it deadlocks
-  // both processes, and only chatty commands ever reach that size.
-  let file = URL(fileURLWithPath: NSTemporaryDirectory())
-    .appendingPathComponent("chatty-\(UUID().uuidString).txt")
-  try Data(String(repeating: "a", count: 200_000).utf8).write(to: file)
-  defer { try? FileManager.default.removeItem(at: file) }
-
-  // Run off this thread against a deadline. Swift Testing's time limits only
-  // bite at suspension points, so a deadlocked `run()` would otherwise hang
-  // the whole suite instead of failing this one test.
+/// Runs the command on another thread and gives up after 30 seconds.
+///
+/// Swift Testing's time limits only bite at suspension points, so a `run()`
+/// deadlocked against a full pipe would hang the entire suite rather than fail
+/// the one test that provoked it. Returns nil when the deadline passes.
+private func runAgainstADeadline(_ executable: String, _ arguments: [String]) -> String? {
   let box = Box()
   let finished = DispatchSemaphore(value: 0)
   DispatchQueue.global().async {
-    box.count = try? runner.run("/bin/cat", [file.path]).count
+    box.output = try? runner.run(executable, arguments)
     finished.signal()
   }
-
   guard finished.wait(timeout: .now() + 30) == .success else {
-    Issue.record("run() never came back: the child filled the pipe and both sides are waiting")
-    return
+    Issue.record("\(executable) never came back: it is blocked writing into a pipe nobody drains")
+    return nil
   }
-  #expect(box.count == 200_000)
+  return box.output
+}
+
+/// Big enough that printing it overflows the ~64 KB a pipe holds.
+private func makeChatterFile() throws -> URL {
+  let file = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("chatty-\(UUID().uuidString).txt")
+  try Data(String(repeating: "a", count: 200_000).utf8).write(to: file)
+  return file
+}
+
+@Test func readsOutputBiggerThanThePipeBuffer() throws {
+  // Waiting for the child before draining stdout deadlocks both processes,
+  // and only chatty commands ever reach that size.
+  let file = try makeChatterFile()
+  defer { try? FileManager.default.removeItem(at: file) }
+
+  #expect(runAgainstADeadline("/bin/cat", [file.path])?.count == 200_000)
+}
+
+@Test func survivesAProcessThatIsChattyOnStderr() throws {
+  // Why stderr goes to the null device instead of a pipe: nothing ever reads
+  // that pipe, so the child stops the moment it fills — and `gh` reports its
+  // failures at length.
+  let file = try makeChatterFile()
+  defer { try? FileManager.default.removeItem(at: file) }
+
+  #expect(runAgainstADeadline("/bin/sh", ["-c", "cat \(file.path) >&2; echo done"])
+          == "done\n")
 }
