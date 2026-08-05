@@ -12,7 +12,7 @@ private let listing = """
   """
 
 private func probe(_ output: String = listing) -> LaunchctlProbe {
-  LaunchctlProbe(commandRunner: FakeCommandRunner(["/bin/launchctl list": output]))
+  LaunchctlProbe(commandRunner: FakeCommandRunner([["/bin/launchctl", "list"]: output]))
 }
 
 @Test func reportsRunningWhenTheLabelHasAPID() {
@@ -40,7 +40,7 @@ func reportsNotRunningWhenTheListingDoesNotMentionTheLabel(listed: String) {
 }
 
 @Test func asksLaunchctlForTheWholeList() {
-  let fake = FakeCommandRunner(["/bin/launchctl list": listing])
+  let fake = FakeCommandRunner([["/bin/launchctl", "list"]: listing])
   _ = LaunchctlProbe(commandRunner: fake).isRunning(label: "whatever")
   #expect(fake.invocations == [
     .init(executable: "/bin/launchctl", arguments: ["list"], workingDirectory: nil)

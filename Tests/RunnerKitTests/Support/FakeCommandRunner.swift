@@ -12,24 +12,30 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
     let workingDirectory: URL?
   }
 
-  private let responses: [String: String]
+  /// Stands in for whatever Foundation reports when a launch fails.
+  struct LaunchFailure: Error {}
+
+  private let responses: [[String]: String]
   private(set) var invocations: [Invocation] = []
   var failingExecutables: Set<String> = []
 
-  /// Keyed by `"executable arg arg"`: the working directory changes what a
-  /// command does to the machine, never what it prints back here.
-  init(_ responses: [String: String] = [:]) { self.responses = responses }
+  /// Keyed by the argument list rather than by a joined string: `["gh", "a b"]`
+  /// and `["gh", "a", "b"]` are different commands, and a `gh --jq` filter is
+  /// one argument with spaces in it.
+  init(_ responses: [[String]: String] = [:]) { self.responses = responses }
 
   func run(_ executable: String, _ arguments: [String], workingDirectory: URL?) throws
-    -> String
+    -> CommandResult
   {
     invocations.append(
       Invocation(
         executable: executable, arguments: arguments,
         workingDirectory: workingDirectory))
     if failingExecutables.contains(executable) {
-      throw CommandError.couldNotLaunch(executable)
+      throw CommandError.couldNotLaunch(
+        executable: executable, underlying: LaunchFailure())
     }
-    return responses[([executable] + arguments).joined(separator: " ")] ?? ""
+    return CommandResult(
+      standardOutput: responses[[executable] + arguments] ?? "", exitCode: 0)
   }
 }

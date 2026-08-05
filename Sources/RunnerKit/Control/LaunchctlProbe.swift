@@ -16,10 +16,10 @@ public struct LaunchctlProbe: Sendable {
   /// that is loaded but idle are the same picture from here, and `/bin/launchctl`
   /// missing would mean this is not a Mac.
   public func isRunning(label: String) -> Bool {
-    guard let output = try? commandRunner.run("/bin/launchctl", ["list"])
+    guard let listing = try? commandRunner.run("/bin/launchctl", ["list"])
     else { return false }
 
-    for line in output.split(separator: "\n") {
+    for line in listing.standardOutput.split(separator: "\n") {
       let columns = line.split(separator: "\t", omittingEmptySubsequences: false)
       guard columns.count == 3, columns[2] == label else { continue }
       // A pid or nothing: launchd writes "-" for a service it is not running,
