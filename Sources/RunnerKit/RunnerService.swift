@@ -1,125 +1,91 @@
 import Foundation
 
-/// What the menu bar shows, in the order the icon cares about.
-public enum RunnerState: Equatable {
+/// Why the state could not be determined. Kept as data rather than a string so
+/// the UI can suggest the right fix instead of shrugging: each case has a
+/// different next step, and "unknown" on its own has none.
+public enum UnknownReason: Equatable, Sendable {
+  /// No `gh` on PATH and none at the usual install prefixes.
+  case cliUnavailable
+  /// `gh` is installed but holds no credentials.
+  case notAuthenticated
+  /// `gh` ran, was authenticated, and still said nothing usable: no network, a
+  /// token without the scope for this endpoint, a runner GitHub has forgotten.
+  case noAnswer
+}
+
+extension UnknownReason {
+  init(_ error: GitHubError) {
+    switch error {
+    case .cliUnavailable: self = .cliUnavailable
+    case .notAuthenticated: self = .notAuthenticated
+    case .noAnswer: self = .noAnswer
+    }
+  }
+}
+
+public enum RunnerState: Equatable, Sendable {
   /// Registered, connected, waiting for work.
   case idle
   /// Executing a job right now.
   case busy
-  /// The service is running locally but GitHub does not see it, or vice
-  /// versa. Worth its own state: "the process is up" and "GitHub will send
-  /// it work" are different claims, and only the second one matters.
+  /// Running locally but GitHub does not see it. Worth its own case: "the
+  /// process is up" and "GitHub will send it work" are different claims, and
+  /// only the second one matters.
   case disconnected
   /// The LaunchAgent is not running.
   case stopped
-  /// Could not determine — no token, no network, `svc.sh` missing.
-  case unknown(String)
+  case unknown(UnknownReason)
 }
 
-/// Reads and controls a self-hosted GitHub Actions runner installed as a
-/// per-user LaunchAgent.
+/// Combines the two things worth knowing about a runner into one answer.
 ///
-/// Two sources of truth, deliberately kept apart:
+/// They are deliberately separate sources. `launchctl` says whether the local
+/// process is alive; the GitHub API says whether GitHub considers the runner
+/// online and whether it is working. They disagree more often than you would
+/// expect — a runner whose token has expired keeps its process happily running
+/// while GitHub has written it off — and showing only the local view would
+/// report "fine" for a runner that will never receive another job.
 ///
-/// - `svc.sh status` says whether the local process is alive.
-/// - The GitHub API says whether GitHub considers the runner online and
-///   whether it is currently busy.
-///
-/// They disagree more often than you would expect — a runner whose token has
-/// expired keeps its process happily running while GitHub has written it off.
-/// Showing only the local view would report "fine" for a runner that will
-/// never receive another job.
-public struct RunnerService: Sendable {
-  let runnerDirectory: URL
-  let repository: String  // "owner/repo"
+/// Stateless and per-runner: one resolver serves every runner on the machine.
+public struct RunnerStateResolver: Sendable {
+  private let isServiceRunning: @Sendable (DiscoveredRunner) -> Bool
+  private let github: any GitHubClient
 
-  public init(runnerDirectory: URL, repository: String) {
-    self.runnerDirectory = runnerDirectory
-    self.repository = repository
+  public init(
+    isServiceRunning: @escaping @Sendable (DiscoveredRunner) -> Bool,
+    github: any GitHubClient
+  ) {
+    self.isServiceRunning = isServiceRunning
+    self.github = github
   }
 
-  /// Runs a command and returns stdout, or nil if it could not be launched.
-  private func shell(_ launchPath: String, _ args: [String], cwd: URL? = nil)
-    -> String?
-  {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: launchPath)
-    process.arguments = args
-    if let cwd { process.currentDirectoryURL = cwd }
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = Pipe()
+  public init(
+    probe: LaunchctlProbe = LaunchctlProbe(),
+    github: any GitHubClient = GHCommandLineClient()
+  ) {
+    self.init(isServiceRunning: { probe.isRunning(label: $0.label) }, github: github)
+  }
+
+  /// Does network I/O on the calling thread. Call it off the main actor.
+  public func state(for runner: DiscoveredRunner) -> RunnerState {
+    // Asked first, and allowed to settle it alone. A stopped service is the
+    // one thing known for certain: GitHub keeps calling a just-stopped runner
+    // online for a few seconds, so trusting it here would show "idle" right
+    // after the user clicked Stop. And since no answer could change this
+    // verdict, asking would spend an API call per stopped runner per refresh —
+    // all day, on a result thrown away.
+    guard isServiceRunning(runner) else { return .stopped }
+
     do {
-      try process.run()
+      let remote = try github.runnerStatus(id: runner.agentId, scope: runner.scope)
+      if !remote.online { return .disconnected }
+      return remote.busy ? .busy : .idle
+    } catch let failure as GitHubError {
+      return .unknown(UnknownReason(failure))
     } catch {
-      return nil
+      // Another client behind the same protocol may throw something else; it
+      // still has not answered.
+      return .unknown(.noAnswer)
     }
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    return String(data: data, encoding: .utf8)
-  }
-
-  /// True when the LaunchAgent process is alive.
-  func localServiceRunning() -> Bool {
-    let script = runnerDirectory.appendingPathComponent("svc.sh").path
-    guard FileManager.default.fileExists(atPath: script) else { return false }
-    let out = shell("/bin/bash", [script, "status"], cwd: runnerDirectory) ?? ""
-    // `svc.sh status` prints "Started:" followed by the pid when it is up, and
-    // "Stopped" when it is not. Matching on "Started" rather than the exit
-    // code, which is 0 either way.
-    return out.contains("Started:")
-  }
-
-  /// What GitHub thinks, via `gh`. Nil when it cannot be asked.
-  func remoteStatus() -> (online: Bool, busy: Bool)? {
-    let out = shell(
-      "/usr/bin/env",
-      [
-        "gh", "api", "repos/\(repository)/actions/runners",
-        "--jq", ".runners[0] | \"\\(.status) \\(.busy)\"",
-      ]
-    )
-    guard let line = out?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !line.isEmpty, !line.contains("null")
-    else { return nil }
-    let parts = line.split(separator: " ")
-    guard parts.count == 2 else { return nil }
-    return (online: parts[0] == "online", busy: parts[1] == "true")
-  }
-
-  public func currentState() -> RunnerState {
-    let local = localServiceRunning()
-    guard let remote = remoteStatus() else {
-      // No answer from GitHub. Report what is actually known rather than
-      // guessing: a stopped service is certain, everything else is not.
-      return local ? .unknown("sin respuesta de GitHub") : .stopped
-    }
-    if !local { return .stopped }
-    if !remote.online { return .disconnected }
-    return remote.busy ? .busy : .idle
-  }
-
-  @discardableResult
-  public func start() -> Bool { runSvc("start") }
-
-  @discardableResult
-  public func stop() -> Bool { runSvc("stop") }
-
-  /// Stop then start. Sequential on purpose: `svc.sh` has no restart, and
-  /// firing both at once leaves launchd racing itself.
-  @discardableResult
-  public func restart() -> Bool {
-    guard runSvc("stop") else { return false }
-    Thread.sleep(forTimeInterval: 1.5)
-    return runSvc("start")
-  }
-
-  private func runSvc(_ command: String) -> Bool {
-    let script = runnerDirectory.appendingPathComponent("svc.sh").path
-    guard FileManager.default.fileExists(atPath: script) else { return false }
-    // No sudo. On macOS the runner is a per-user LaunchAgent — sudo is the
-    // Linux instruction and would only prompt for a password this app has no
-    // way to answer.
-    return shell("/bin/bash", [script, command], cwd: runnerDirectory) != nil
   }
 }
