@@ -386,8 +386,10 @@ private struct AlwaysBusyGitHub: GitHubClient {
   try Data(repeating: UInt8(ascii: "x"), count: 8192)
     .write(to: grave.appendingPathComponent("payload"))
   let clock = TestClock()
-  let subject = model(
-    sandbox, confirmation: FakeConfirmation(), clock: clock.read)
+  let subject = HousekeepingModel(
+    usage: DiskUsage(),
+    housekeeper: Housekeeper(files: RemovingThenReportingMissingOperations()),
+    confirmation: FakeConfirmation(), probe: sandbox.probe, clock: clock.read)
   subject.measure(sandbox.runner)
   await subject.quiesce()
   let before = try #require(subject.measurement(for: sandbox.runner))
@@ -707,6 +709,80 @@ private struct SlowerForTheSecondRunner: Sendable {
   #expect(section.offer(.cleanStandfastTrash) == nil)
 }
 
+@MainActor
+@Test func aFailureInsideTheFirstTypedGraveRemeasuresConservatively() async throws {
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let grave = sandbox.root.appendingPathComponent(
+    "_work/\(Housekeeper.trashFolder)/standfast-v1.toolCache.FFFFFFFF-0000-0000-0000-000000000001"
+  )
+  try FileManager.default.createDirectory(at: grave, withIntermediateDirectories: true)
+  for name in ["first", "second"] {
+    try Data(repeating: UInt8(ascii: "x"), count: 64 * 1024)
+      .write(to: grave.appendingPathComponent(name))
+  }
+  let clock = TestClock()
+  let subject = HousekeepingModel(
+    usage: DiskUsage(),
+    housekeeper: Housekeeper(files: RemovingOneChildThenRefusingOperations()),
+    confirmation: FakeConfirmation(), probe: sandbox.probe, clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  let beforeBytes = try #require(before.report?.bytes(of: .toolCache))
+
+  clock.advance(60)
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  let afterBytes = try #require(after.report?.bytes(of: .toolCache))
+  #expect(after.readAt > before.readAt)
+  #expect(afterBytes > 0)
+  #expect(afterBytes < beforeBytes)
+  let trash = sandbox.root.appendingPathComponent("_work/\(Housekeeper.trashFolder)")
+  #expect(
+    subject.notice(for: sandbox.runner)
+      == L10n.cleanupPartiallyFailed(PathText.abbreviated(trash)))
+}
+
+@MainActor
+@Test func aFailureInsideTheFirstLegacyGraveRemeasuresConservatively() async throws {
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let grave = sandbox.root.appendingPathComponent(
+    "_work/\(Housekeeper.trashFolder)/FFFFFFFF-0000-0000-0000-000000000002")
+  try FileManager.default.createDirectory(at: grave, withIntermediateDirectories: true)
+  for name in ["first", "second"] {
+    try Data(repeating: UInt8(ascii: "x"), count: 64 * 1024)
+      .write(to: grave.appendingPathComponent(name))
+  }
+  let clock = TestClock()
+  let subject = HousekeepingModel(
+    usage: DiskUsage(),
+    housekeeper: Housekeeper(files: RemovingOneChildThenRefusingOperations()),
+    confirmation: FakeConfirmation(), probe: sandbox.probe, clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  let beforeBytes = try #require(before.report?.legacyTrashBytes)
+
+  clock.advance(60)
+  subject.perform(
+    .cleanStandfastTrash, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  let afterBytes = try #require(after.report?.legacyTrashBytes)
+  #expect(after.readAt > before.readAt)
+  #expect(afterBytes > 0)
+  #expect(afterBytes < beforeBytes)
+  let trash = sandbox.root.appendingPathComponent("_work/\(Housekeeper.trashFolder)")
+  #expect(
+    subject.notice(for: sandbox.runner)
+      == L10n.cleanupPartiallyFailed(PathText.abbreviated(trash)))
+}
+
 /// A filesystem that says no to everything, which is what a directory this app
 /// cannot write to looks like from here.
 private struct RefusingFileOperations: DestructiveFileOperations {
@@ -738,6 +814,50 @@ private final class FailingFirstGraveDeleteOperations:
     lock.unlock()
     if shouldFail { throw Refusal() }
     try FileManager.default.removeItem(at: url)
+  }
+}
+
+private final class RemovingOneChildThenRefusingOperations:
+  DestructiveFileOperations, @unchecked Sendable
+{
+  struct Refusal: Error {}
+  private let lock = NSLock()
+  private var hasRefused = false
+
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws {
+    try FileManager.default.moveItem(at: url, to: destination)
+  }
+  func remove(_ url: URL) throws {
+    lock.lock()
+    let shouldRefuse = !hasRefused
+    hasRefused = true
+    lock.unlock()
+    guard shouldRefuse else {
+      try FileManager.default.removeItem(at: url)
+      return
+    }
+    let child = try #require(
+      FileManager.default.contentsOfDirectory(
+        at: url, includingPropertiesForKeys: nil
+      ).sorted { $0.lastPathComponent < $1.lastPathComponent }.first)
+    try FileManager.default.removeItem(at: child)
+    throw Refusal()
+  }
+}
+
+private struct RemovingThenReportingMissingOperations: DestructiveFileOperations {
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws {
+    try FileManager.default.moveItem(at: url, to: destination)
+  }
+  func remove(_ url: URL) throws {
+    try FileManager.default.removeItem(at: url)
+    throw CocoaError(.fileNoSuchFile)
   }
 }
 

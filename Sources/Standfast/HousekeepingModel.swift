@@ -310,8 +310,8 @@ final class HousekeepingModel: ObservableObject {
           return (try work(), failurePath, false)
         } catch let failure as HousekeepingFailure {
           // The operation knows which directory the failed write was about and
-          // whether an earlier write changed it; neither can be recovered from
-          // the generic path at this boundary.
+          // whether an earlier write may have changed it; neither can be
+          // recovered from the generic path at this boundary.
           return (nil, failure.directory, failure.didModify)
         } catch {
           return (nil, failurePath, false)

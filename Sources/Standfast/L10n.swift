@@ -353,7 +353,7 @@ enum L10n {
     "cleanup.refused": "Cleanup stopped: %@ picked up work",
     "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
     "cleanup.partiallyFailed":
-      "Some files were deleted, but cleanup did not finish; check that %@ is writable",
+      "Some files may have been deleted, but cleanup did not finish; check that %@ is writable",
     "state.noRunners": "No runners installed on this Mac",
     "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",

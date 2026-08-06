@@ -240,6 +240,66 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
 }
 
+@Test func aFailureInsideTheFirstTypedGraveMayAlreadyHaveModifiedIt() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let grave = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000024"
+  )
+  try Data(repeating: UInt8(ascii: "a"), count: 4096)
+    .write(to: grave.appendingPathComponent("first"))
+  try Data(repeating: UInt8(ascii: "b"), count: 4096)
+    .write(to: grave.appendingPathComponent("second"))
+
+  do {
+    _ = try Housekeeper(files: RemovingOneChildThenRefusingOperations()).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+    Issue.record("Expected the recursive grave removal to stop halfway")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.didModify)
+  }
+
+  #expect(sandbox.names(in: grave).count == 1)
+}
+
+@Test func aFailureInsideTheFirstLegacyGraveMayAlreadyHaveModifiedIt() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let grave = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/AAAAAAAA-0000-0000-0000-000000000025")
+  try Data(repeating: UInt8(ascii: "a"), count: 4096)
+    .write(to: grave.appendingPathComponent("first"))
+  try Data(repeating: UInt8(ascii: "b"), count: 4096)
+    .write(to: grave.appendingPathComponent("second"))
+
+  do {
+    _ = try Housekeeper(files: RemovingOneChildThenRefusingOperations())
+      .blockingCleanLegacyTrash(in: sandbox.runner)
+    Issue.record("Expected the recursive grave removal to stop halfway")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.didModify)
+  }
+
+  #expect(sandbox.names(in: grave).count == 1)
+}
+
+@Test func aGraveThatVanishesDuringRemovalStillInvalidatesTheMeasurement() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 4)
+  let grave = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000026",
+    kilobytes: 4)
+
+  let outcome = try Housekeeper(files: RemovingThenReportingMissingOperations())
+    .blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { false })
+
+  #expect(outcome == .refusedAfterChange)
+  #expect(!sandbox.exists(grave))
+  #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
+}
+
 /// Renames for real and refuses to delete, which is what a directory holding a
 /// file this app cannot unlink looks like from here.
 private struct MovingButNotDeletingOperations: DestructiveFileOperations {
@@ -266,6 +326,50 @@ private struct RemovingButNotMovingOperations: DestructiveFileOperations {
   }
   func move(_ url: URL, to destination: URL) throws { throw Refusal() }
   func remove(_ url: URL) throws { try FileManager.default.removeItem(at: url) }
+}
+
+private final class RemovingOneChildThenRefusingOperations:
+  DestructiveFileOperations, @unchecked Sendable
+{
+  struct Refusal: Error {}
+  private let lock = NSLock()
+  private var hasRefused = false
+
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws {
+    try FileManager.default.moveItem(at: url, to: destination)
+  }
+  func remove(_ url: URL) throws {
+    lock.lock()
+    let shouldRefuse = !hasRefused
+    hasRefused = true
+    lock.unlock()
+    guard shouldRefuse else {
+      try FileManager.default.removeItem(at: url)
+      return
+    }
+    let child = try #require(
+      FileManager.default.contentsOfDirectory(
+        at: url, includingPropertiesForKeys: nil
+      ).sorted { $0.lastPathComponent < $1.lastPathComponent }.first)
+    try FileManager.default.removeItem(at: child)
+    throw Refusal()
+  }
+}
+
+private struct RemovingThenReportingMissingOperations: DestructiveFileOperations {
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws {
+    try FileManager.default.moveItem(at: url, to: destination)
+  }
+  func remove(_ url: URL) throws {
+    try FileManager.default.removeItem(at: url)
+    throw CocoaError(.fileNoSuchFile)
+  }
 }
 
 @Test func aTrashLeftBehindIsNotMistakenForARepositoryCheckout() throws {

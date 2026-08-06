@@ -59,8 +59,9 @@ public enum HousekeepingOutcome: Equatable, Sendable {
 /// naming it would point them at a path that no longer exists.
 public struct HousekeepingFailure: Error, Equatable, Sendable {
   public let directory: URL
-  /// Whether the operation changed the directory before it failed. Callers use
-  /// this to invalidate measurements and avoid claiming that nothing happened.
+  /// Whether the operation changed the directory, or began a recursive removal
+  /// that may have changed it before failing. Callers invalidate measurements;
+  /// the user-facing copy deliberately describes the uncertain case as such.
   public let didModify: Bool
 
   public init(directory: URL, didModify: Bool = false) {
@@ -315,8 +316,16 @@ public struct Housekeeper: Sendable {
       do {
         try files.remove(entry)
         didModify = true
+      } catch let error where FileSystemFailure.isMissing(error) {
+        // Another actor reached the same desired state between our listing and
+        // unlink. It is not a cleanup failure, but it proves the measurement
+        // that led here is stale and must be refreshed.
+        didModify = true
       } catch {
-        throw HousekeepingFailure(directory: trash, didModify: didModify)
+        // Recursive directory removal is not atomic. Even the first call may
+        // have unlinked children before reporting the file it could not remove,
+        // so conservatively invalidate the measurement from this point on.
+        throw HousekeepingFailure(directory: trash, didModify: true)
       }
     }
     return didModify
