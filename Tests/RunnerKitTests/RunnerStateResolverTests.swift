@@ -21,14 +21,14 @@ private struct StubGitHub: GitHubClient {
     func note(_ id: Int, _ scope: RunnerScope) { questions.append((id, scope)) }
   }
 
-  func runnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
+  func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
     asked.note(id, scope)
     return try result.get()
   }
 }
 
 private func resolve(
-  localRunning: Bool, remote: Result<RemoteStatus, GitHubError>
+  localRunning: Bool?, remote: Result<RemoteStatus, GitHubError>
 ) -> RunnerState {
   RunnerStateResolver(
     isServiceRunning: { _ in localRunning },
@@ -89,6 +89,57 @@ private let online = RemoteStatus(online: true, busy: false)
 
 @Test func aStoppedServiceIsReportedEvenWithoutGh() {
   #expect(resolve(localRunning: false, remote: .failure(.cliUnavailable)) == .stopped)
+}
+
+// MARK: - A probe that could not tell is not a probe that said no
+
+@Test func aLocalProbeThatCouldNotAnswerIsNotReportedAsStopped() {
+  // The measured shape of this bug: `launchctl list` hits its timeout, comes
+  // back as "not running", and a perfectly live runner is drawn `.stopped` —
+  // with Stop and Restart greyed out, which is the button failure this branch
+  // already caught once by another door.
+  let state = resolve(localRunning: nil, remote: .success(online))
+
+  #expect(state == .unknown(.serviceStateUnreadable))
+  #expect(state != .stopped)
+}
+
+@Test func aLocalProbeThatCouldNotAnswerIsNotReportedAsDisconnectedEither() {
+  // The other way to get it wrong. `.disconnected` claims the process is up
+  // and GitHub cannot see it, and the first half of that is exactly what was
+  // not established.
+  #expect(
+    resolve(localRunning: nil, remote: .success(RemoteStatus(online: false, busy: false)))
+      != .disconnected)
+}
+
+@Test func doesNotAskGitHubWhenTheLocalProbeCouldNotAnswer() {
+  // Nothing GitHub says can repair the local unknown: separating "stopped"
+  // from "disconnected" is the only reason the local probe is asked first, and
+  // GitHub is the source that cannot do it. Spending an API call to stay
+  // exactly as unsure would be spending it for nothing.
+  let recorder = StubGitHub.Recorder()
+  let state = RunnerStateResolver(
+    isServiceRunning: { _ in nil },
+    github: StubGitHub(result: .success(online), asked: recorder)
+  ).blockingState(for: runner)
+
+  #expect(state == .unknown(.serviceStateUnreadable))
+  #expect(recorder.questions.isEmpty)
+}
+
+@Test func theDefaultProbeTurnsALaunchctlItCannotRunIntoThatSameUnknown() {
+  // Covers the convenience initialiser, which is the one the app uses: the
+  // closure-based tests above would all still pass if it flattened the probe's
+  // nil back into false on the way through.
+  let fake = FakeCommandRunner()
+  fake.timingOutExecutables = ["/bin/launchctl"]
+  let state = RunnerStateResolver(
+    probe: LaunchctlProbe(commandRunner: fake),
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
+  ).blockingState(for: runner)
+
+  #expect(state == .unknown(.serviceStateUnreadable))
 }
 
 // MARK: - Unknown keeps the cause
@@ -158,7 +209,7 @@ private let online = RemoteStatus(online: true, busy: false)
 
 private struct BrokenGitHub: GitHubClient {
   struct Unexpected: Error {}
-  func runnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
+  func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
     throw Unexpected()
   }
 }
@@ -217,11 +268,12 @@ private func currentQueueLabel() -> String {
 
 @Test func theAsyncFacadeAndTheBlockingCallAgreeOnEveryOutcome() async {
   // The hop must not quietly change any answer.
-  let cases: [(Bool, Result<RemoteStatus, GitHubError>)] = [
+  let cases: [(Bool?, Result<RemoteStatus, GitHubError>)] = [
     (true, .success(online)),
     (true, .success(RemoteStatus(online: true, busy: true))),
     (true, .success(RemoteStatus(online: false, busy: false))),
     (false, .success(online)),
+    (nil, .success(online)),
     (true, .failure(.cliUnavailable)),
     (true, .failure(.notAuthenticated)),
     (true, .failure(.noAnswer)),

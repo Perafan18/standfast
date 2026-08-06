@@ -28,6 +28,7 @@ enum L10n {
   static let stateUnknownNoCLI = t("state.unknown.noCLI")
   static let stateUnknownNotAuthenticated = t("state.unknown.notAuthenticated")
   static let stateUnknownNoAnswer = t("state.unknown.noAnswer")
+  static let stateUnknownNoLocalAnswer = t("state.unknown.noLocalAnswer")
 
   /// A runner's name and its state on one line. Localised because the dash and
   /// the spacing around it are not punctuation every language writes the same.
@@ -61,6 +62,7 @@ enum L10n {
     "state.unknown.noCLI": "Unknown — install the GitHub CLI (gh)",
     "state.unknown.notAuthenticated": "Unknown — run gh auth login in a terminal",
     "state.unknown.noAnswer": "Unknown — gh got no answer; check your network",
+    "state.unknown.noLocalAnswer": "Unknown — launchctl did not answer; try Refresh now",
   ]
 
   /// Looks the key up in the catalogues, and falls back to the English above.

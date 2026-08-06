@@ -19,3 +19,4 @@
 "state.unknown.noCLI" = "Unknown — install the GitHub CLI (gh)";
 "state.unknown.notAuthenticated" = "Unknown — run gh auth login in a terminal";
 "state.unknown.noAnswer" = "Unknown — gh got no answer; check your network";
+"state.unknown.noLocalAnswer" = "Unknown — launchctl did not answer; try Refresh now";

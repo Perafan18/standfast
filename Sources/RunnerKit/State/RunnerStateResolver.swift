@@ -11,11 +11,13 @@ import Foundation
 ///
 /// Stateless and per-runner: one resolver serves every runner on the machine.
 public struct RunnerStateResolver: Sendable {
-  private let isServiceRunning: @Sendable (DiscoveredRunner) -> Bool
+  /// Nil for "could not tell", which is not the same answer as false. See
+  /// `LaunchctlProbe.blockingIsRunning(label:)`.
+  private let isServiceRunning: @Sendable (DiscoveredRunner) -> Bool?
   private let github: any GitHubClient
 
   public init(
-    isServiceRunning: @escaping @Sendable (DiscoveredRunner) -> Bool,
+    isServiceRunning: @escaping @Sendable (DiscoveredRunner) -> Bool?,
     github: any GitHubClient
   ) {
     self.isServiceRunning = isServiceRunning
@@ -26,7 +28,8 @@ public struct RunnerStateResolver: Sendable {
     probe: LaunchctlProbe = LaunchctlProbe(),
     github: any GitHubClient = GHCommandLineClient()
   ) {
-    self.init(isServiceRunning: { probe.isRunning(label: $0.label) }, github: github)
+    self.init(
+      isServiceRunning: { probe.blockingIsRunning(label: $0.label) }, github: github)
   }
 
   /// Resolves one runner's state without tying up a thread the runtime needs.
@@ -37,14 +40,10 @@ public struct RunnerStateResolver: Sendable {
   /// machine has cores, and *both* `Task {}` and `Task.detached {}` run there,
   /// so a task group resolving N runners with the network hanging would stall
   /// N of those threads at once and starve everything else in the app,
-  /// including the UI. Dispatching to `DispatchQueue.global()` moves the
-  /// blocking to a pool that is allowed to grow instead.
+  /// including the UI. `offCooperativePool` moves the blocking to a pool that
+  /// is allowed to grow instead.
   public func state(for runner: DiscoveredRunner) async -> RunnerState {
-    await withCheckedContinuation { continuation in
-      DispatchQueue.global().async {
-        continuation.resume(returning: blockingState(for: runner))
-      }
-    }
+    await offCooperativePool { blockingState(for: runner) }
   }
 
   /// Blocks the calling thread — first on `launchctl`, then on `gh` doing
@@ -59,10 +58,21 @@ public struct RunnerStateResolver: Sendable {
     // after the user clicked Stop. And since no answer could change this
     // verdict, asking would spend an API call per stopped runner per refresh —
     // all day, on a result thrown away.
-    guard isServiceRunning(runner) else { return .stopped }
+    //
+    // A probe that could not tell settles nothing, and it is not allowed to
+    // masquerade as either answer. Claiming `.stopped` greys out Stop and
+    // Restart on a runner that may well be up; asking GitHub instead would put
+    // the whole verdict on the source that cannot separate "stopped" from
+    // "disconnected" — that separation is the only thing the local probe is
+    // here for. Saying so is the honest report, and the menu has a line for it.
+    guard let running = isServiceRunning(runner) else {
+      return .unknown(.serviceStateUnreadable)
+    }
+    guard running else { return .stopped }
 
     do {
-      let remote = try github.runnerStatus(id: runner.agentId, scope: runner.scope)
+      let remote = try github.blockingRunnerStatus(
+        id: runner.agentId, scope: runner.scope)
       // Connection before occupation, and the order is load-bearing: GitHub
       // describes a machine that died mid-job as offline with the job still
       // assigned to it. Calling that "busy" would suggest work is progressing

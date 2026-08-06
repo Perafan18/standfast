@@ -28,7 +28,7 @@ private func atIntelHomebrew(_ path: String = runnerPath) -> [String] {
 private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope) throws
   -> RemoteStatus
 {
-  try GHCommandLineClient(commandRunner: fake).runnerStatus(id: 21, scope: scope)
+  try GHCommandLineClient(commandRunner: fake).blockingRunnerStatus(id: 21, scope: scope)
 }
 
 // MARK: - Reading a status
@@ -234,8 +234,8 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
   fake.exitCodes = [onPath(): 127]
   let client = GHCommandLineClient(commandRunner: fake)
 
-  _ = try client.runnerStatus(id: 21, scope: repositoryScope)
-  _ = try client.runnerStatus(id: 21, scope: repositoryScope)
+  _ = try client.blockingRunnerStatus(id: 21, scope: repositoryScope)
+  _ = try client.blockingRunnerStatus(id: 21, scope: repositoryScope)
 
   #expect(
     fake.invocations.map(\.executable)
@@ -250,13 +250,13 @@ private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
   ])
   fake.exitCodes = [onPath(): 127]
   let client = GHCommandLineClient(commandRunner: fake)
-  _ = try client.runnerStatus(id: 21, scope: repositoryScope)
+  _ = try client.blockingRunnerStatus(id: 21, scope: repositoryScope)
 
   // gh leaves /opt/homebrew and lands back on PATH.
   fake.failingExecutables = ["/opt/homebrew/bin/gh"]
   fake.exitCodes = [:]
 
   #expect(
-    try client.runnerStatus(id: 21, scope: repositoryScope)
+    try client.blockingRunnerStatus(id: 21, scope: repositoryScope)
       == RemoteStatus(online: false, busy: false))
 }

@@ -44,6 +44,7 @@ extension DisplayState {
     case .resolved(.unknown(.cliUnavailable)): L10n.stateUnknownNoCLI
     case .resolved(.unknown(.notAuthenticated)): L10n.stateUnknownNotAuthenticated
     case .resolved(.unknown(.noAnswer)): L10n.stateUnknownNoAnswer
+    case .resolved(.unknown(.serviceStateUnreadable)): L10n.stateUnknownNoLocalAnswer
     case .starting: L10n.stateStarting
     }
   }
@@ -55,6 +56,14 @@ extension DisplayState {
   /// yes: the resolver short-circuits to `.stopped` when the agent is not
   /// loaded, so even `.unknown` — where it is GitHub that went quiet, not the
   /// process — means the service is up.
+  ///
+  /// The one case that is a guess is `.unknown(.serviceStateUnreadable)`, where
+  /// `launchctl` itself is what did not answer. It is guessed *this* way on
+  /// purpose: a running runner drawn as stopped loses Stop and Restart, which
+  /// is the button bug this unit was written to prevent, while a stopped one
+  /// drawn as running merely offers a Stop that does nothing. Enabling all
+  /// three instead would mean a row where Start and Stop are lit at once, and
+  /// a menu that offers both is a menu that has stopped claiming to know.
   private var isServiceRunning: Bool { self != .resolved(.stopped) }
 
   /// Read off *this* runner, never off the menu bar summary.

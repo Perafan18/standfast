@@ -19,3 +19,4 @@
 "state.unknown.noCLI" = "Desconocido — instala la CLI de GitHub (gh)";
 "state.unknown.notAuthenticated" = "Desconocido — ejecuta gh auth login en una terminal";
 "state.unknown.noAnswer" = "Desconocido — gh no obtuvo respuesta; revisa tu red";
+"state.unknown.noLocalAnswer" = "Desconocido — launchctl no respondió; prueba Actualizar ahora";

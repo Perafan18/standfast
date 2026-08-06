@@ -25,35 +25,46 @@ public struct ServiceController: Sendable {
     self.settleDelay = settleDelay
   }
 
-  public func start(in directory: URL) throws { try svc("start", in: directory) }
-  public func stop(in directory: URL) throws { try svc("stop", in: directory) }
+  /// Starts the runner's service without tying up a thread the runtime needs.
+  ///
+  /// This is the entry point to use, and the reason it exists is the same one
+  /// `RunnerStateResolver.state(for:)` exists for: the blocking call underneath
+  /// parks a whole thread inside `waitUntilExit()`. See `offCooperativePool`.
+  public func start(in directory: URL) async throws {
+    try await offCooperativePool { try blockingStart(in: directory) }
+  }
+
+  /// Stops the runner's service without tying up a thread the runtime needs.
+  /// See `start(in:)`.
+  public func stop(in directory: URL) async throws {
+    try await offCooperativePool { try blockingStop(in: directory) }
+  }
+
+  /// Blocks the calling thread inside `svc.sh` for up to the command runner's
+  /// timeout — thirty seconds by default. Safe to call directly only from a
+  /// thread that is yours to block, which rules out the main actor and the
+  /// cooperative pool behind every `Task`. Prefer the `async` overload above,
+  /// which makes the hop for you.
+  public func blockingStart(in directory: URL) throws { try svc("start", in: directory) }
+
+  /// Blocks the calling thread, exactly as `blockingStart(in:)` does. Prefer
+  /// `stop(in:)`.
+  public func blockingStop(in directory: URL) throws { try svc("stop", in: directory) }
 
   /// Sequential, with a pause in between: `svc.sh` has no restart verb, and
   /// handing launchd a load while it is still unloading leaves the service
   /// down.
   ///
-  /// Async so the pause cannot be taken on the main actor by accident — a
-  /// button wired straight to a sleeping function freezes the menu.
-  ///
-  /// Each half is handed to a queue that is allowed to block, for the same
-  /// reason `RunnerStateResolver` keeps an async facade: `stop` and `start`
-  /// park the calling thread inside `waitUntilExit()` for up to the command
-  /// timeout, and every `Task` — detached or not — runs on the cooperative
-  /// pool, which has one thread per core. Doing the hop here rather than
-  /// leaving it to callers keeps launchd's unload-before-load gap where it
-  /// belongs, in the only type that knows about it.
+  /// There is no blocking counterpart to this one, and that is deliberate: the
+  /// pause is `Task.sleep`, so a synchronous version would have to be a real
+  /// sleep, and a button wired straight to it would freeze the menu for the
+  /// whole gap. Composing the two async halves also keeps launchd's
+  /// unload-before-load requirement where it belongs, in the only type that
+  /// knows about it.
   public func restart(in directory: URL) async throws {
-    try await blocking { try stop(in: directory) }
+    try await stop(in: directory)
     if settleDelay > 0 { try await Task.sleep(for: .seconds(settleDelay)) }
-    try await blocking { try start(in: directory) }
-  }
-
-  private func blocking(_ work: @escaping @Sendable () throws -> Void) async throws {
-    try await withCheckedThrowingContinuation { continuation in
-      DispatchQueue.global().async {
-        continuation.resume(with: Result { try work() })
-      }
-    }
+    try await start(in: directory)
   }
 
   private func svc(_ verb: String, in directory: URL) throws {

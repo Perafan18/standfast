@@ -98,6 +98,12 @@ private func speaking(_ localization: String) throws -> Bundle {
   #expect(
     L10n.english["state.unknown.notAuthenticated"]?.contains("gh auth login") == true)
   #expect(L10n.english["state.unknown.noAnswer"]?.contains("network") == true)
+  // This one is not about gh at all — it is the local probe that went quiet —
+  // so pointing the user at their network or their credentials would send them
+  // to the wrong place entirely.
+  let noLocal = L10n.english["state.unknown.noLocalAnswer"]
+  #expect(noLocal?.contains("launchctl") == true)
+  #expect(noLocal?.contains(L10n.english["menu.refreshNow"] ?? "") == true)
 }
 
 @Test func theRunnerRowFormatTakesBothOfItsArguments() throws {

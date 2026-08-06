@@ -12,6 +12,11 @@ public enum UnknownReason: Equatable, Sendable {
   /// token without the scope for this endpoint, a runner GitHub has forgotten,
   /// or a status this version does not recognise.
   case noAnswer
+  /// `launchctl` could not be asked whether the service is loaded: it would not
+  /// launch, or it was still running when the timeout expired. Its own case
+  /// because the other three all mean "the local half is fine and GitHub is
+  /// not", and this one means the opposite — so the instruction differs too.
+  case serviceStateUnreadable
 }
 
 extension UnknownReason {

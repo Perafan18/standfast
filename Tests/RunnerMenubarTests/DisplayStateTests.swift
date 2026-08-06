@@ -8,7 +8,8 @@ import Testing
 private let everyDisplayState: [DisplayState] = [
   .resolved(.idle), .resolved(.busy), .resolved(.disconnected), .resolved(.stopped),
   .resolved(.unknown(.cliUnavailable)), .resolved(.unknown(.notAuthenticated)),
-  .resolved(.unknown(.noAnswer)), .starting,
+  .resolved(.unknown(.noAnswer)), .resolved(.unknown(.serviceStateUnreadable)),
+  .starting,
 ]
 
 // MARK: - What each state says
@@ -27,7 +28,7 @@ private let everyDisplayState: [DisplayState] = [
 }
 
 @Test func eachUnknownReasonGetsItsOwnLine() {
-  // The whole reason `UnknownReason` carries three cases: the fix differs, and
+  // The whole reason `UnknownReason` carries four cases: the fix differs, and
   // one shared "could not tell" would leave the user with nothing to try.
   #expect(
     DisplayState.resolved(.unknown(.cliUnavailable)).summary == L10n.stateUnknownNoCLI)
@@ -36,6 +37,9 @@ private let everyDisplayState: [DisplayState] = [
       == L10n.stateUnknownNotAuthenticated)
   #expect(
     DisplayState.resolved(.unknown(.noAnswer)).summary == L10n.stateUnknownNoAnswer)
+  #expect(
+    DisplayState.resolved(.unknown(.serviceStateUnreadable)).summary
+      == L10n.stateUnknownNoLocalAnswer)
 }
 
 @Test func noTwoStatesReadTheSame() {
@@ -79,11 +83,14 @@ private let everyDisplayState: [DisplayState] = [
 }
 
 @Test func anUnknownRunnerCanStillBeStoppedAndRestarted() {
-  // `unknown` means GitHub went quiet, never that the process did: the
-  // resolver short-circuits to `.stopped` before it ever asks GitHub. Gating
-  // the buttons on this would strand exactly the runner most likely to need
-  // restarting.
-  for reason: UnknownReason in [.cliUnavailable, .notAuthenticated, .noAnswer] {
+  // `unknown` never means the process is known to be down: for three of the
+  // four reasons it is GitHub that went quiet, and the resolver short-circuits
+  // to `.stopped` before it ever asks GitHub. The fourth, where `launchctl`
+  // itself did not answer, is a guess — deliberately this one, because a live
+  // runner with Stop and Restart greyed out is the failure that matters.
+  for reason: UnknownReason in [
+    .cliUnavailable, .notAuthenticated, .noAnswer, .serviceStateUnreadable,
+  ] {
     #expect(!DisplayState.resolved(.unknown(reason)).canStart)
     #expect(DisplayState.resolved(.unknown(reason)).canStop)
     #expect(DisplayState.resolved(.unknown(reason)).canRestart)

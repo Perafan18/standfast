@@ -124,7 +124,7 @@ final class FleetSandbox: @unchecked Sendable {
   private struct Client: GitHubClient {
     let sandbox: FleetSandbox
 
-    func runnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
+    func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
       let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
       let (answer, pause) = sandbox.withLock {
         sandbox.scans += 1

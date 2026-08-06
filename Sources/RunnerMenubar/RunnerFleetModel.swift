@@ -175,23 +175,24 @@ final class RunnerFleetModel: ObservableObject {
     }
   }
 
+  /// No hop anywhere in here: every one of the controller's entry points is
+  /// `async` and makes its own, which is where it belongs — the thread a
+  /// blocking call needs is the callee's business, not something each caller
+  /// has to remember.
   func start(_ runner: DiscoveredRunner) {
     perform(on: runner, thenSettles: true) { controller, directory in
-      try await offCooperativePool { try controller.start(in: directory) }
+      try await controller.start(in: directory)
     }
   }
 
   func stop(_ runner: DiscoveredRunner) {
     settling.close(for: runner.label)
     perform(on: runner, thenSettles: false) { controller, directory in
-      try await offCooperativePool { try controller.stop(in: directory) }
+      try await controller.stop(in: directory)
     }
   }
 
   func restart(_ runner: DiscoveredRunner) {
-    // No hop here: `restart` is `async` and makes its own, which is where it
-    // belongs — launchd's unload-before-load gap sits between its two halves
-    // and is the controller's to keep.
     perform(on: runner, thenSettles: true) { controller, directory in
       try await controller.restart(in: directory)
     }
@@ -226,21 +227,6 @@ final class RunnerFleetModel: ObservableObject {
       try? await Task.sleep(for: .seconds(probeDelay))
       refresh()
       actions[id] = nil
-    }
-  }
-}
-
-/// Runs a blocking call on a thread that is allowed to block.
-///
-/// Same reason `RunnerStateResolver` keeps an async facade: `svc.sh` is run
-/// through `Process.waitUntilExit()` with a 30s ceiling, and every `Task` —
-/// detached or not — lands on the cooperative pool, one thread per core.
-private func offCooperativePool(
-  _ work: @escaping @Sendable () throws -> Void
-) async throws {
-  try await withCheckedThrowingContinuation { continuation in
-    DispatchQueue.global().async {
-      continuation.resume(with: Result { try work() })
     }
   }
 }

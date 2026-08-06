@@ -11,7 +11,8 @@ private struct RunnerSandbox {
   init(withScript: Bool = true) throws {
     directory = URL(fileURLWithPath: NSTemporaryDirectory())
       .appendingPathComponent("runner-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true)
     if withScript {
       try Data("#!/bin/bash\n".utf8).write(to: script)
     }
@@ -29,24 +30,38 @@ private struct RunnerSandbox {
   }
 }
 
-@Test func startRunsSvcStartInTheRunnerDirectory() throws {
+@Test func startRunsSvcStartInTheRunnerDirectory() async throws {
   let box = try RunnerSandbox()
   defer { box.cleanUp() }
   let fake = FakeCommandRunner()
 
-  try ServiceController(commandRunner: fake).start(in: box.directory)
+  try await ServiceController(commandRunner: fake).start(in: box.directory)
 
   #expect(fake.invocations == [box.invocation("start")])
 }
 
-@Test func stopRunsSvcStopInTheRunnerDirectory() throws {
+@Test func stopRunsSvcStopInTheRunnerDirectory() async throws {
   let box = try RunnerSandbox()
   defer { box.cleanUp() }
   let fake = FakeCommandRunner()
 
-  try ServiceController(commandRunner: fake).stop(in: box.directory)
+  try await ServiceController(commandRunner: fake).stop(in: box.directory)
 
   #expect(fake.invocations == [box.invocation("stop")])
+}
+
+@Test func theBlockingCallsRunTheSameCommandsAsTheirFacades() throws {
+  // The facade must not quietly become a different command from the one a
+  // library consumer gets when it takes the thread on itself.
+  let box = try RunnerSandbox()
+  defer { box.cleanUp() }
+  let fake = FakeCommandRunner()
+  let controller = ServiceController(commandRunner: fake)
+
+  try controller.blockingStart(in: box.directory)
+  try controller.blockingStop(in: box.directory)
+
+  #expect(fake.invocations == [box.invocation("start"), box.invocation("stop")])
 }
 
 @Test func restartStopsThenStarts() async throws {
@@ -87,12 +102,12 @@ private struct RunnerSandbox {
   #expect(Date().timeIntervalSince(started) >= 0.2)
 }
 
-@Test @MainActor func restartKeepsItsBlockingOffTheCooperativePool() async throws {
-  // `stop` and `start` each park a thread inside waitUntilExit for up to the
-  // command timeout. The cooperative pool has one thread per core and runs
-  // every `Task {}`, so an app restarting a runner from a button would stall
-  // it — and `restart` is `async`, which means callers have no thread of their
-  // own to hand it. The hop has to happen in here.
+@Test @MainActor func everyAsyncEntryPointKeepsItsBlockingOffBothPools() async throws {
+  // `svc.sh` parks a thread inside waitUntilExit for up to the command
+  // timeout. The cooperative pool has one thread per core and runs every
+  // `Task {}`, so an app driving a runner from a button would stall it — and
+  // these entry points are `async`, which means callers have no thread of
+  // their own to hand them. The hop has to happen in here, for all three.
   final class Queues: @unchecked Sendable {
     private let lock = NSLock()
     private var seen: [String] = []
@@ -112,11 +127,13 @@ private struct RunnerSandbox {
   let queues = Queues()
   let fake = FakeCommandRunner()
   fake.onRun = { queues.record(String(cString: __dispatch_queue_get_label(nil))) }
+  let controller = ServiceController(commandRunner: fake, settleDelay: 0)
 
-  try await ServiceController(commandRunner: fake, settleDelay: 0)
-    .restart(in: box.directory)
+  try await controller.start(in: box.directory)
+  try await controller.stop(in: box.directory)
+  try await controller.restart(in: box.directory)
 
-  #expect(queues.all.count == 2)
+  #expect(queues.all.count == 4)
   #expect(!queues.all.contains { $0.hasSuffix(".cooperative") })
   #expect(!queues.all.contains { $0 == "com.apple.main-thread" })
 }
@@ -133,8 +150,8 @@ private struct RunnerSandbox {
   let fake = FakeCommandRunner()
   let controller = ServiceController(commandRunner: fake)
 
-  try controller.start(in: first.directory)
-  try controller.start(in: second.directory)
+  try controller.blockingStart(in: first.directory)
+  try controller.blockingStart(in: second.directory)
 
   #expect(fake.invocations == [first.invocation("start"), second.invocation("start")])
 }
@@ -147,7 +164,7 @@ private struct RunnerSandbox {
   let fake = FakeCommandRunner()
 
   #expect(throws: ServiceControlError.scriptMissing(box.script)) {
-    try ServiceController(commandRunner: fake).start(in: box.directory)
+    try ServiceController(commandRunner: fake).blockingStart(in: box.directory)
   }
   #expect(fake.invocations.isEmpty)
 }

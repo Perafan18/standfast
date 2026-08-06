@@ -30,7 +30,16 @@ public enum GitHubError: Error, Equatable {
 }
 
 public protocol GitHubClient: Sendable {
-  func runnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus
+  /// Blocks the calling thread while it asks GitHub, for as long as whatever is
+  /// underneath allows — thirty seconds through `ProcessCommandRunner`. Named
+  /// so that both sides know: an implementer may block, and a caller must have
+  /// a thread it is allowed to block. That rules out the main actor and the
+  /// cooperative pool behind every `Task`.
+  ///
+  /// There is no async facade on this protocol on purpose. The one caller is
+  /// `RunnerStateResolver`, whose whole job is to compose this answer with the
+  /// local probe synchronously and hop once, in `state(for:)`, for both.
+  func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus
 }
 
 /// One way to reach `gh`: an executable plus whatever has to precede the
@@ -120,7 +129,7 @@ public struct GHCommandLineClient: GitHubClient {
     self.locations = locations
   }
 
-  public func runnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
+  public func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
     // By id, not by list position: `.runners[0]` reported whichever runner the
     // API happened to list first, so a second runner on the same repository
     // silently shadowed this one.
