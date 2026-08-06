@@ -108,7 +108,8 @@ private func runAgainstADeadline(
     finished.signal()
   }
   guard finished.wait(timeout: .now() + 30) == .success else {
-    Issue.record("\(executable) never came back: it is blocked writing into a pipe nobody drains")
+    Issue.record(
+      "\(executable) never came back: it is blocked writing into a pipe nobody drains")
     return nil
   }
   return box
@@ -150,7 +151,8 @@ private func makeChatterFile() throws -> URL {
   let box = runAgainstADeadline(impatient, "/bin/sleep", ["30"])
 
   guard case .timedOut(let executable)? = box?.error as? CommandError else {
-    Issue.record("expected a timeout, got \(String(describing: box?.error ?? box?.result as Any))")
+    Issue.record(
+      "expected a timeout, got \(String(describing: box?.error ?? box?.result as Any))")
     return
   }
   #expect(executable == "/bin/sleep")

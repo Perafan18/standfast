@@ -1,6 +1,10 @@
 import Foundation
 import RunnerKit
 
+// Everything the menu shows, as values a test can read: one runner's state,
+// one runner's row, the notice's lines, and the single state the icon carries.
+// The views in `App.swift` render these and decide nothing.
+
 /// What one runner's row shows.
 ///
 /// Deliberately not a `RunnerState`. `.starting` is not a state the resolver

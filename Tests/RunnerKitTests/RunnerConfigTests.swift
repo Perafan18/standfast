@@ -16,10 +16,10 @@ import Testing
 }
 
 @Test func plainJSONWithoutBOMStillDecodes() throws {
-  let data = Data(
-    #"{"agentId":7,"agentName":"n","gitHubUrl":"https://github.com/a/b","workFolder":"_work"}"#
-      .utf8)
-  #expect(try RunnerConfig(data: data).agentId == 7)
+  let json =
+    #"{"agentId":7,"agentName":"n","gitHubUrl":"https://github.com/a/b","#
+    + #""workFolder":"_work"}"#
+  #expect(try RunnerConfig(data: Data(json.utf8)).agentId == 7)
 }
 
 @Test func survivesAFileMissingItsCosmeticFields() throws {
@@ -62,7 +62,8 @@ import Testing
   }
   // The leniency above stops at the two fields nothing can replace.
   #expect(throws: (any Error).self) {
-    try RunnerConfig(data: Data(#"{"agentId":"7","gitHubUrl":"https://github.com/a/b"}"#.utf8))
+    try RunnerConfig(
+      data: Data(#"{"agentId":"7","gitHubUrl":"https://github.com/a/b"}"#.utf8))
   }
   #expect(throws: (any Error).self) {
     try RunnerConfig(data: Data(#"{"agentId":7,"gitHubUrl":null}"#.utf8))

@@ -30,13 +30,14 @@ private struct Sandbox {
   @discardableResult
   func addRunner(
     label: String, agentId: Int, gitHubUrl: String,
-    runnerFile: RunnerFile = .complete, fileName: String? = nil
+    runnerFile: RunnerFile = .complete, fileName: String? = nil,
+    workFolder: String = "_work"
   ) throws -> URL {
     let dir = root.appendingPathComponent(label)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     if runnerFile != .missing {
       var fields: [String: Any] = [
-        "agentId": agentId, "gitHubUrl": gitHubUrl, "workFolder": "_work",
+        "agentId": agentId, "gitHubUrl": gitHubUrl, "workFolder": workFolder,
       ]
       if runnerFile == .complete { fields["agentName"] = label }
       var data = Data([0xEF, 0xBB, 0xBF])  // same BOM the real agent writes
@@ -169,6 +170,40 @@ private struct Sandbox {
   #expect(found.runners[0].displayName == found.runners[0].agentName)
 }
 
+@Test func namesTheWorkDirectoryTheRunnerActuallyChecksCodeOutInto() throws {
+  // The only consumer of the whole `workFolder` chain, and the reason it is
+  // read out of `.runner` at all. `_work` is the default `config.sh` proposes,
+  // so a version that ignored the file and hard-coded it would pass on nearly
+  // every machine and be wrong on the ones that answered the prompt.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let dir = try box.addRunner(
+    label: "actions.runner.acme-widget.mac-a", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "builds")
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners[0].workDirectory == dir.appendingPathComponent("builds"))
+  // Under the runner's own directory, never beside it: this path is what a
+  // caller opens in Finder or measures for disk usage.
+  #expect(found.runners[0].workDirectory.path.hasPrefix(dir.path + "/"))
+}
+
+@Test func fallsBackToTheStandardWorkFolderWhenTheFileDoesNotSayOne() throws {
+  // `workFolder` is one of the cosmetic fields, so a runner release that stops
+  // writing it must not cost the runner its row — nor leave the work directory
+  // pointing at the runner directory itself.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let dir = try box.addRunner(
+    label: "actions.runner.acme-widget.mac-a", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners[0].workDirectory == dir.appendingPathComponent("_work"))
+}
+
 @Test func showsTheWholeLabelWhenItIsNotShapedLikeARunners() {
   // The prefix is stripped as noise, not parsed. A Label that does not carry
   // it is shown whole rather than mangled.
@@ -250,8 +285,10 @@ private struct Sandbox {
     label: "actions.runner.acme-widget.ghost", agentId: 9,
     gitHubUrl: "https://github.com/acme/widget", runnerFile: .missing)
 
-  let nothingInstalled = RunnerDiscovery(launchAgentsDirectory: bare.launchAgents).discover()
-  let nothingReadable = RunnerDiscovery(launchAgentsDirectory: broken.launchAgents).discover()
+  let nothingInstalled =
+    RunnerDiscovery(launchAgentsDirectory: bare.launchAgents).discover()
+  let nothingReadable =
+    RunnerDiscovery(launchAgentsDirectory: broken.launchAgents).discover()
 
   #expect(nothingInstalled.runners.isEmpty)
   #expect(nothingInstalled.unreadable.isEmpty)

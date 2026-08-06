@@ -243,9 +243,15 @@ final class RunnerFleetModel: ObservableObject {
       do {
         try await work(controller, directory)
       } catch {
-        // Nowhere to put this. `svc.sh` exits 0 even on failures it printed,
-        // so the only error reaching here is a missing script, and the
-        // re-probe below is the honest report in either case.
+        // Nowhere to put this, and two different things arrive here: a missing
+        // `svc.sh`, where nothing ran at all, and `CommandError.timedOut`,
+        // where the command was killed after 30s having quite possibly already
+        // done its work. The second one costs a settling window that should
+        // have opened, so a start that is going fine can still be reported as
+        // `.disconnected`. Accepted for now over the alternative — opening a
+        // window for an action that never happened, which would dress a
+        // half-uninstalled runner up as "Starting…" for thirty seconds. The
+        // re-probe below is the only honest report either way.
         succeeded = false
       }
       if thenSettles && succeeded { settling.open(for: label, at: clock()) }
