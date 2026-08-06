@@ -16,16 +16,17 @@ notification authorization when you enable one. Standfast:
 - runs `/usr/bin/du` to measure the runner directories shown by housekeeping;
 - runs the GitHub CLI to ask the API about runner status and the public latest
   `actions/runner` release — `/usr/bin/env gh` first, then `/opt/homebrew/bin/gh` and
-  `/usr/local/bin/gh`. The first of those resolves
-  through your `PATH`, on purpose: a `gh` from mise, nix or asdf is a deliberate choice
-  and the only one holding the credentials you meant to use;
+  `/usr/local/bin/gh`. The first resolves through your `PATH` so a `gh` installed and
+  configured through mise, nix, asdf or another chosen toolchain is respected; whichever
+  executable runs receives the inherited environment described below;
 - opens the configured runner's GitHub settings URL in your default browser when you ask;
 - stores notification and sleep-prevention switches in `UserDefaults`, asks macOS to
   register or unregister its login item when you change that switch, and posts the
   notifications you enable;
 - while sleep prevention is enabled and at least one runner has work, holds a macOS
-  `.idleSystemSleepDisabled` activity assertion; it releases the assertion as soon as the
-  switch is disabled or the last job ends, and process exit releases it as well; and
+  `.idleSystemSleepDisabled` activity assertion; it releases the assertion when the switch
+  is disabled, when the next completed scan observes no remaining work, or when the
+  Standfast process exits; and
 - after an explicit housekeeping confirmation, creates a temporary directory inside the
   runner's `_work`, moves and deletes the selected caches, or deletes the eligible old
   diagnostic logs in `_diag` while preserving the active and retained listener logs.
@@ -38,15 +39,15 @@ uses a public endpoint. Standfast does not upload `_diag` contents or other job 
 Standfast launches `gh` with the environment it inherited; it neither injects nor removes
 GitHub authentication or update-notifier variables. Depending on the installed `gh`
 version and configuration, `gh` may perform its own update check or related traffic when
-invoked. Standfast does not request or observe that delegated traffic: the only API calls
-it explicitly asks `gh` to make are runner status and the public latest `actions/runner`
-release.
+invoked. Standfast does not initiate that delegated check or inspect whether it occurred:
+the only API calls it explicitly asks `gh` to make are runner status and the public latest
+`actions/runner` release.
 
 ## No sudo, ever
 
-On macOS a self-hosted runner is a per-user LaunchAgent. `sudo` is the Linux instruction
-and would only produce a password prompt this app has no way to answer. Standfast never
-elevates privileges, and a change that introduces `sudo` will not be merged.
+On macOS a self-hosted runner is a per-user LaunchAgent. Standfast never invokes `sudo` or
+another privilege-elevation mechanism, and a change that introduces one will not be
+merged.
 
 ## Credentials
 
@@ -62,18 +63,20 @@ public latest runner release; starting and stopping the local service does not u
 
 ## Command execution
 
-Every external command goes through one seam, `CommandRunning`, and every one is invoked
-with an explicit argument vector — never through a shell. Paths come from your own home
-directory and can contain spaces and quotes; passing them through `sh -c` would turn that
-into an injection surface, so it is not done anywhere in the codebase.
+Every external command goes through `CommandRunning` with an explicit executable and
+argument vector. Standfast does not concatenate executable names or argument values into
+a single command string for `sh -c` or `bash -c`. For runner operations, the working
+directory and runner base path come from the LaunchAgent plist; derived script and work
+paths remain individual argument values, so spaces and quotes in them are treated
+literally.
 
-`svc.sh` is the one command handed to `/bin/bash`, and that is not the same thing. It is
-run as `bash <path> start`, an interpreter given a script and one literal argument — a
-runner directory restored from a backup often arrives without the execute bit, and it is
-a bash script either way. Nothing is ever concatenated into a command string.
+For service control the executable is `/bin/bash`, the argument vector is
+`[<runner>/svc.sh, start|stop]`, and the process working directory is the runner directory.
+Bash receives the script path and verb as arguments, not as a command string. This also
+lets a restored runner's bash script work when its execute bit is missing.
 
-`stdin` is `/dev/null` and `stderr` is discarded, so a subprocess cannot prompt you or
-smuggle output into a parsed result.
+`stdin` is `/dev/null`, so a subprocess receives EOF instead of interactive input.
+`stderr` is discarded rather than mixed into the stdout Standfast parses.
 
 ## Reporting a vulnerability
 
