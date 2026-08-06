@@ -277,10 +277,15 @@ private func model(
   // And not on the cooperative pool either, which has one thread per core and
   // is where every `Task` — detached or not — would otherwise park.
   #expect(!box.queuesUsed.contains { $0.contains("cooperative") })
-  // Discovery too. It is the cheap half on this machine, and a directory
-  // listing on a networked home directory is not cheap anywhere.
+  // Discovery too, and to the same standard. It is the cheap half on this
+  // machine, and a directory listing plus two file reads per runner on a
+  // networked home directory is not cheap anywhere. Off the main thread was
+  // never the bar: `scan` is `nonisolated async`, so simply being called from
+  // there already satisfies it — on the cooperative pool, which is the one
+  // place this must not run.
   #expect(!box.discoveryQueuesUsed.isEmpty)
   #expect(box.discoveryQueuesUsed.allSatisfy { $0 != "com.apple.main-thread" })
+  #expect(!box.discoveryQueuesUsed.contains { $0.contains("cooperative") })
 }
 
 @Test @MainActor func actionsDoNotBlockTheMainThreadEither() async throws {

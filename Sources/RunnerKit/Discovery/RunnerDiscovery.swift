@@ -85,8 +85,17 @@ public struct RunnerDiscovery: Sendable {
         .appendingPathComponent("Library/LaunchAgents")
   }
 
-  /// Reads the whole LaunchAgents directory and a file from each runner, on
-  /// the calling thread. Call it off the main actor.
+  /// Reads the whole LaunchAgents directory and a file from each runner, on the
+  /// calling thread and synchronously.
+  ///
+  /// That is one `contentsOfDirectory` plus two file reads per runner, and a
+  /// home directory on a network volume makes every one of them a round trip.
+  /// So the same rule applies here as to `RunnerStateResolver.blockingState`:
+  /// safe to call only from a thread that is yours to block, which rules out
+  /// the main actor *and* the cooperative pool behind every `Task` — the pool
+  /// has one thread per core and runs everything else in the app. Off the main
+  /// actor is not enough; see `offCooperativePool`, which is what the menu bar
+  /// app wraps this call in.
   public func discover() -> DiscoveryResult {
     let entries =
       (try? FileManager.default.contentsOfDirectory(

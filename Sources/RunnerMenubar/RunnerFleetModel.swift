@@ -129,20 +129,23 @@ final class RunnerFleetModel: ObservableObject {
     }
   }
 
-  /// Off the main actor, and sequential.
+  /// Off both pools, and sequential.
   ///
-  /// `state(for:)`, never `blockingState(for:)`: the blocking one parks a whole
-  /// thread inside `waitUntilExit()`, twice, and both `Task {}` and
-  /// `Task.detached {}` run on the cooperative pool, which has one thread per
-  /// core. The async facade hops to `DispatchQueue.global()` for us.
+  /// This function is `nonisolated async`, which means it runs on the
+  /// cooperative pool — one thread per core, shared with every other `Task` in
+  /// the app, main actor included. Nothing that blocks may run here, and both
+  /// halves of a scan block: `discover()` reads a directory and two files per
+  /// runner, and the resolver parks a thread inside `waitUntilExit()` twice.
+  /// Both are handed to `offCooperativePool`, the resolver by way of its own
+  /// async facade.
   ///
   /// Sequential because parallelism is not what makes this fast enough — there
   /// are rarely more than a handful of runners, and the coalescing in
   /// `refresh()` is what stops a slow scan from piling up.
   private nonisolated static func scan(
-    discover: @Sendable () -> DiscoveryResult, resolver: RunnerStateResolver
+    discover: @escaping @Sendable () -> DiscoveryResult, resolver: RunnerStateResolver
   ) async -> (found: DiscoveryResult, states: [RunnerState]) {
-    let found = discover()
+    let found = await offCooperativePool { discover() }
     var states: [RunnerState] = []
     for runner in found.runners { states.append(await resolver.state(for: runner)) }
     return (found, states)
