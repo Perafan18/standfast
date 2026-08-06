@@ -1,0 +1,128 @@
+# Contributing
+
+Issues and pull requests are welcome. This file covers the conventions the codebase
+actually enforces and the traps that have already caught someone once — most of the list
+below exists because a change looked obviously correct and was not.
+
+## Getting set up
+
+```sh
+make test      # 190 tests, ~1s
+make app       # assembles Standfast.app
+make run       # assembles and launches it
+```
+
+No dependencies, no `.xcodeproj`. Plain SwiftPM. You need Xcode 16 or its command line
+tools for a Swift 6 toolchain.
+
+The test suite runs on a machine with **no runner installed** — that is deliberate, since
+CI has none. Every external command goes through the `CommandRunning` protocol so it can be
+faked. If you find yourself needing a real runner to test something, the seam is in the
+wrong place.
+
+## Conventions
+
+- **Comments explain _why_, not _what_.** Never describe what the next line does, and never
+  justify your change to a reviewer — that is what the pull request is for. A comment
+  should state a constraint the code cannot show.
+- **Swift Testing** (`import Testing`, `@Test`, `#expect`), not XCTest.
+- Two-space indentation, lines at most 92 characters, enforced by the versioned
+  `.swift-format`. Run it before you push — CI runs the same line and fails on any
+  finding:
+
+  ```sh
+  swift format lint --strict --recursive Sources Tests   # what CI runs
+  swift format --recursive --in-place Sources Tests      # fix it for me
+  ```
+
+  `swift format`, with a space: the Command Line Tools ship it as a subcommand of
+  `swift`, not as a `swift-format` binary on PATH.
+- **The build has zero warnings** and CI fails on any. Keep it that way.
+- User-facing strings go through `L10n`, never inline. Add the key to both catalogues and
+  to the English fallback table in the same change.
+
+## Writing tests
+
+The bar here is higher than "it passes". Several tests in this repo were rewritten after
+review because they could not fail — they re-asserted what a neighbouring test already
+covered, or they built their expectation out of the very constant they were testing.
+
+Before you submit, **break your implementation on purpose** and confirm your test dies.
+If it survives, the test is decorative. Two real examples from this codebase:
+
+- A test pinned the `gh` argument list by building it from `statusFilter` itself, so the
+  filter's contents were never actually checked. It now pins the literal, with a comment
+  saying it must not use the constant.
+- The assertion for "discovery does not block the wrong thread pool" only checked it was
+  off the main thread — which was already true and was the wrong condition. It missed the
+  bug entirely.
+
+## Traps
+
+Each of these looks like a cleanup and is a regression.
+
+**Do not enable App Sandbox.** Under sandbox,
+`FileManager.default.homeDirectoryForCurrentUser` returns the app's container rather than
+`~`, and `~/Library/LaunchAgents` becomes unreachable. Discovery — the whole point of the
+app — stops working *silently*: an empty menu, no error, because as far as the app can
+tell this Mac simply has no runners. There is no entitlement that buys the directory
+back either; LaunchAgents is not one of the user-selected or well-known locations a
+sandboxed app may reach. The same reasoning is in `Resources/Info.plist`, next to the
+key that would have to be added.
+
+**Do not send `stderr` to a `Pipe()`** in `ProcessCommandRunner`. A pipe nobody drains
+blocks the child forever once it writes more than the buffer holds, which a `gh` with a
+long error message will. It goes to the null device on purpose, and
+`survivesAProcessThatIsChattyOnStderr` is there to catch the revert.
+
+**Do not reach for `Bundle.module`.** Its generated accessor calls `fatalError` when it
+cannot find its bundle, which is exactly the situation inside a hand-assembled `.app` on
+somebody else's machine. It crashed on launch for every user once already. `L10n` searches
+for the bundle itself and treats "not found" as an ordinary answer.
+
+**Never gate a per-runner action on the aggregate state.** With one runner idle and another
+stopped, the fleet summary is `idle` — correct by design — and a Start button gated on the
+summary leaves the stopped runner impossible to start. Every action reads its own runner's
+state.
+
+**Blocking entry points are named `blocking*`.** `blockingState`, `blockingStart`,
+`blockingStop`, `blockingIsRunning`, `blockingRunnerStatus`. They occupy a whole thread
+inside `waitUntilExit()`, twice per call, up to the command timeout. Do not call them
+from the UI: use the `async` facades, which hop to `DispatchQueue.global()`. `Task {}` and
+`Task.detached {}` both land on the cooperative pool, whose width is the core count, so
+"off the main actor" is not enough.
+
+**The `.runner` file starts with a UTF-8 BOM.** `JSONDecoder` rejects it. The fixture
+carries real BOM bytes so a regression fails the test rather than only failing on somebody's
+machine.
+
+## Packaging changes
+
+If you touch `Scripts/build-app.sh` or `Resources/Info.plist`, run the packaging check:
+
+```sh
+make check          # swift test, then the script below
+./Scripts/check-app.sh
+```
+
+It assembles the bundle, **deletes `.build`**, launches the app and confirms it is still
+alive. That deletion is the point — with the build directory present, a broken bundle still
+resolves and the failure hides. No unit test can catch this class of bug.
+
+## Releasing
+
+The version is written in two places that no build step keeps in step:
+`CFBundleShortVersionString` in `Resources/Info.plist`, and the tag inside `url` in
+`Formula/standfast.rb`. CI compares them and fails when they disagree, which is the only
+thing standing between a bump and an app that reports last release's version forever.
+
+So a release is, in order:
+
+1. Bump `CFBundleShortVersionString` and the formula's `url` tag together, in one commit.
+2. In `CHANGELOG.md`, replace `— unreleased` on that version's heading with the date,
+   and open a new heading above it.
+3. Tag `v<version>` and push the tag.
+4. Put the release tarball's `sha256` into the formula, replacing `REPLACE_ON_RELEASE`,
+   and copy the formula into the tap.
+
+`CFBundleVersion` is the build number and is deliberately not tied to any of this.
