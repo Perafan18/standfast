@@ -11,6 +11,14 @@ import Foundation
 ///
 /// Stateless and per-runner: one resolver serves every runner on the machine.
 public struct RunnerStateResolver: Sendable {
+  /// One resolved state, stamped immediately after launchd answered for this
+  /// runner. The stop lifecycle needs this per-probe ordering; a scan-level
+  /// timestamp cannot say which side of a click a later sequential probe read.
+  public struct Reading: Sendable {
+    public let state: RunnerState
+    public let readAt: Date
+  }
+
   /// Nil for "could not tell", which is not the same answer as false. See
   /// `LaunchctlProbe.blockingIsRunning(label:)`.
   private let isServiceRunning: @Sendable (DiscoveredRunner) -> Bool?
@@ -43,7 +51,14 @@ public struct RunnerStateResolver: Sendable {
   /// including the UI. `offCooperativePool` moves the blocking to a pool that
   /// is allowed to grow instead.
   public func state(for runner: DiscoveredRunner) async -> RunnerState {
-    await offCooperativePool { blockingState(for: runner) }
+    await reading(for: runner, clock: Date.init).state
+  }
+
+  /// Resolves and stamps the local probe independently for each runner.
+  public func reading(
+    for runner: DiscoveredRunner, clock: @escaping @Sendable () -> Date
+  ) async -> Reading {
+    await offCooperativePool { blockingReading(for: runner, clock: clock) }
   }
 
   /// Blocks the calling thread — first on `launchctl`, then on `gh` doing
@@ -52,6 +67,12 @@ public struct RunnerStateResolver: Sendable {
   /// the main actor and the cooperative pool behind every `Task`. Prefer the
   /// `async` overload above, which makes the hop for you.
   public func blockingState(for runner: DiscoveredRunner) -> RunnerState {
+    blockingReading(for: runner, clock: Date.init).state
+  }
+
+  private func blockingReading(
+    for runner: DiscoveredRunner, clock: @escaping @Sendable () -> Date
+  ) -> Reading {
     // Asked first, and allowed to settle it alone. A stopped service is the
     // one thing known for certain: GitHub keeps calling a just-stopped runner
     // online for a few seconds, so trusting it here would show "idle" right
@@ -65,10 +86,12 @@ public struct RunnerStateResolver: Sendable {
     // the whole verdict on the source that cannot separate "stopped" from
     // "disconnected" — that separation is the only thing the local probe is
     // here for. Saying so is the honest report, and the menu has a line for it.
-    guard let running = isServiceRunning(runner) else {
-      return .unknown(.serviceStateUnreadable)
+    let running = isServiceRunning(runner)
+    let readAt = clock()
+    guard let running else {
+      return Reading(state: .unknown(.serviceStateUnreadable), readAt: readAt)
     }
-    guard running else { return .stopped }
+    guard running else { return Reading(state: .stopped, readAt: readAt) }
 
     do {
       let remote = try github.blockingRunnerStatus(
@@ -77,14 +100,14 @@ public struct RunnerStateResolver: Sendable {
       // describes a machine that died mid-job as offline with the job still
       // assigned to it. Calling that "busy" would suggest work is progressing
       // when nothing is; what needs fixing is the connection.
-      if !remote.online { return .disconnected }
-      return remote.busy ? .busy : .idle
+      if !remote.online { return Reading(state: .disconnected, readAt: readAt) }
+      return Reading(state: remote.busy ? .busy : .idle, readAt: readAt)
     } catch let failure as GitHubError {
-      return .unknown(UnknownReason(failure))
+      return Reading(state: .unknown(UnknownReason(failure)), readAt: readAt)
     } catch {
       // Another client behind the same protocol may throw something else; it
       // still has not answered.
-      return .unknown(.noAnswer)
+      return Reading(state: .unknown(.noAnswer), readAt: readAt)
     }
   }
 

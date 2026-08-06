@@ -203,21 +203,23 @@ final class RunnerFleetModel: ObservableObject {
       refreshRequested = true
       return
     }
-    // Stamped before anything is read, and carried all the way to `apply`. A
-    // scan can take tens of seconds, so the answer it hands back describes the
-    // machine as it was when it started, not as it is when it lands — and the
-    // settling window has to be able to tell, or a reading taken before the
-    // user pressed Restart gets to close the window that click opened.
-    let readAt = clock()
+    // Stamped before anything is read and carried to `lastReadAt`, where it
+    // measures the freshness of the scan as a whole. Each runner gets a second,
+    // exact stamp when its own launchd probe answers; action ordering uses that
+    // probe stamp rather than this scan-level one.
+    let startedAt = clock()
     // Asked at most once a day, and beside the scan rather than inside it: see
     // `checkForNewRelease`.
-    if lastReleaseCheck.map({ readAt.timeIntervalSince($0) >= releaseInterval }) ?? true {
-      checkForNewRelease(at: readAt)
+    if lastReleaseCheck.map({ startedAt.timeIntervalSince($0) >= releaseInterval })
+      ?? true
+    {
+      checkForNewRelease(at: startedAt)
     }
-    inFlight = Task { [discover, resolver, jobLogs, versions] in
+    inFlight = Task { [discover, resolver, jobLogs, versions, clock] in
       let scan = await Self.scan(
-        discover: discover, resolver: resolver, readers: jobLogs, versions: versions)
-      apply(scan, readAt: readAt)
+        discover: discover, resolver: resolver, readers: jobLogs, versions: versions,
+        clock: clock)
+      apply(scan, startedAt: startedAt)
       inFlight = nil
       if refreshRequested {
         refreshRequested = false
@@ -314,15 +316,19 @@ final class RunnerFleetModel: ObservableObject {
   /// `refresh()` is what stops a slow scan from piling up.
   private nonisolated static func scan(
     discover: @escaping @Sendable () -> DiscoveryResult, resolver: RunnerStateResolver,
-    readers: [String: JobLogReader], versions: any RunnerVersionReading
+    readers: [String: JobLogReader], versions: any RunnerVersionReading,
+    clock: @escaping @Sendable () -> Date
   ) async -> Scan {
     let found = await offCooperativePool { discover() }
     var states: [RunnerState] = []
     var jobs: [JobHistory] = []
     var installed: [RunnerVersion?] = []
+    var readAt: [Date] = []
     var readers = readers
     for runner in found.runners {
-      states.append(await resolver.state(for: runner))
+      let state = await resolver.reading(for: runner, clock: clock)
+      states.append(state.state)
+      readAt.append(state.readAt)
       // The same rule as discovery, for the same reason: this is file I/O, and
       // the cheap path — a directory listing and a `stat` — is only the usual
       // one. A cold read is hundreds of kilobytes, off a home directory that
@@ -346,7 +352,8 @@ final class RunnerFleetModel: ObservableObject {
       installed.append(read.version)
     }
     return Scan(
-      found: found, states: states, jobs: jobs, readers: readers, versions: installed)
+      found: found, states: states, jobs: jobs, readers: readers, versions: installed,
+      readAt: readAt)
   }
 
   /// Everything one hop off the pool reads about one runner's `_diag`.
@@ -368,13 +375,14 @@ final class RunnerFleetModel: ObservableObject {
     let jobs: [JobHistory]
     let readers: [String: JobLogReader]
     let versions: [RunnerVersion?]
+    /// When launchd answered for each corresponding runner.
+    let readAt: [Date]
   }
 
-  /// - Parameter readAt: when this scan started reading the machine, which is
-  ///   not when it finished. The settling window cares a lot — see
-  ///   `SettlingWindow.display(_:for:readAt:)` — and so does the elapsed time
-  ///   on a running job, which is measured from it.
-  private func apply(_ scan: Scan, readAt: Date) {
+  /// - Parameter startedAt: when this scan began. This is the fleet-level
+  ///   freshness stamp; each snapshot uses its corresponding per-runner probe
+  ///   time from `Scan.readAt` for action ordering and elapsed job time.
+  private func apply(_ scan: Scan, startedAt: Date) {
     let installed = Set(scan.found.runners.map(\.label))
     // A runner that has been uninstalled since it was started would otherwise
     // leave its deadline behind, with nothing left to ever read and clear it.
@@ -387,22 +395,23 @@ final class RunnerFleetModel: ObservableObject {
     // app, describing a directory that may well have been deleted with it.
     housekeeping.keepOnly(installed)
     let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
-    snapshots = zip(scan.found.runners, zip(scan.states, zip(scan.jobs, scan.versions)))
-      .map { runner, rest in
-        RunnerSnapshot(
-          runner: runner,
-          display: settling.display(rest.0, for: runner.label, readAt: readAt),
-          // Only where the name alone would not say which runner this is.
-          qualifier: repeated.contains(runner.displayName)
-            ? runner.scope.displayName : nil,
-          jobs: rest.1.0,
-          readAt: readAt,
-          version: rest.1.1)
-      }
+    snapshots = scan.found.runners.indices.map { index in
+      let runner = scan.found.runners[index]
+      let readAt = scan.readAt[index]
+      return RunnerSnapshot(
+        runner: runner,
+        display: settling.display(scan.states[index], for: runner.label, readAt: readAt),
+        // Only where the name alone would not say which runner this is.
+        qualifier: repeated.contains(runner.displayName)
+          ? runner.scope.displayName : nil,
+        jobs: scan.jobs[index],
+        readAt: readAt,
+        version: scan.versions[index])
+    }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable,
       failure: scan.found.failure)
-    lastReadAt = readAt
+    lastReadAt = startedAt
     // Read from what the menu is about to show rather than from the scan, so a
     // runner the settling window is covering for cannot be announced as
     // disconnected while the menu says it is starting.
@@ -490,6 +499,13 @@ final class RunnerFleetModel: ObservableObject {
       var ranSomething = true
       do {
         try await work(controller, directory)
+        if expectsStop { watcher.completeExpectedStop(for: label, at: clock()) }
+      } catch let failure as RestartStartFailure {
+        // Stop completed before ServiceController attempted Start. Whatever
+        // happened in the second half, a stopped re-probe belongs to this
+        // restart and must retain its expected-stop intent.
+        watcher.completeExpectedStop(for: label, at: clock())
+        ranSomething = failure.timedOut
       } catch CommandError.timedOut {
         // The command was killed at the deadline, which says nothing at all
         // about whether it worked. `svc.sh start` is a `launchctl load` and a
@@ -503,6 +519,7 @@ final class RunnerFleetModel: ObservableObject {
         // of "Starting…" and then the truth, because the window only ever
         // holds back `.disconnected` and a failed start reports `.stopped`.
         // That is the cheaper of the two mistakes by a wide margin.
+        if expectsStop { watcher.completeExpectedStop(for: label, at: clock()) }
       } catch {
         // Nothing ran. A missing `svc.sh` throws before a process is launched,
         // and opening a window here would dress a half-uninstalled runner up

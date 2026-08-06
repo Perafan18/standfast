@@ -14,6 +14,7 @@ final class FleetSandbox: @unchecked Sendable {
   private var remote: Result<RemoteStatus, GitHubError>
   private var scans = 0
   private var probes = 0
+  private var nextProbeBarrier: BlockingProbe?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
   /// Held for the duration of every GitHub call, so a test can make a scan
@@ -125,6 +126,13 @@ final class FleetSandbox: @unchecked Sendable {
     withLock { remote = answer }
   }
   func set(delay seconds: TimeInterval) { withLock { delay = seconds } }
+
+  /// Pauses the next local service probe before it reads `running`.
+  func blockNextProbe() -> BlockingProbe {
+    let barrier = BlockingProbe()
+    withLock { nextProbeBarrier = barrier }
+    return barrier
+  }
 
   /// A command runner that moves the sandbox's service the way `svc.sh` moves
   /// a real one, so a refresh landing mid-restart sees the service genuinely
@@ -311,10 +319,13 @@ final class FleetSandbox: @unchecked Sendable {
   var resolver: RunnerStateResolver {
     RunnerStateResolver(
       isServiceRunning: { [self] _ in
-        withLock {
+        let barrier = withLock {
           probes += 1
-          return running
+          defer { nextProbeBarrier = nil }
+          return nextProbeBarrier
         }
+        barrier?.block()
+        return withLock { running }
       },
       github: Client(sandbox: self))
   }
@@ -379,18 +390,54 @@ final class FailingCommandRunner: CommandRunning, @unchecked Sendable {
   private enum DeliberateCommandFailure: Error { case failed }
 }
 
+/// Succeeds until one selected svc verb, for locating which half of Restart
+/// failed without replacing the controller's real stop-then-start sequence.
+final class FailingVerbCommandRunner: CommandRunning, @unchecked Sendable {
+  private let failingVerb: String
+  private let onVerb: @Sendable (String) -> Void
+  private let lock = NSLock()
+  private var seen: [String] = []
+
+  init(
+    failingVerb: String, onVerb: @escaping @Sendable (String) -> Void = { _ in }
+  ) {
+    self.failingVerb = failingVerb
+    self.onVerb = onVerb
+  }
+
+  var invocations: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return seen
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    let verb = arguments.last ?? ""
+    lock.lock()
+    seen.append(verb)
+    lock.unlock()
+    onVerb(verb)
+    if verb == failingVerb { throw DeliberateCommandFailure.failed }
+    return CommandResult(standardOutput: "", exitCode: 0)
+  }
+
+  private enum DeliberateCommandFailure: Error { case failed }
+}
+
 /// Holds every command at a gate after recording it, so tests can act while a
 /// service mutation is definitely still in flight without racing a sleep.
 final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
-  private struct Waiter {
-    let count: Int
-    let continuation: CheckedContinuation<Void, Never>
-  }
-
   private let lock = NSLock()
   private let gate = DispatchSemaphore(value: 0)
+  private let onReleaseVerb: @Sendable (String) -> Void
   private var seen: [[String]] = []
-  private var waiters: [Waiter] = []
+  private var completed = 0
+
+  init(onReleaseVerb: @escaping @Sendable (String) -> Void = { _ in }) {
+    self.onReleaseVerb = onReleaseVerb
+  }
 
   var invocations: [[String]] {
     lock.lock()
@@ -398,17 +445,16 @@ final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
     return seen
   }
 
-  func waitForInvocationCount(_ count: Int) async {
-    await withCheckedContinuation { continuation in
-      lock.lock()
-      guard seen.count < count else {
-        lock.unlock()
-        continuation.resume()
-        return
-      }
-      waiters.append(Waiter(count: count, continuation: continuation))
-      lock.unlock()
-    }
+  func waitForInvocationCount(
+    _ count: Int, timeout: Duration = .seconds(1)
+  ) async throws {
+    try await wait(timeout: timeout) { self.invocations.count >= count }
+  }
+
+  func waitForCompletionCount(
+    _ count: Int, timeout: Duration = .seconds(1)
+  ) async throws {
+    try await wait(timeout: timeout) { self.completionCount >= count }
   }
 
   /// Signals may be issued before a command reaches the gate; the semaphore
@@ -422,14 +468,67 @@ final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
   ) throws -> CommandResult {
     lock.lock()
     seen.append([executable] + arguments)
-    let ready = waiters.filter { seen.count >= $0.count }
-    waiters.removeAll { seen.count >= $0.count }
     lock.unlock()
-    for waiter in ready { waiter.continuation.resume() }
 
     gate.wait()
+    if let verb = arguments.last { onReleaseVerb(verb) }
+    lock.lock()
+    completed += 1
+    lock.unlock()
     return CommandResult(standardOutput: "", exitCode: 0)
   }
+
+  private var completionCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return completed
+  }
+
+  private func wait(
+    timeout: Duration, until condition: () -> Bool
+  ) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition() {
+      guard clock.now < deadline else { throw WaitFailure.timedOut }
+      try await Task.sleep(for: .milliseconds(1))
+    }
+  }
+
+  private enum WaitFailure: Error { case timedOut }
+}
+
+/// A one-shot gate placed immediately before the sandbox reads launchd state.
+final class BlockingProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private let gate = DispatchSemaphore(value: 0)
+  private var hasEntered = false
+
+  func waitUntilEntered(timeout: Duration = .seconds(1)) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !entered {
+      guard clock.now < deadline else { throw WaitFailure.timedOut }
+      try await Task.sleep(for: .milliseconds(1))
+    }
+  }
+
+  func release() { gate.signal() }
+
+  fileprivate func block() {
+    lock.lock()
+    hasEntered = true
+    lock.unlock()
+    gate.wait()
+  }
+
+  private var entered: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return hasEntered
+  }
+
+  private enum WaitFailure: Error { case timedOut }
 }
 
 /// A clock a test moves by hand, for the parts of this model that measure how

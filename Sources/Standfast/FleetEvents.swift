@@ -52,12 +52,23 @@ struct FleetWatcher {
   }
 
   private var seen: [String: Seen] = [:]
+  private struct ExpectedStop {
+    let requestedAt: Date
+    var completedAt: Date?
+  }
+
+  private let expectedStopLifetime: TimeInterval
+
+  init(expectedStopLifetime: TimeInterval = 30) {
+    self.expectedStopLifetime = expectedStopLifetime
+  }
+
   /// Runners this app has asked to stop and has not yet watched stop.
   ///
   /// Kept apart from `seen` because it is set before the reading it applies to,
   /// and by a different caller: `stop` and `restart` know a stop is coming, and
   /// the scan that finds the runner down lands two seconds later.
-  private var expectedStops: [String: Date] = [:]
+  private var expectedStops: [String: ExpectedStop] = [:]
 
   /// Called when this app asks a runner to stop, so the stop it then observes
   /// is not reported back to the person who ordered it.
@@ -67,7 +78,14 @@ struct FleetWatcher {
   /// from timing would make a slow machine look like a crashed one. Restart
   /// takes the service down too, and lands in the same place.
   mutating func expectStop(for label: String, at requestAt: Date) {
-    expectedStops[label] = requestAt
+    expectedStops[label] = ExpectedStop(requestedAt: requestAt)
+  }
+
+  /// Arms recovery only once the command cannot make any more progress.
+  /// Until then an idle reading means merely that Stop has not reached
+  /// launchd yet; it says nothing about the stop that is still in flight.
+  mutating func completeExpectedStop(for label: String, at completedAt: Date) {
+    expectedStops[label]?.completedAt = completedAt
   }
 
   /// Revokes an intent whose command definitely failed before completing.
@@ -130,8 +148,19 @@ struct FleetWatcher {
     in snapshot: RunnerSnapshot, from before: DisplayState
   ) -> [FleetEvent] {
     let changed = snapshot.display != before
+    var expectedStop = expectedStops[snapshot.runner.label]
+    if let completedAt = expectedStop?.completedAt,
+      snapshot.readAt >= completedAt.addingTimeInterval(expectedStopLifetime)
+    {
+      // An uncertain timeout cannot grant permanent silence. Expiration is
+      // evaluated against probe time, so the first later observation is never
+      // attributed to an action whose effects should already be settled.
+      expectedStops.removeValue(forKey: snapshot.runner.label)
+      expectedStop = nil
+    }
+    let maySuppressStop = expectedStop.map { snapshot.readAt >= $0.requestedAt } ?? false
     let maySpendExpectedStop =
-      expectedStops[snapshot.runner.label].map {
+      expectedStop?.completedAt.map {
         snapshot.readAt >= $0
       } ?? false
     switch snapshot.display.resolvedState {
@@ -139,10 +168,10 @@ struct FleetWatcher {
       // Spent on the first stop observed rather than on the first stop
       // *reported*: a user who presses Stop on an already-stopped runner would
       // otherwise leave the token behind to swallow a real crash later.
-      let expected =
-        maySpendExpectedStop
-        ? expectedStops.removeValue(forKey: snapshot.runner.label) != nil
-        : false
+      if maySpendExpectedStop {
+        expectedStops.removeValue(forKey: snapshot.runner.label)
+      }
+      let expected = maySuppressStop
       guard changed, !expected else { return [] }
       return [.runnerStoppedUnexpectedly(runner: snapshot.name)]
     case .idle, .busy:

@@ -79,7 +79,8 @@ private struct UntouchableFileOperations: DestructiveFileOperations {
 @MainActor
 private func listening(
   _ sandbox: FleetSandbox, commands: any CommandRunning = RecordingCommandRunner(),
-  settleDelay: TimeInterval = 0, probeDelay: TimeInterval = 0
+  settleDelay: TimeInterval = 0, probeDelay: TimeInterval = 0,
+  clock: @escaping @Sendable () -> Date = Date.init
 ) async -> (RunnerFleetModel, FakeNotificationDelivery) {
   let delivery = FakeNotificationDelivery()
   let notifications = NotificationSettings(
@@ -89,10 +90,24 @@ private func listening(
   return (
     model(
       sandbox, commands: commands, settleDelay: settleDelay, probeDelay: probeDelay,
-      notifications: notifications),
+      clock: clock, notifications: notifications),
     delivery
   )
 }
+
+@MainActor
+private func waitUntil(
+  timeout: Duration = .seconds(1), _ condition: () -> Bool
+) async throws {
+  let clock = ContinuousClock()
+  let deadline = clock.now.advanced(by: timeout)
+  while !condition() {
+    guard clock.now < deadline else { throw TestWaitFailure.timedOut }
+    try await Task.sleep(for: .milliseconds(1))
+  }
+}
+
+private enum TestWaitFailure: Error { case timedOut }
 
 // MARK: - Reading the machine
 
@@ -301,14 +316,16 @@ private func listening(
   let directory = try box.addRunner()
   try box.writeListenerLog(
     in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z", finished: nil)
-  // Eighty seconds after the job began, and moving on every reading.
+  // Eighty seconds after the job began at global scan start, and moving on
+  // every reading. The runner's launchd probe is the next clock read, thirty
+  // seconds later; that is the instant this snapshot now represents.
   let clock = TestClock(Date(timeIntervalSince1970: 1_785_962_174 + 80), step: 30)
   let fleet = model(box, clock: clock.read)
 
   await fleet.quiesce()
 
-  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(80)) == true)
-  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(110)) == false)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(110)) == true)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(80)) == false)
 }
 
 @Test @MainActor func aRunnerStillInstalledIsNotReReadFromScratchEachTime()
@@ -621,12 +638,13 @@ private func listening(
   defer { box.cleanUp() }
   try box.addRunner()
   let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
   let fleet = model(box, commands: commands)
   await fleet.quiesce()
   let runner = fleet.snapshots[0].runner
 
   fleet.start(runner)
-  await commands.waitForInvocationCount(1)
+  try await commands.waitForInvocationCount(1)
   fleet.start(runner)
   fleet.stop(runner)
   fleet.restart(runner)
@@ -644,6 +662,7 @@ private func listening(
   try box.addRunner(name: "build-mac", scope: "widget")
   try box.addRunner(name: "release-mac", scope: "gadget")
   let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
   let fleet = model(box, commands: commands)
   await fleet.quiesce()
   let runners = Dictionary(
@@ -652,9 +671,9 @@ private func listening(
     })
 
   fleet.start(runners["build-mac"]!)
-  await commands.waitForInvocationCount(1)
+  try await commands.waitForInvocationCount(1)
   fleet.stop(runners["release-mac"]!)
-  await commands.waitForInvocationCount(2)
+  try await commands.waitForInvocationCount(2)
   commands.release(10)
   await fleet.quiesce()
 
@@ -666,13 +685,14 @@ private func listening(
   defer { box.cleanUp() }
   try box.addRunner(scope: "widget")
   let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
   let opener = FakeURLOpener()
   let fleet = model(box, commands: commands, opener: opener)
   await fleet.quiesce()
   let runner = fleet.snapshots[0].runner
 
   fleet.start(runner)
-  await commands.waitForInvocationCount(1)
+  try await commands.waitForInvocationCount(1)
   fleet.perform(.openOnGitHub, on: runner)
 
   #expect(
@@ -843,6 +863,69 @@ private func listening(
   #expect(delivery.posted.isEmpty)
 }
 
+@Test @MainActor func anIdleScanDuringStopCannotSpendItsIntent() async throws {
+  // The command has entered svc.sh but has not stopped the service yet. A scan
+  // in that interval is newer than the click and still says idle; it is not
+  // evidence that the ordered stop has already been and gone.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let before = fleet.lastReadAt
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  clock.advance(1)
+  fleet.refresh()
+  try await waitUntil { fleet.lastReadAt != before }
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.idle)])
+
+  commands.release()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aProbeAfterTheClickBelongsToTheOrderedStop() async throws {
+  // The scan begins first, but its per-runner launchd probe is held until after
+  // Stop completes. Dating every runner from scan start misclassifies this
+  // genuinely post-click `.stopped` observation as stale and announces it.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+
+  let probe = box.blockNextProbe()
+  defer { probe.release() }
+  fleet.refresh()
+  try await probe.waitUntilEntered()
+  clock.advance(1)
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  commands.release()
+  try await commands.waitForCompletionCount(1)
+  probe.release()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
 @Test @MainActor func aFailedStopDoesNotSilenceTheNextRealCrash() async throws {
   // A definite command failure revokes the intent immediately. The runner can
   // go down independently before the re-probe, and that crash still belongs
@@ -880,6 +963,27 @@ private func listening(
   #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
 }
 
+@Test @MainActor func aRestartWhoseStartFailsStillOwnsItsStop() async throws {
+  // Stop returns successfully and leaves launchd down; only the subsequent
+  // Start fails. Cancelling the whole intent here turns the ordered first half
+  // into a false unexpected-stop notification.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = FailingVerbCommandRunner(failingVerb: "start") { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(commands.invocations == ["stop", "start"])
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
 @Test @MainActor func aTimedOutStopKeepsItsExpectedStopIntent() async throws {
   // A timeout says only that the process was killed at its deadline. If the
   // stop already took effect, its resulting scan is still the ordered stop.
@@ -897,6 +1001,35 @@ private func listening(
 
   #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
   #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aTimedOutStopCannotSilenceACrashAfterItsLifetime() async throws {
+  // The timeout leaves effects uncertain and the immediate disconnected probe
+  // cannot settle that uncertainty. Thirty seconds later the intent expires;
+  // a new stopped transition is announced instead of inheriting old silence.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = TimingOutCommandRunner { [box] verb in
+    if verb == "stop" {
+      box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+    }
+  }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
+
+  clock.advance(30)
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title).last == L10n.notificationStoppedTitle)
 }
 
 @Test @MainActor func aRunnerThatGoesDownByItselfIsAnnounced() async throws {

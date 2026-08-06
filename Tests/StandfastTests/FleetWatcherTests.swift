@@ -274,7 +274,7 @@ import Testing
   // cannot prove the ordered stop has already been and gone.
   let beforeClick = Date(timeIntervalSince1970: 100)
   let clickedAt = Date(timeIntervalSince1970: 200)
-  let afterClick = Date(timeIntervalSince1970: 300)
+  let afterClick = Date(timeIntervalSince1970: 260)
   var watcher = FleetWatcher()
   let runner = snapshot(readAt: beforeClick.addingTimeInterval(-1))
   _ = watcher.events(in: [runner])
@@ -282,6 +282,8 @@ import Testing
   watcher.expectStop(for: runner.runner.label, at: clickedAt)
   #expect(
     watcher.events(in: [snapshot(display: .resolved(.busy), readAt: beforeClick)]).isEmpty)
+  watcher.completeExpectedStop(
+    for: runner.runner.label, at: clickedAt.addingTimeInterval(50))
 
   let events = watcher.events(in: [
     snapshot(display: .resolved(.stopped), readAt: afterClick)
@@ -314,6 +316,7 @@ import Testing
   let runner = snapshot()
   _ = watcher.events(in: [runner])
   watcher.expectStop(for: runner.runner.label, at: runner.readAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
   #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
 
@@ -332,6 +335,7 @@ import Testing
   _ = watcher.events(in: [runner])
 
   watcher.expectStop(for: runner.runner.label, at: runner.readAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.busy))]).isEmpty)
   let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
 
@@ -346,6 +350,7 @@ import Testing
   let runner = snapshot(display: .resolved(.stopped))
   _ = watcher.events(in: [runner])
   watcher.expectStop(for: runner.runner.label, at: runner.readAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
 
   #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
@@ -363,11 +368,36 @@ import Testing
   let runner = snapshot()
   _ = watcher.events(in: [runner])
   watcher.expectStop(for: runner.runner.label, at: runner.readAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
 
   // Started again from a terminal; GitHub has not registered it yet.
   #expect(watcher.events(in: [snapshot(display: .resolved(.disconnected))]).count == 1)
   let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
+
+  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
+@Test func anUncertainStopIntentExpiresBeforeAFutureCrash() {
+  // A timeout may have stopped the service, so its immediate observation is
+  // suppressed. It may not buy silence forever when only inconclusive states
+  // arrive; the first stopped transition at the deadline is a new crash.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 10)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+
+  _ = watcher.events(in: [
+    snapshot(
+      display: .resolved(.unknown(.noAnswer)),
+      readAt: completedAt.addingTimeInterval(5))
+  ])
+  let events = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(10))
+  ])
 
   #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }

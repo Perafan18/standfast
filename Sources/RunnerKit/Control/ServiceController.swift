@@ -6,6 +6,23 @@ public enum ServiceControlError: Error, Equatable {
   case scriptMissing(URL)
 }
 
+/// Restart's Stop completed, but its later Start did not.
+///
+/// Keeping that phase is essential to callers that suppress an expected stop:
+/// the runner is down because of the completed first half even though Restart
+/// as a whole threw.
+public struct RestartStartFailure: Error {
+  public let underlying: any Error
+
+  fileprivate init(underlying: any Error) { self.underlying = underlying }
+
+  public var timedOut: Bool {
+    guard let command = underlying as? CommandError else { return false }
+    if case .timedOut = command { return true }
+    return false
+  }
+}
+
 /// Starts and stops a runner's LaunchAgent through the `svc.sh` the runner
 /// ships. No sudo: on macOS the runner is a per-user LaunchAgent, and sudo is
 /// the Linux instruction — it would only prompt for a password this app has no
@@ -64,7 +81,11 @@ public struct ServiceController: Sendable {
   public func restart(in directory: URL) async throws {
     try await stop(in: directory)
     if settleDelay > 0 { try await Task.sleep(for: .seconds(settleDelay)) }
-    try await start(in: directory)
+    do {
+      try await start(in: directory)
+    } catch {
+      throw RestartStartFailure(underlying: error)
+    }
   }
 
   private func svc(_ verb: String, in directory: URL) throws {
