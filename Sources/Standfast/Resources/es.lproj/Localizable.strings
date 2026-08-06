@@ -4,6 +4,11 @@
 "menu.openOnGitHub" = "Abrir en GitHub";
 "menu.refreshNow" = "Actualizar ahora";
 "menu.quit" = "Salir";
+"menu.recentJobs" = "Trabajos recientes";
+"menu.openAtLogin" = "Abrir al iniciar sesión";
+"menu.openAtLogin.failed" = "No se pudo activar Abrir al iniciar sesión";
+"menu.openAtLogin.needsApproval" = "Permite Standfast en Ajustes del Sistema › General › Ítems de inicio";
+"menu.openAtLogin.unavailable" = "Estado del ítem de inicio desconocido; revisa Ajustes del Sistema › General › Ítems de inicio";
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
 
@@ -21,3 +26,23 @@
 "state.unknown.notAuthenticated" = "Desconocido — ejecuta gh auth login en una terminal";
 "state.unknown.noAnswer" = "Desconocido — gh no obtuvo respuesta; revisa tu red";
 "state.unknown.noLocalAnswer" = "Desconocido — launchctl no respondió; prueba Actualizar ahora";
+
+"state.checkedAgo" = "Consultado hace %@";
+"state.checkedJustNow" = "Consultado ahora mismo";
+"state.checkedNever" = "Aún sin consultar";
+
+"job.running" = "Ejecutando %@ — %@";
+"job.runningWithTypical" = "Ejecutando %@ — %@, suele tardar %@";
+"job.row" = "%@ — %@ (%@)";
+"job.rowNoDuration" = "%@ — %@";
+
+"job.result.succeeded" = "Correcto";
+"job.result.failed" = "Fallido";
+"job.result.canceled" = "Cancelado";
+"job.result.interrupted" = "Interrumpido";
+
+"duration.hoursMinutes" = "%dh %02dm";
+"duration.minutesSeconds" = "%dm %02ds";
+"duration.hours" = "%dh";
+"duration.minutes" = "%dm";
+"duration.seconds" = "%ds";

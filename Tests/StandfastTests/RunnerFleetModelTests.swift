@@ -6,16 +6,19 @@ import Testing
 
 @MainActor
 private func model(
-  _ sandbox: FleetSandbox, commands: RecordingCommandRunner = RecordingCommandRunner(),
+  _ sandbox: FleetSandbox, commands: any CommandRunning = RecordingCommandRunner(),
   settling: SettlingWindow = SettlingWindow(), settleDelay: TimeInterval = 0,
-  probeDelay: TimeInterval = 0
+  probeDelay: TimeInterval = 0, clock: @escaping @Sendable () -> Date = Date.init,
+  // No ticker by default: these tests drive every refresh themselves. A test
+  // that wants the freshness rule passes an interval long enough that the real
+  // ticker cannot fire inside it, and calls `tick()` by hand.
+  refreshInterval: TimeInterval? = nil
 ) -> RunnerFleetModel {
   RunnerFleetModel(
     discover: sandbox.discover, resolver: sandbox.resolver,
     controller: ServiceController(commandRunner: commands, settleDelay: settleDelay),
-    settling: settling, probeDelay: probeDelay,
-    // No ticker: these tests drive every refresh themselves.
-    refreshInterval: nil)
+    settling: settling, clock: clock, probeDelay: probeDelay,
+    refreshInterval: refreshInterval)
 }
 
 // MARK: - Reading the machine
@@ -65,6 +68,250 @@ private func model(
 
   // One running, one remembered, the third folded into the second.
   #expect(box.scanCount == 3)
+}
+
+// MARK: - The ticker, and the loop it used to become
+
+@Test @MainActor func aTickArrivingDuringAScanIsDroppedRatherThanRemembered()
+  async throws
+{
+  // The measured failure: with `gh` slower than the interval, every tick that
+  // landed mid-scan left a request pending, so the scan restarted the instant
+  // it finished — and again, and again, for as long as the network stayed bad.
+  // No pause, an API call per pass, and the radio never asleep, all of it
+  // spent exactly when the machine can least afford it.
+  //
+  // Dropping loses nothing: a tick asks for a fresh reading, and the scan
+  // already running is one.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+  await fleet.quiesce()
+  #expect(box.scanCount == 1)
+
+  box.set(delay: 0.2)
+  fleet.refresh()
+  fleet.tick()
+  fleet.tick()
+  fleet.tick()
+  await fleet.quiesce()
+
+  #expect(box.scanCount == 2)
+}
+
+@Test @MainActor func anExplicitRefreshDuringAScanIsStillRemembered() async throws {
+  // The other half of the same decision, and why ticks are the only thing
+  // dropped. The request most likely to land during a slow scan is the
+  // re-probe after an action — the single answer the user is waiting for — and
+  // the scan already running read the machine before the action touched it.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+  await fleet.quiesce()
+
+  box.set(delay: 0.2)
+  fleet.refresh()
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(box.scanCount == 3)
+}
+
+@Test @MainActor func aTickIsDroppedWhileTheAnswerOnScreenIsStillFresh() async throws {
+  // `readAt` is when the machine was read, not when the answer landed. A scan
+  // that overran the interval leaves the very next tick due on arrival, which
+  // is the same loop by a slower route.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let fleet = model(box, clock: clock.read, refreshInterval: 15)
+  await fleet.quiesce()
+  #expect(box.scanCount == 1)
+
+  clock.advance(14)
+  fleet.tick()
+  await fleet.quiesce()
+  #expect(box.scanCount == 1)
+
+  clock.advance(2)
+  fleet.tick()
+  await fleet.quiesce()
+  #expect(box.scanCount == 2)
+}
+
+// MARK: - When the machine was last read
+
+@Test @MainActor func theMarkSaysWhenTheScanStartedAndNotWhenItLanded() async throws {
+  // The whole reason this line is worth having. A `gh` that hangs for thirty
+  // seconds leaves the menu describing a machine from half a minute ago, and a
+  // mark taken when the answer arrived would call that fresh — which is exactly
+  // the lie the line exists to catch.
+  //
+  // Time moves on every reading here, so a stamp taken at either end of the
+  // scan is a different number.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock(step: 30)
+  let fleet = model(box, clock: clock.read)
+
+  await fleet.quiesce()
+
+  #expect(fleet.lastReadAt == clock.start)
+  #expect(fleet.lastReadAt != clock.read())
+}
+
+@Test @MainActor func theMenuKnowsWhenItLastReadTheMachine() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let fleet = model(box, clock: clock.read)
+  #expect(fleet.lastReadAt == nil)
+
+  await fleet.quiesce()
+  let first = fleet.lastReadAt
+  #expect(first == clock.read())
+
+  clock.advance(60)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.lastReadAt == clock.read())
+  #expect(fleet.lastReadAt != first)
+}
+
+// MARK: - What the runner has been building
+
+@Test @MainActor func theJobARunnerIsBuildingReachesTheMenu() async throws {
+  // End to end, through the one path that matters: the log on disk, the
+  // reader, the snapshot and the row. Nothing here is stubbed but GitHub.
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z", finished: nil)
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].jobs.running?.name == "testflight")
+  #expect(fleet.snapshots[0].row.progress?.contains("testflight") == true)
+}
+
+@Test @MainActor func aFinishedJobBecomesHistoryRatherThanProgress() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z")
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  let row = fleet.snapshots[0].row
+  #expect(row.progress == nil)
+  #expect(row.recentJobs.map(\.text) == ["testflight — \(L10n.jobSucceeded) (2m 45s)"])
+}
+
+@Test @MainActor func theElapsedTimeIsMeasuredFromWhenTheMachineWasRead() async throws {
+  // Every number in one row has to describe one moment. Measuring elapsed time
+  // against the clock while the state beside it is as it was read half a minute
+  // ago leaves the row quietly describing two different machines — and on a
+  // slow `gh` the gap is the whole thirty seconds.
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z", finished: nil)
+  // Eighty seconds after the job began, and moving on every reading.
+  let clock = TestClock(Date(timeIntervalSince1970: 1_785_962_174 + 80), step: 30)
+  let fleet = model(box, clock: clock.read)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(80)) == true)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(110)) == false)
+}
+
+@Test @MainActor func aRunnerStillInstalledIsNotReReadFromScratchEachTime()
+  async throws
+{
+  // The refresh runs every fifteen seconds for as long as the app is open, and
+  // the reader that knows how much of the log it has already consumed lives
+  // here — one per runner, carried across scans the way the settling window is.
+  // Rebuilding it each time throws that away and re-reads `_diag` on every
+  // tick, which is the entire thing it exists to avoid.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z")
+  let fleet = model(box)
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].jobs.records.count == 1)
+
+  // Bytes it has already consumed, replaced. A reader that kept its place does
+  // not look at them again.
+  try box.garbleListenerLog(in: directory)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].jobs.records.map(\.name) == ["testflight"])
+}
+
+@Test @MainActor func aRunnerThatLeavesTheMachineTakesItsLogReaderWithIt()
+  async throws
+{
+  // The other half: a reader for a runner that is no longer installed would
+  // hold its parsed jobs for as long as the app runs, with nothing left to ever
+  // clear it — the same leak the settling window is swept for. Forgetting it
+  // also means a reinstalled runner is read from disk rather than from a memory
+  // of the machine as it used to be.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z")
+  let fleet = model(box)
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].jobs.records.count == 1)
+
+  try box.removeRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  // Reinstalled, with a log that no longer says what it said. Anything still
+  // showing `testflight` is showing it from a reader that outlived its runner.
+  try box.garbleListenerLog(in: directory)
+  try box.addRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.count == 1)
+  #expect(fleet.snapshots[0].jobs.records.isEmpty)
+}
+
+@Test @MainActor func aRunnerWithNoDiagnosticsDirectoryStillGetsARow() async throws {
+  // A runner started by hand, a `_diag` somebody cleared out, a permissions
+  // problem. None of it may cost the row that says whether the runner is up.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.idle)])
+  #expect(fleet.snapshots[0].jobs == .empty)
+  #expect(fleet.snapshots[0].row.recentJobs.isEmpty)
 }
 
 // MARK: - The settling window, from the outside
@@ -309,6 +556,36 @@ private func model(
   await fleet.quiesce()
 
   #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
+}
+
+@Test @MainActor func anActionKilledByTheTimeoutStillGetsItsSettlingWindow()
+  async throws
+{
+  // `svc.sh start` is a `launchctl load` and a little shell. When it takes
+  // more than the command runner's thirty seconds it is the machine that is
+  // struggling, and the load has usually already happened — which is exactly
+  // when a runner needs longest to register, and so needs the window most.
+  // Treating the timeout as a failure raised the warning triangle over a start
+  // that had gone through.
+  //
+  // Not the same as an action that could not run at all: the test below stages
+  // a missing `svc.sh`, where nothing was launched, and gets no window.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  // The command is killed at the deadline having already started the service,
+  // and GitHub has not yet heard of it — which is `.disconnected`, the state
+  // the window exists to hold back.
+  let commands = TimingOutCommandRunner { [box] _ in box.set(serviceRunning: true) }
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.start(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+  #expect(fleet.snapshots.map(\.display) != [.resolved(.disconnected)])
 }
 
 @Test @MainActor func eachActionRunsSvcInThatRunnersOwnDirectory() async throws {

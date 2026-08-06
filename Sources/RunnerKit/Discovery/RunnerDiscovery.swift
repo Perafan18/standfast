@@ -13,6 +13,10 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
 
   public var id: String { label }
   public var workDirectory: URL { directory.appendingPathComponent(workFolder) }
+  /// Where the runner keeps its own logs. Not configurable and not recorded in
+  /// `.runner`: the name is compiled into the runner, which is why this can be
+  /// derived rather than discovered.
+  public var diagnosticsDirectory: URL { directory.appendingPathComponent("_diag") }
   let workFolder: String
 
   /// A name that is never blank, for callers that just need to render one.

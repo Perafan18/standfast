@@ -39,6 +39,37 @@ looks similar and the fix is not.
 installed but not authenticated* (run `gh auth login`), *it answered nothing useful*, and
 *launchd could not be asked* — because each one has a different fix.
 
+## What it is building, and for how long
+
+Open the menu on a busy runner and it says which job:
+
+```
+mac-mini-m4 — Running a job
+Running testflight — 1m 20s, usually 2m 50s
+```
+
+Under it, the last five jobs with how each one ended and how long it took. All of it comes
+out of the log the runner already writes beside itself — **no API call, no token, nothing
+to configure**. The runner announces every job it picks up and every result it hands back,
+and Standfast reads the tail of that file.
+
+"Usually" is the median of the last few **successful** runs *of that same job*. Not the
+mean, and not every run: a build cancelled after ten seconds is a real event and a
+terrible estimate, and one of them would drag a mean down by half a minute and keep it
+there. **With fewer than three runs to go on, Standfast shows no estimate at all** —
+elapsed time only. A number invented from two samples is worse than no number.
+
+The line shows elapsed time against a reference, never a countdown. A job that overruns
+keeps saying what it usually takes, which is exactly when you want to know.
+
+## Open at login
+
+Off by default, and switched on from the menu. Standfast asks macOS to register it and
+then asks macOS back what actually happened, so the checkbox shows the state of the
+registration rather than the state of the request — including the case where macOS keeps
+the registration and the user has switched it off in System Settings, where nothing failed
+and the app still will not launch.
+
 ## Install
 
 ```sh
@@ -92,7 +123,7 @@ can never be mistaken for the first.
 
 ## Known limitations
 
-These are real and deliberate for v0.1, not oversights:
+These are real and deliberate, not oversights:
 
 - **Runners started by hand with `./run.sh` are not discovered.** They leave no
   LaunchAgent, and the whole discovery mechanism is a scan of `~/Library/LaunchAgents`.
@@ -101,8 +132,10 @@ These are real and deliberate for v0.1, not oversights:
   `github.com` through `gh`, and "Open on GitHub" links there too. A GHES runner reads
   `unknown`. (Runners registered to a GitHub Enterprise Cloud *account* —
   `github.com/enterprises/...` — do work.)
-- **State is re-read every 15 seconds** and the menu does not yet tell you when it last
-  looked. A slow `gh` can stretch that.
+- **State is re-read every 15 seconds**, and a slow `gh` can stretch that. The menu now
+  says when it last looked, which is the only honest way to tell.
+- **The job history goes back about twenty jobs**, and no further. It is read from the
+  tail of the runner's own logs; anything older is a question for GitHub's run list.
 - **A half-uninstalled runner nags forever.** If a `.plist` is left behind without its
   runner directory, the menu lists it as unreadable every time you open it. Delete the
   stray `.plist` to clear it.
@@ -112,8 +145,9 @@ These are real and deliberate for v0.1, not oversights:
 ## Privacy
 
 Nothing leaves your machine. Standfast talks to launchd, to your runner's own `svc.sh`,
-and to the GitHub API through `gh`. It reads files you can already read, stores no
-credentials, and has no telemetry, no analytics and no update check.
+and to the GitHub API through `gh`. It reads files you can already read — including the
+runner's own `_diag` logs, which never leave the machine either — stores no credentials,
+and has no telemetry, no analytics and no update check.
 
 See [SECURITY.md](SECURITY.md).
 
@@ -122,7 +156,7 @@ See [SECURITY.md](SECURITY.md).
 ```sh
 git clone https://github.com/Perafan18/standfast
 cd standfast
-make test      # 190 tests, none of which needs a runner installed
+make test      # 269 tests, none of which needs a runner installed
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 make check     # the packaging check: assembles, deletes .build, launches

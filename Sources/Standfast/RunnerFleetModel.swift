@@ -11,12 +11,27 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// whether a name identifies anything is a question about the other runners;
   /// see `repeatedNames(among:)`.
   let qualifier: String?
+  /// What this runner's own listener log says it has been doing.
+  let jobs: JobHistory
+  /// When the scan behind this snapshot read the machine.
+  ///
+  /// Carried into the row rather than left to the clock so that every number
+  /// in it describes one moment. A running job's elapsed time measured against
+  /// `Date()` would tick on while the state beside it stayed as it was read
+  /// half a minute ago, and the row would be quietly describing two different
+  /// machines.
+  let readAt: Date
   var id: String { runner.label }
 
-  init(runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil) {
+  init(
+    runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil,
+    jobs: JobHistory = .empty, readAt: Date = .distantPast
+  ) {
     self.runner = runner
     self.display = display
     self.qualifier = qualifier
+    self.jobs = jobs
+    self.readAt = readAt
   }
 }
 
@@ -45,13 +60,23 @@ enum FleetNotice: Equatable {
 final class RunnerFleetModel: ObservableObject {
   @Published private(set) var snapshots: [RunnerSnapshot] = []
   @Published private(set) var notice: FleetNotice?
+  /// When the scan behind what is on screen *started* reading, and nil until
+  /// one has. Stamped at the start rather than on arrival on purpose: a `gh`
+  /// that hangs for thirty seconds leaves a stale menu, and a mark taken when
+  /// the answer landed would describe it as fresh.
+  @Published private(set) var lastReadAt: Date?
 
   private let discover: @Sendable () -> DiscoveryResult
   private let resolver: RunnerStateResolver
   private let controller: ServiceController
   private let clock: @Sendable () -> Date
   private let probeDelay: TimeInterval
+  private let refreshInterval: TimeInterval?
   private var settling: SettlingWindow
+  /// One per runner, carrying how much of its listener log has already been
+  /// read. Held here for the same reason `settling` is: it is state about a
+  /// runner that no single scan can own.
+  private var jobLogs: [String: JobLogReader] = [:]
   private var inFlight: Task<Void, Never>?
   private var refreshRequested = false
   private var ticker: Task<Void, Never>?
@@ -87,6 +112,7 @@ final class RunnerFleetModel: ObservableObject {
     self.settling = settling
     self.clock = clock
     self.probeDelay = probeDelay
+    self.refreshInterval = refreshInterval
     refresh()
     guard let refreshInterval else { return }
     // A sleeping task rather than a `Timer`: a scheduled timer runs in the
@@ -97,7 +123,7 @@ final class RunnerFleetModel: ObservableObject {
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(refreshInterval))
         guard let self else { return }
-        refresh()
+        tick()
       }
     }
   }
@@ -121,8 +147,9 @@ final class RunnerFleetModel: ObservableObject {
     // settling window has to be able to tell, or a reading taken before the
     // user pressed Restart gets to close the window that click opened.
     let readAt = clock()
-    inFlight = Task { [discover, resolver] in
-      let scan = await Self.scan(discover: discover, resolver: resolver)
+    inFlight = Task { [discover, resolver, jobLogs] in
+      let scan = await Self.scan(
+        discover: discover, resolver: resolver, readers: jobLogs)
       apply(scan, readAt: readAt)
       inFlight = nil
       if refreshRequested {
@@ -130,6 +157,36 @@ final class RunnerFleetModel: ObservableObject {
         refresh()
       }
     }
+  }
+
+  /// The refresh the ticker asks for, which is not the refresh the menu asks
+  /// for — and the difference is the whole of the fix.
+  ///
+  /// A tick is dropped where an explicit request is remembered. Remembering
+  /// both, which is what this used to do, is how a `gh` slower than the
+  /// interval turned the ticker into a loop: every tick that landed during a
+  /// scan left a request pending, so the scan restarted the instant it
+  /// finished, and then again, for as long as the network stayed bad. No
+  /// pause, an API call per pass, and a radio that never gets to sleep —
+  /// spending the most battery exactly when the machine can least afford it.
+  ///
+  /// Dropping loses nothing. A tick asks for a fresh reading, and a scan
+  /// already running is one.
+  func tick() {
+    guard inFlight == nil else { return }
+    // And a reading younger than the interval is one this tick has nothing to
+    // add to. `readAt` is when the machine was read rather than when the
+    // answer landed, which is what makes it the right clock here: a scan that
+    // overran leaves the next tick due the moment it arrives, and that is the
+    // same loop by a slower route. It also means a Refresh now pushes the next
+    // automatic reading out, which is what a user who has just refreshed
+    // wanted.
+    if let refreshInterval, let lastReadAt,
+      clock().timeIntervalSince(lastReadAt) < refreshInterval
+    {
+      return
+    }
+    refresh()
   }
 
   /// Waits out everything this model has running: actions, the refresh each of
@@ -160,33 +217,67 @@ final class RunnerFleetModel: ObservableObject {
   /// are rarely more than a handful of runners, and the coalescing in
   /// `refresh()` is what stops a slow scan from piling up.
   private nonisolated static func scan(
-    discover: @escaping @Sendable () -> DiscoveryResult, resolver: RunnerStateResolver
-  ) async -> (found: DiscoveryResult, states: [RunnerState]) {
+    discover: @escaping @Sendable () -> DiscoveryResult, resolver: RunnerStateResolver,
+    readers: [String: JobLogReader]
+  ) async -> Scan {
     let found = await offCooperativePool { discover() }
     var states: [RunnerState] = []
-    for runner in found.runners { states.append(await resolver.state(for: runner)) }
-    return (found, states)
+    var jobs: [JobHistory] = []
+    var readers = readers
+    for runner in found.runners {
+      states.append(await resolver.state(for: runner))
+      // The same rule as discovery, for the same reason: this is file I/O, and
+      // the cheap path — a directory listing and a `stat` — is only the usual
+      // one. A cold read is hundreds of kilobytes, off a home directory that
+      // may well be on a network volume.
+      let reader = readers[runner.label] ?? JobLogReader()
+      let diagnostics = runner.diagnosticsDirectory
+      let read = await offCooperativePool { () -> (JobHistory, JobLogReader) in
+        var reader = reader
+        return (reader.read(diagnosticsIn: diagnostics), reader)
+      }
+      jobs.append(read.0)
+      readers[runner.label] = read.1
+    }
+    return Scan(found: found, states: states, jobs: jobs, readers: readers)
+  }
+
+  /// One scan's answer. A named type rather than a tuple because it crosses a
+  /// thread boundary and has to be `Sendable` where a caller can see it.
+  private struct Scan: Sendable {
+    let found: DiscoveryResult
+    let states: [RunnerState]
+    let jobs: [JobHistory]
+    let readers: [String: JobLogReader]
   }
 
   /// - Parameter readAt: when this scan started reading the machine, which is
-  ///   not when it finished. Only the settling window cares, and it cares a
-  ///   lot: see `SettlingWindow.display(_:for:readAt:)`.
-  private func apply(
-    _ scan: (found: DiscoveryResult, states: [RunnerState]), readAt: Date
-  ) {
+  ///   not when it finished. The settling window cares a lot — see
+  ///   `SettlingWindow.display(_:for:readAt:)` — and so does the elapsed time
+  ///   on a running job, which is measured from it.
+  private func apply(_ scan: Scan, readAt: Date) {
+    let installed = Set(scan.found.runners.map(\.label))
     // A runner that has been uninstalled since it was started would otherwise
     // leave its deadline behind, with nothing left to ever read and clear it.
-    settling.keepOnly(Set(scan.found.runners.map(\.label)))
+    settling.keepOnly(installed)
+    // And its log reader would hold a few hundred parsed jobs for a runner
+    // that no longer exists, for as long as the app runs.
+    jobLogs = scan.readers.filter { installed.contains($0.key) }
     let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
-    snapshots = zip(scan.found.runners, scan.states).map { runner, state in
+    snapshots = zip(scan.found.runners, zip(scan.states, scan.jobs)).map {
+      runner, rest in
       RunnerSnapshot(
         runner: runner,
-        display: settling.display(state, for: runner.label, readAt: readAt),
+        display: settling.display(rest.0, for: runner.label, readAt: readAt),
         // Only where the name alone would not say which runner this is.
-        qualifier: repeated.contains(runner.displayName) ? runner.scope.displayName : nil)
+        qualifier: repeated.contains(runner.displayName)
+          ? runner.scope.displayName : nil,
+        jobs: rest.1,
+        readAt: readAt)
     }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable)
+    lastReadAt = readAt
   }
 
   // MARK: - Acting
@@ -239,22 +330,30 @@ final class RunnerFleetModel: ObservableObject {
     let label = runner.label
     let id = UUID()
     actions[id] = Task {
-      var succeeded = true
+      var ranSomething = true
       do {
         try await work(controller, directory)
+      } catch CommandError.timedOut {
+        // The command was killed at the deadline, which says nothing at all
+        // about whether it worked. `svc.sh start` is a `launchctl load` and a
+        // handful of shell; when it takes more than thirty seconds it is the
+        // machine that is slow, and the load has usually already happened —
+        // which is precisely when a runner needs the longest to register, and
+        // so needs the window most. Treating this as a failure raised the
+        // warning triangle over a start that had gone through.
+        //
+        // A window opened over a start that did not take costs thirty seconds
+        // of "Starting…" and then the truth, because the window only ever
+        // holds back `.disconnected` and a failed start reports `.stopped`.
+        // That is the cheaper of the two mistakes by a wide margin.
       } catch {
-        // Nowhere to put this, and two different things arrive here: a missing
-        // `svc.sh`, where nothing ran at all, and `CommandError.timedOut`,
-        // where the command was killed after 30s having quite possibly already
-        // done its work. The second one costs a settling window that should
-        // have opened, so a start that is going fine can still be reported as
-        // `.disconnected`. Accepted for now over the alternative — opening a
-        // window for an action that never happened, which would dress a
-        // half-uninstalled runner up as "Starting…" for thirty seconds. The
-        // re-probe below is the only honest report either way.
-        succeeded = false
+        // Nothing ran. A missing `svc.sh` throws before a process is launched,
+        // and opening a window here would dress a half-uninstalled runner up
+        // as "Starting…" for thirty seconds over an action that never
+        // happened.
+        ranSomething = false
       }
-      if thenSettles && succeeded { settling.open(for: label, at: clock()) }
+      if thenSettles && ranSomething { settling.open(for: label, at: clock()) }
       // `svc.sh` returns before launchd has settled, so an immediate re-probe
       // reports the state we just left.
       try? await Task.sleep(for: .seconds(probeDelay))

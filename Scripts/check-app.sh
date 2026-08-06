@@ -105,7 +105,10 @@ else
   # Dotted identifiers are what a menu looks like when every lookup missed and
   # the built-in English was not there to catch it.
   case "$menu" in
-    *menu.*|*state.*) fail "the menu is showing raw localisation keys" ;;
+    # One pattern per family of keys in L10n. A new family that is not added
+    # here is a family this check silently stops covering.
+    *menu.*|*state.*|*job.*|*duration.*)
+      fail "the menu is showing raw localisation keys" ;;
   esac
 fi
 

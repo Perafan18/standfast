@@ -4,6 +4,11 @@
 "menu.openOnGitHub" = "Open on GitHub";
 "menu.refreshNow" = "Refresh now";
 "menu.quit" = "Quit";
+"menu.recentJobs" = "Recent jobs";
+"menu.openAtLogin" = "Open at login";
+"menu.openAtLogin.failed" = "Open at login could not be turned on";
+"menu.openAtLogin.needsApproval" = "Allow Standfast in System Settings › General › Login Items";
+"menu.openAtLogin.unavailable" = "Login item state unknown; check System Settings › General › Login Items";
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
 
@@ -21,3 +26,23 @@
 "state.unknown.notAuthenticated" = "Unknown — run gh auth login in a terminal";
 "state.unknown.noAnswer" = "Unknown — gh got no answer; check your network";
 "state.unknown.noLocalAnswer" = "Unknown — launchctl did not answer; try Refresh now";
+
+"state.checkedAgo" = "Checked %@ ago";
+"state.checkedJustNow" = "Checked just now";
+"state.checkedNever" = "Not checked yet";
+
+"job.running" = "Running %@ — %@";
+"job.runningWithTypical" = "Running %@ — %@, usually %@";
+"job.row" = "%@ — %@ (%@)";
+"job.rowNoDuration" = "%@ — %@";
+
+"job.result.succeeded" = "Succeeded";
+"job.result.failed" = "Failed";
+"job.result.canceled" = "Canceled";
+"job.result.interrupted" = "Interrupted";
+
+"duration.hoursMinutes" = "%dh %02dm";
+"duration.minutesSeconds" = "%dm %02ds";
+"duration.hours" = "%dh";
+"duration.minutes" = "%dm";
+"duration.seconds" = "%ds";

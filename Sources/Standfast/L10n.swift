@@ -11,6 +11,11 @@ enum L10n {
   static let openOnGitHub = t("menu.openOnGitHub")
   static let refreshNow = t("menu.refreshNow")
   static let quit = t("menu.quit")
+  static let recentJobs = t("menu.recentJobs")
+  static let openAtLogin = t("menu.openAtLogin")
+  static let openAtLoginFailed = t("menu.openAtLogin.failed")
+  static let openAtLoginNeedsApproval = t("menu.openAtLogin.needsApproval")
+  static let openAtLoginUnavailable = t("menu.openAtLogin.unavailable")
 
   static let noRunnersFound = t("state.noRunners")
   static let someRunnersUnreadable = t("state.unreadable")
@@ -30,10 +35,70 @@ enum L10n {
   static let stateUnknownNoAnswer = t("state.unknown.noAnswer")
   static let stateUnknownNoLocalAnswer = t("state.unknown.noLocalAnswer")
 
+  static let checkedJustNow = t("state.checkedJustNow")
+  static let checkedNever = t("state.checkedNever")
+
+  // The runner's own word for how a job ended, translated. `.other` is not
+  // here on purpose: an outcome this version has never met is shown as GitHub
+  // wrote it, since a translation of it would be one this app invented.
+  static let jobSucceeded = t("job.result.succeeded")
+  static let jobFailed = t("job.result.failed")
+  static let jobCanceled = t("job.result.canceled")
+  static let jobInterrupted = t("job.result.interrupted")
+
   /// A runner's name and its state on one line. Localised because the dash and
   /// the spacing around it are not punctuation every language writes the same.
   static func runnerRow(_ name: String, _ state: String) -> String {
     String(format: t("menu.runnerRow"), name, state)
+  }
+
+  /// The job in flight and how long it has been going.
+  static func jobRunning(_ name: String, _ elapsed: String) -> String {
+    String(format: t("job.running"), name, elapsed)
+  }
+
+  /// The same, with what that job usually takes on this runner.
+  static func jobRunningWithTypical(
+    _ name: String, _ elapsed: String, _ typical: String
+  ) -> String {
+    String(format: t("job.runningWithTypical"), name, elapsed, typical)
+  }
+
+  /// One finished job: what it was, how it ended, how long it took.
+  static func jobRow(_ name: String, _ result: String, _ duration: String) -> String {
+    String(format: t("job.row"), name, result, duration)
+  }
+
+  /// The same for a job with no duration, which is a job that never finished.
+  static func jobRowNoDuration(_ name: String, _ result: String) -> String {
+    String(format: t("job.rowNoDuration"), name, result)
+  }
+
+  /// How long ago the machine was last read.
+  static func checkedAgo(_ elapsed: String) -> String {
+    String(format: t("state.checkedAgo"), elapsed)
+  }
+
+  // Durations. Localised rather than assembled from digits and Latin letters:
+  // "2m 47s" is an abbreviation, and abbreviations are words.
+  static func durationHoursMinutes(_ hours: Int, _ minutes: Int) -> String {
+    String(format: t("duration.hoursMinutes"), hours, minutes)
+  }
+
+  static func durationMinutesSeconds(_ minutes: Int, _ seconds: Int) -> String {
+    String(format: t("duration.minutesSeconds"), minutes, seconds)
+  }
+
+  static func durationHours(_ hours: Int) -> String {
+    String(format: t("duration.hours"), hours)
+  }
+
+  static func durationMinutes(_ minutes: Int) -> String {
+    String(format: t("duration.minutes"), minutes)
+  }
+
+  static func durationSeconds(_ seconds: Int) -> String {
+    String(format: t("duration.seconds"), seconds)
   }
 
   /// A runner's name and the GitHub scope it is registered against, for the
@@ -58,6 +123,13 @@ enum L10n {
     "menu.openOnGitHub": "Open on GitHub",
     "menu.refreshNow": "Refresh now",
     "menu.quit": "Quit",
+    "menu.recentJobs": "Recent jobs",
+    "menu.openAtLogin": "Open at login",
+    "menu.openAtLogin.failed": "Open at login could not be turned on",
+    "menu.openAtLogin.needsApproval":
+      "Allow Standfast in System Settings › General › Login Items",
+    "menu.openAtLogin.unavailable":
+      "Login item state unknown; check System Settings › General › Login Items",
     "menu.runnerRow": "%@ — %@",
     "menu.runnerInScope": "%@ (%@)",
     "state.noRunners": "No runners installed on this Mac",
@@ -72,6 +144,22 @@ enum L10n {
     "state.unknown.notAuthenticated": "Unknown — run gh auth login in a terminal",
     "state.unknown.noAnswer": "Unknown — gh got no answer; check your network",
     "state.unknown.noLocalAnswer": "Unknown — launchctl did not answer; try Refresh now",
+    "state.checkedAgo": "Checked %@ ago",
+    "state.checkedJustNow": "Checked just now",
+    "state.checkedNever": "Not checked yet",
+    "job.running": "Running %@ — %@",
+    "job.runningWithTypical": "Running %@ — %@, usually %@",
+    "job.row": "%@ — %@ (%@)",
+    "job.rowNoDuration": "%@ — %@",
+    "job.result.succeeded": "Succeeded",
+    "job.result.failed": "Failed",
+    "job.result.canceled": "Canceled",
+    "job.result.interrupted": "Interrupted",
+    "duration.hoursMinutes": "%dh %02dm",
+    "duration.minutesSeconds": "%dm %02ds",
+    "duration.hours": "%dh",
+    "duration.minutes": "%dm",
+    "duration.seconds": "%ds",
   ]
 
   /// Looks the key up in the catalogues, and falls back to the English above.

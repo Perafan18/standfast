@@ -43,17 +43,51 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
   let everyString = [
     L10n.start, L10n.stop, L10n.restart, L10n.openOnGitHub, L10n.refreshNow,
-    L10n.quit, L10n.noRunnersFound, L10n.someRunnersUnreadable, L10n.moreUnreadable,
+    L10n.quit, L10n.recentJobs, L10n.openAtLogin, L10n.openAtLoginFailed,
+    L10n.openAtLoginNeedsApproval, L10n.openAtLoginUnavailable,
+    L10n.noRunnersFound, L10n.someRunnersUnreadable, L10n.moreUnreadable,
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
     L10n.stateUnknownNoAnswer, L10n.stateUnknownNoLocalAnswer,
+    L10n.checkedJustNow, L10n.checkedNever, L10n.jobSucceeded, L10n.jobFailed,
+    L10n.jobCanceled, L10n.jobInterrupted,
     L10n.runnerRow("a", "b"), L10n.runnerInScope("a", "b"),
+    L10n.jobRunning("a", "b"), L10n.jobRunningWithTypical("a", "b", "c"),
+    L10n.jobRow("a", "b", "c"), L10n.jobRowNoDuration("a", "b"), L10n.checkedAgo("a"),
+    L10n.durationHoursMinutes(1, 2), L10n.durationMinutesSeconds(1, 2),
+    L10n.durationHours(1), L10n.durationMinutes(1), L10n.durationSeconds(1),
   ]
+  // Every prefix a key in this app can start with. Derived rather than listed,
+  // so a new family of keys cannot quietly escape the check.
+  let prefixes = Set(L10n.english.keys.compactMap { $0.split(separator: ".").first })
   for string in everyString {
     #expect(!string.isEmpty)
-    #expect(!string.hasPrefix("menu."))
-    #expect(!string.hasPrefix("state."))
+    for prefix in prefixes { #expect(!string.hasPrefix(prefix + ".")) }
   }
+}
+
+@Test func everyKeyInTheTableIsReachableThroughLOne() {
+  // The table is what a broken package falls back to, and a key nobody reads
+  // is a string the menu can never show — a translated line that goes nowhere,
+  // or worse, a call site that never got moved off a literal.
+  let everyKey = Set(L10n.english.keys)
+  let reached = Set(
+    [
+      "menu.start", "menu.stop", "menu.restart", "menu.openOnGitHub",
+      "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
+      "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
+      "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
+      "state.noRunners", "state.unreadable", "state.unreadable.more", "state.idle",
+      "state.busy", "state.disconnected", "state.stopped", "state.starting",
+      "state.unknown.noCLI", "state.unknown.notAuthenticated",
+      "state.unknown.noAnswer", "state.unknown.noLocalAnswer", "state.checkedAgo",
+      "state.checkedJustNow", "state.checkedNever", "job.running",
+      "job.runningWithTypical", "job.row", "job.rowNoDuration",
+      "job.result.succeeded", "job.result.failed", "job.result.canceled",
+      "job.result.interrupted", "duration.hoursMinutes", "duration.minutesSeconds",
+      "duration.hours", "duration.minutes", "duration.seconds",
+    ])
+  #expect(everyKey == reached)
 }
 
 @Test func aBundleThatCannotBeFoundIsNotAnError() {
@@ -114,6 +148,43 @@ private func speaking(_ localization: String) throws -> Bundle {
     let format = try #require(try catalogue(language)["menu.runnerRow"])
     #expect(format.components(separatedBy: "%@").count == 3)
   }
+}
+
+@Test func everyFormatKeepsThePlaceholdersItsCallSitePasses() throws {
+  // A translation that dropped one silently erases whichever fact it stood for
+  // — the job's name, how long it has been going, or what it usually takes —
+  // and `String(format:)` will not say a word about it.
+  let expected = [
+    "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
+    "job.rowNoDuration": 2, "state.checkedAgo": 1,
+  ]
+  for language in ["en", "es"] {
+    let catalogue = try catalogue(language)
+    for (key, count) in expected {
+      let format = try #require(catalogue[key])
+      #expect(format.components(separatedBy: "%@").count == count + 1)
+    }
+  }
+}
+
+@Test func everyDurationFormatKeepsItsNumbers() throws {
+  let expected = [
+    "duration.hoursMinutes": 2, "duration.minutesSeconds": 2, "duration.hours": 1,
+    "duration.minutes": 1, "duration.seconds": 1,
+  ]
+  for language in ["en", "es"] {
+    let catalogue = try catalogue(language)
+    for (key, count) in expected {
+      let format = try #require(catalogue[key])
+      #expect(format.filter { $0 == "%" }.count == count)
+      // `%@` where a number is passed is a format reading a `CVarArg` as a
+      // pointer, which is a crash rather than a wrong string.
+      #expect(!format.contains("%@"))
+    }
+  }
+  #expect(L10n.durationMinutesSeconds(2, 47) == "2m 47s")
+  // Zero-padded, so `2m 7s` never sits under `2m 47s` looking longer.
+  #expect(L10n.durationMinutesSeconds(2, 7) == "2m 07s")
 }
 
 @Test func theScopedNameFormatTakesBothOfItsArgumentsToo() throws {

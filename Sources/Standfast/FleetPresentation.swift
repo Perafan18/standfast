@@ -92,7 +92,12 @@ extension DisplayState {
 /// about. The view below renders this and decides nothing.
 struct RunnerRow: Equatable {
   let title: String
+  /// What this runner is building and how long it has been at it, and nil when
+  /// it is not building anything.
+  let progress: String?
   let actions: [Action]
+  /// The jobs before this one, newest first.
+  let recentJobs: [RecentJob]
 
   struct Action: Equatable {
     let kind: Kind
@@ -103,6 +108,23 @@ struct RunnerRow: Equatable {
       case start, stop, restart, openOnGitHub
     }
   }
+
+  /// One finished job. Carries its own identity rather than being rendered by
+  /// its text: two runs of the same job that took the same time produce the
+  /// same line, and `ForEach` over repeated identifiers is undefined. A start
+  /// time is unique per runner because a runner runs one job at a time.
+  struct RecentJob: Equatable, Identifiable {
+    let id: Date
+    let text: String
+  }
+
+  /// How many finished jobs the menu lists.
+  ///
+  /// Five: enough to see whether the last few builds went through, few enough
+  /// that the submenu they live in is one glance rather than a scroll. This is
+  /// a menu bar, not a log viewer — past five the question is one for GitHub's
+  /// own run list, which "Open on GitHub" is two rows above.
+  static let recentJobsShown = 5
 
   func action(_ kind: Action.Kind) -> Action? { actions.first { $0.kind == kind } }
 }
@@ -148,6 +170,7 @@ extension RunnerSnapshot {
       // carry a name, and that runner would render as a blank row followed by
       // four buttons belonging to nobody.
       title: L10n.runnerRow(name, display.summary),
+      progress: JobProgress.reading(jobs, display: display, at: readAt)?.line,
       // Every action reads this runner's own state. Nothing here consults the
       // fleet summary, which is for the icon and only the icon.
       actions: [
@@ -157,7 +180,13 @@ extension RunnerSnapshot {
         // Always available: a runner GitHub cannot see is the one you most
         // want to go and look at.
         .init(kind: .openOnGitHub, label: L10n.openOnGitHub, isEnabled: true),
-      ])
+      ],
+      recentJobs: jobs.records
+        // The running job already has a line of its own, with the one thing
+        // this list cannot give it: how long it has been going.
+        .filter { $0 != jobs.running }
+        .prefix(RunnerRow.recentJobsShown)
+        .map { RunnerRow.RecentJob(id: $0.startedAt, text: $0.historyLine) })
   }
 }
 

@@ -95,6 +95,47 @@ final class FleetSandbox: @unchecked Sendable {
     return directory
   }
 
+  /// Writes the `_diag` a runner leaves beside itself, with one job in it.
+  ///
+  /// Verbatim from a real listener log, double timestamp and all. The reader
+  /// under this is only ever pointed at fixtures — CI has no runner — so a
+  /// fixture that drifts from the real format is the one failure the suite
+  /// cannot see.
+  ///
+  /// - Parameter finished: nil for a job still running.
+  func writeListenerLog(
+    in directory: URL, job name: String, startedAt: String, finished: String?,
+    result: String = "Succeeded"
+  ) throws {
+    let diagnostics = directory.appendingPathComponent("_diag")
+    try FileManager.default.createDirectory(
+      at: diagnostics, withIntermediateDirectories: true)
+    var lines = [
+      "[\(startedAt) INFO Terminal] WRITE LINE: \(startedAt): Running job: \(name)"
+    ]
+    if let finished {
+      lines.append(
+        "[\(finished) INFO Terminal] WRITE LINE: \(finished): "
+          + "Job \(name) completed with result: \(result)")
+    }
+    try Data((lines.map { $0 + "\n" }.joined()).utf8)
+      .write(to: diagnostics.appendingPathComponent("Runner_20260805-000000-utc.log"))
+  }
+
+  /// Replaces the listener log's contents with noise of exactly the same
+  /// length.
+  ///
+  /// How a test asks whether the log was read again. A reader carried forward
+  /// between scans has consumed these bytes already and must not look at them;
+  /// one that was thrown away and rebuilt reads the file from scratch and finds
+  /// nothing in it.
+  func garbleListenerLog(in directory: URL) throws {
+    let log = directory.appendingPathComponent("_diag/Runner_20260805-000000-utc.log")
+    let size = try FileManager.default.attributesOfItem(atPath: log.path)[.size] as? Int
+    let noise = String(repeating: "x", count: (size ?? 1) - 1) + "\n"
+    try Data(noise.utf8).write(to: log)
+  }
+
   /// Discovery, plus a note of where it was called from. Reading the whole
   /// LaunchAgents directory and a file per runner is filesystem work, and on a
   /// networked home directory it is not the microsecond it is here.
@@ -147,6 +188,64 @@ final class FleetSandbox: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return body()
+  }
+}
+
+/// A `svc.sh` the command runner gave up on, having first let it do its work.
+///
+/// What a real 30-second timeout looks like from here: the process was killed
+/// at the deadline, and by then it had usually already loaded the agent — a
+/// `launchctl load` and a little shell do not take half a minute unless the
+/// machine is struggling, which is also when a runner takes longest to
+/// register and so needs the settling window most.
+final class TimingOutCommandRunner: CommandRunning, @unchecked Sendable {
+  private let onVerb: @Sendable (String) -> Void
+
+  init(onVerb: @escaping @Sendable (String) -> Void = { _ in }) { self.onVerb = onVerb }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    if let verb = arguments.last { onVerb(verb) }
+    throw CommandError.timedOut(executable: executable)
+  }
+}
+
+/// A clock a test moves by hand, for the parts of this model that measure how
+/// stale their own answer is.
+final class TestClock: @unchecked Sendable {
+  private let lock = NSLock()
+  private var now: Date
+  private let step: TimeInterval
+  /// Where it started, which a test needs to name the instant it expects.
+  let start: Date
+
+  /// - Parameter step: how far time moves on each reading. Zero for a clock
+  ///   that stands still, which is what most of these tests want; anything else
+  ///   makes time pass *during* a scan, which is the only way to tell a stamp
+  ///   taken when the machine was read from one taken when the answer landed.
+  init(
+    _ start: Date = Date(timeIntervalSince1970: 1_785_962_174), step: TimeInterval = 0
+  ) {
+    self.start = start
+    now = start
+    self.step = step
+  }
+
+  var read: @Sendable () -> Date {
+    { [self] in
+      lock.lock()
+      defer { lock.unlock() }
+      let reading = now
+      now = now.addingTimeInterval(step)
+      return reading
+    }
+  }
+
+  func advance(_ seconds: TimeInterval) {
+    lock.lock()
+    defer { lock.unlock() }
+    now = now.addingTimeInterval(seconds)
   }
 }
 
