@@ -440,7 +440,8 @@ final class RunnerFleetModel: ObservableObject {
       })
     let retainedLabels: Set<String>
     if let possiblyInstalledLabels = scan.found.possiblyInstalledLabels {
-      retainedLabels = resolvedLabels
+      retainedLabels =
+        resolvedLabels
         .union(possiblyInstalledLabels)
         .union(labelsProtectedFromAbsence)
       knownInstalledLabels = retainedLabels
