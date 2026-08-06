@@ -215,6 +215,52 @@ import Testing
   #expect(again == [.runnerDisconnected(runner: "build-mac")])
 }
 
+@Test func aDisconnectedReadingDuringStopIsProvisional() {
+  // Stop has been requested but svc.sh has not returned. launchd can still say
+  // running while GitHub has already moved the runner offline; that transient
+  // reading belongs to the mutation and must not announce a disconnection.
+  let requestedAt = Date(timeIntervalSince1970: 200)
+  var watcher = FleetWatcher()
+  let runner = snapshot(
+    display: .resolved(.idle), readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(1))
+  ])
+
+  #expect(events.isEmpty)
+}
+
+@Test func aFailedStopReplaysItsProvisionalDisconnection() {
+  // Deferring the in-flight transition must not erase it. If svc.sh then
+  // fails and revokes the stop intent, the unchanged next scan compares with
+  // the pre-click baseline and reports the real disconnection.
+  let requestedAt = Date(timeIntervalSince1970: 200)
+  var watcher = FleetWatcher()
+  let runner = snapshot(
+    display: .resolved(.idle), readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  _ = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(1))
+  ])
+
+  watcher.cancelExpectedStop(for: runner.runner.label)
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(2))
+  ])
+
+  #expect(events == [.runnerDisconnected(runner: "build-mac")])
+}
+
 @Test func aRunnerMidHandshakeIsNotCalledDisconnected() {
   // `.starting` is the settling window covering for a runner that GitHub has
   // not acknowledged yet. Underneath it the resolver is saying `.disconnected`,

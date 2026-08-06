@@ -317,14 +317,16 @@ private enum TestWaitFailure: Error { case timedOut }
   try box.writeListenerLog(
     in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z", finished: nil)
   // Eighty seconds after the job began at global scan start, and moving on
-  // every reading. The runner's launchd probe is the next clock read, thirty
-  // seconds later; that is the instant this snapshot now represents.
+  // every reading. Discovery is dated thirty seconds later for absence, then
+  // this runner's own launchd probe another thirty seconds after that. The
+  // latter is still the instant a present runner's snapshot represents.
   let clock = TestClock(Date(timeIntervalSince1970: 1_785_962_174 + 80), step: 30)
   let fleet = model(box, clock: clock.read)
 
   await fleet.quiesce()
 
-  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(110)) == true)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(140)) == true)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(110)) == false)
   #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(80)) == false)
 }
 
@@ -958,6 +960,90 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(delivery.posted.isEmpty)
 }
 
+@Test @MainActor func absenceReadBeforeAnActionCannotReleaseThatAction() async throws {
+  // Discovery has already proved build-mac absent, but the scan is still
+  // probing the other runner when Start completes. Applying that old absence
+  // must not release Start's reservation; the listing failure that follows is
+  // inconclusive too, so neither scan permits a second mutation.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "build-mac", scope: "widget")
+  try box.addRunner(name: "release-mac", scope: "gadget")
+  let commands = RecordingCommandRunner()
+  let clock = TestClock()
+  let fleet = model(box, commands: commands, probeDelay: 0.2, clock: clock.read)
+  await fleet.quiesce()
+  let runner = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "build-mac" }?.runner)
+
+  try box.removeRunner(name: "build-mac", scope: "widget")
+  let staleProbe = box.blockNextProbe()
+  defer { staleProbe.release() }
+  let before = fleet.lastReadAt
+  clock.advance(1)
+  fleet.refresh()
+  try await staleProbe.waitUntilEntered()
+
+  clock.advance(1)
+  fleet.start(runner)
+  try await waitUntil { commands.invocations.count == 1 }
+  // Let the action resume from its off-pool command and record completedAt;
+  // probeDelay keeps its own refresh from racing the stale scan below.
+  try await Task.sleep(for: .milliseconds(20))
+  staleProbe.release()
+  try await waitUntil { fleet.lastReadAt != before }
+
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  fleet.start(runner)
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["start"])
+
+  box.set(discoveryFailure: nil)
+  try box.addRunner(name: "build-mac", scope: "widget")
+  fleet.refresh()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func staleAbsenceCannotDiscardTheWatchersRunnerBaseline() async throws {
+  // The scan enumerates build-mac as absent, then stalls on another runner.
+  // A service action completing afterward makes that absence stale. Keeping
+  // the old baseline is observable when a newly-finished failed job is read:
+  // it is a transition, not history belonging to a newly-installed runner.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(name: "build-mac", scope: "widget")
+  try box.addRunner(name: "release-mac", scope: "gadget")
+  let clock = TestClock()
+  let (fleet, delivery) = await listening(
+    box, commands: RecordingCommandRunner(), probeDelay: 0.2, clock: clock.read)
+  await fleet.quiesce()
+  let runner = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "build-mac" }?.runner)
+
+  try box.removeRunner(name: "build-mac", scope: "widget")
+  let staleProbe = box.blockNextProbe()
+  defer { staleProbe.release() }
+  let before = fleet.lastReadAt
+  clock.advance(1)
+  fleet.refresh()
+  try await staleProbe.waitUntilEntered()
+
+  clock.advance(1)
+  fleet.start(runner)
+  try await Task.sleep(for: .milliseconds(20))
+  staleProbe.release()
+  try await waitUntil { fleet.lastReadAt != before }
+
+  try box.addRunner(name: "build-mac", scope: "widget")
+  try box.writeListenerLog(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: "2026-08-05 21:02:00Z", result: "Failed")
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationJobFailedTitle])
+}
+
 @Test @MainActor func removingARunnerReleasesItsServiceAction() async throws {
   // No post-completion probe can exist after uninstall. Applying that absence
   // must release ownership so a runner later installed under the same label is
@@ -1066,16 +1152,19 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
 }
 
-@Test @MainActor func anUnknownRunnerWithReservedOwnershipDisablesMutations() async throws {
-  // Unknown normally keeps Stop/Restart available, but a command already owns
-  // this label. Offering buttons the model will silently ignore is false UI;
-  // they become available again after conclusive launchd evidence releases it.
+@Test @MainActor func aPostCompletionUnreadableProbeReleasesOnlyActionOwnership()
+  async throws
+{
+  // Unknown normally keeps Stop/Restart available. They stay disabled while
+  // svc.sh owns the label, but the first post-completion local probe releases
+  // that reservation even when launchd cannot answer. The expected-stop intent
+  // is separate: a later stopped reading still belongs to the ordered Stop.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
   let commands = BlockingCommandRunner()
   defer { commands.release(10) }
-  let fleet = model(box, commands: commands)
+  let (fleet, delivery) = await listening(box, commands: commands)
   await fleet.quiesce()
 
   fleet.stop(fleet.snapshots[0].runner)
@@ -1093,14 +1182,14 @@ private enum TestWaitFailure: Error { case timedOut }
 
   commands.release()
   await fleet.quiesce()
-  #expect(fleet.snapshots[0].row.action(.stop)?.isEnabled == false)
-  #expect(fleet.snapshots[0].row.action(.restart)?.isEnabled == false)
-
-  box.set(serviceRunning: true)
-  fleet.refresh()
-  await fleet.quiesce()
   #expect(fleet.snapshots[0].row.action(.stop)?.isEnabled == true)
   #expect(fleet.snapshots[0].row.action(.restart)?.isEnabled == true)
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
 }
 
 @Test @MainActor func aFailedStopDoesNotSilenceTheNextRealCrash() async throws {
@@ -1311,6 +1400,60 @@ private enum TestWaitFailure: Error { case timedOut }
 
   #expect(!activity.isHeld)
   #expect(activity.ended == 1)
+}
+
+@Test @MainActor func aListingFailureCannotEndPreviouslyObservedBusyWork() async throws {
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.isEmpty)
+  #expect(activity.isHeld)
+  #expect(activity.ended == 0)
+
+  box.set(discoveryFailure: nil)
+  box.set(remote: .success(RemoteStatus(online: true, busy: false)))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(!activity.isHeld)
+  #expect(activity.ended == 1)
+}
+
+@Test @MainActor func anUnreadableCandidateCannotEndItsObservedRunningLog()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: false, busy: false))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  try FileManager.default.removeItem(at: directory.appendingPathComponent(".runner"))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.isEmpty)
+  #expect(activity.isHeld)
+  #expect(activity.ended == 0)
 }
 
 @Test @MainActor func runningLogKeepsTheMacAwakeWhenGitHubSaysDisconnected()

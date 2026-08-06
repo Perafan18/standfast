@@ -210,6 +210,13 @@ struct FleetWatcher {
       // GitHub is offline, but the resolver only reaches this state after
       // launchd answered that the service is running. That local evidence is
       // enough to settle an expected stop whose command already completed.
+      // Before completion, though, GitHub can observe the runner disappearing
+      // before launchd observes Stop. Defer both the banner and the baseline:
+      // success will settle the intent, while cancellation must expose this
+      // same transition on the next scan.
+      if maySuppressStop, !maySpendExpectedStop {
+        return ([], false)
+      }
       if maySpendExpectedStop {
         expectedStops.removeValue(forKey: snapshot.runner.label)
       }

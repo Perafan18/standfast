@@ -140,6 +140,12 @@ final class RunnerFleetModel: ObservableObject {
   /// inconclusive scan may add resolved labels, but never removes from this
   /// set: absence is removal evidence only when discovery says it is.
   private var knownInstalledLabels: Set<String> = []
+  /// The last answer to "is this runner doing work?" from a scan where
+  /// discovery could reconstruct its row, kept apart from `snapshots` because
+  /// a later discovery may be unable to do so.
+  /// In that case an empty menu is honest UI, but it is not evidence that work
+  /// previously observed on that label has ended.
+  private var activityEvidence: [String: Bool] = [:]
 
   private enum ExpectedStopOutcome {
     case none
@@ -340,6 +346,11 @@ final class RunnerFleetModel: ObservableObject {
     clock: @escaping @Sendable () -> Date
   ) async -> Scan {
     let found = await offCooperativePool { discover() }
+    // Absence has no per-runner launchd probe to date it, so stamp discovery
+    // at the boundary where its directory enumeration has definitely ended.
+    // A later probe for another runner may delay apply without making this
+    // absence newer than an action that happened in between.
+    let discoveredAt = clock()
     var states: [RunnerState] = []
     var jobs: [JobHistory] = []
     var installed: [RunnerVersion?] = []
@@ -373,7 +384,7 @@ final class RunnerFleetModel: ObservableObject {
     }
     return Scan(
       found: found, states: states, jobs: jobs, readers: readers, versions: installed,
-      readAt: readAt)
+      discoveredAt: discoveredAt, readAt: readAt)
   }
 
   /// Everything one hop off the pool reads about one runner's `_diag`.
@@ -395,6 +406,9 @@ final class RunnerFleetModel: ObservableObject {
     let jobs: [JobHistory]
     let readers: [String: JobLogReader]
     let versions: [RunnerVersion?]
+    /// When discovery finished enumerating candidates. This dates absence;
+    /// present runners use their later, exact launchd probe stamps below.
+    let discoveredAt: Date
     /// When launchd answered for each corresponding runner.
     let readAt: [Date]
   }
@@ -404,9 +418,19 @@ final class RunnerFleetModel: ObservableObject {
   ///   time from `Scan.readAt` for action ordering and elapsed job time.
   private func apply(_ scan: Scan, startedAt: Date) {
     let resolvedLabels = Set(scan.found.runners.map(\.label))
+    // An action is direct evidence that its label still belongs to this
+    // lifecycle. Absence discovered before the action completed cannot revoke
+    // that evidence merely because another runner delayed the scan's arrival.
+    let labelsProtectedFromAbsence = Set(
+      serviceActionsInFlight.filter { label in
+        guard let completedAt = serviceActionCompletions[label] else { return true }
+        return scan.discoveredAt < completedAt
+      })
     let retainedLabels: Set<String>
     if let possiblyInstalledLabels = scan.found.possiblyInstalledLabels {
-      retainedLabels = resolvedLabels.union(possiblyInstalledLabels)
+      retainedLabels = resolvedLabels
+        .union(possiblyInstalledLabels)
+        .union(labelsProtectedFromAbsence)
       knownInstalledLabels = retainedLabels
     } else {
       knownInstalledLabels.formUnion(resolvedLabels)
@@ -438,6 +462,12 @@ final class RunnerFleetModel: ObservableObject {
         version: scan.versions[index],
         isServiceActionReserved: serviceActionsInFlight.contains(runner.label))
     }
+    activityEvidence = activityEvidence.filter { retainedLabels.contains($0.key) }
+    for snapshot in snapshots {
+      activityEvidence[snapshot.runner.label] =
+        snapshot.display.resolvedState == .busy
+        || (snapshot.display.resolvedState != .stopped && snapshot.jobs.running != nil)
+    }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable,
       failure: scan.found.failure)
@@ -446,18 +476,16 @@ final class RunnerFleetModel: ObservableObject {
     // runner the settling window is covering for cannot be announced as
     // disconnected while the menu says it is starting.
     notifications.deliver(watcher.events(in: snapshots))
-    sleep.update(
-      busy: snapshots.contains {
-        $0.display.resolvedState == .busy
-          || ($0.display.resolvedState != .stopped && $0.jobs.running != nil)
-      })
+    sleep.update(busy: activityEvidence.values.contains(true))
   }
 
   /// Releases a runner only after apply has consumed local evidence newer than
-  /// its action. A GitHub failure is still conclusive here because the resolver
-  /// asks GitHub only after launchd answered "running"; only an unreadable
-  /// launchd probe remains inconclusive. Discovery removal is terminal evidence
-  /// only when every candidate label was accounted for.
+  /// its action. Ownership serializes mutations, rather than certifying a
+  /// particular state: once any dated local probe has been applied, even an
+  /// unreadable one, the UI may offer recovery actions again. FleetWatcher
+  /// independently retains an expected-stop intent until state evidence can
+  /// settle it. Discovery removal is terminal only when its dated enumeration
+  /// is new enough; `retainedLabels` preserves stale or inconclusive absence.
   private func releaseServiceActionsObserved(
     in scan: Scan, retainedLabels: Set<String>
   ) {
@@ -468,8 +496,7 @@ final class RunnerFleetModel: ObservableObject {
         continue
       }
       guard let index = scan.found.runners.firstIndex(where: { $0.label == label }),
-        scan.readAt[index] >= completedAt,
-        scan.states[index] != .unknown(.serviceStateUnreadable)
+        scan.readAt[index] >= completedAt
       else { continue }
       releaseServiceAction(for: label)
     }
