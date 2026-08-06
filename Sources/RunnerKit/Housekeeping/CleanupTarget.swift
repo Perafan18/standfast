@@ -65,6 +65,47 @@ public enum CleanupTarget: String, CaseIterable, Sendable {
   public func directory(in runner: DiscoveredRunner) -> URL {
     runner.workDirectory.appendingPathComponent(folderName)
   }
+
+  /// A cache after the atomic rename and before its recursive delete finishes.
+  /// The type survives in the leaf so a measurement can keep offering the one
+  /// recovery action that reaches these bytes.
+  func graveName(identifier: UUID) -> String {
+    "standfast-v1.\(rawValue).\(identifier.uuidString)"
+  }
+
+  /// Recovers only names this version of Standfast emits. A partial match would
+  /// let an unrelated or malformed entry in the private trash pose as a cache
+  /// that is safe to delete.
+  init?(graveName: String) {
+    let pieces = graveName.split(separator: ".", omittingEmptySubsequences: false)
+    guard pieces.count == 3, pieces[0] == "standfast-v1",
+      let target = CleanupTarget(rawValue: String(pieces[1])),
+      let identifier = UUID(uuidString: String(pieces[2])),
+      identifier.uuidString == pieces[2]
+    else { return nil }
+    self = target
+  }
+}
+
+/// What a direct child of Standfast's private trash proves about its origin.
+///
+/// The first shipped names were bare UUIDs. They prove that Standfast made the
+/// grave, but not whether it held `_tool` or `_actions`; preserving that
+/// distinction avoids inventing a destructive cache kind during migration.
+enum StandfastGrave: Equatable {
+  case cache(CleanupTarget)
+  case legacy
+
+  init?(name: String) {
+    if let target = CleanupTarget(graveName: name) {
+      self = .cache(target)
+      return
+    }
+    guard let identifier = UUID(uuidString: name), identifier.uuidString == name else {
+      return nil
+    }
+    self = .legacy
+  }
 }
 
 extension DiskEntryKind {

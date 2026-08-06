@@ -55,6 +55,7 @@ struct MaintenanceOffer: Equatable, Identifiable {
     case measure
     case cleanToolCache
     case cleanActionCache
+    case cleanStandfastTrash
     case trimLogs
   }
 
@@ -72,7 +73,7 @@ extension MaintenanceOffer.Kind {
     switch self {
     case .cleanToolCache: .toolCache
     case .cleanActionCache: .actionCache
-    case .measure, .trimLogs: nil
+    case .measure, .cleanStandfastTrash, .trimLogs: nil
     }
   }
 
@@ -134,6 +135,13 @@ extension MaintenanceSection {
             kind: MaintenanceOffer.Kind(target),
             label: Self.label(for: target, bytes: bytes), isEnabled: canDelete))
       }
+      if report.legacyTrashBytes > 0 {
+        offers.append(
+          MaintenanceOffer(
+            kind: .cleanStandfastTrash,
+            label: L10n.cleanStandfastTrash(ByteText.short(report.legacyTrashBytes)),
+            isEnabled: canDelete))
+      }
       if report.rotation.bytes > 0 {
         offers.append(
           MaintenanceOffer(
@@ -163,15 +171,24 @@ extension MaintenanceSection {
 
   private static func usageLines(_ report: DiskReport?) -> [String] {
     guard let report else { return [] }
-    var lines =
-      DiskEntryKind.allCases
-      .map { ($0, report.bytes(of: $0)) }
+    var rows =
+      DiskEntryKind.allCases.enumerated()
+      .map { (order: $0.offset, bytes: report.bytes(of: $0.element), kind: $0.element) }
       // Empty directories are not news. `_work` on a runner that builds one
       // repository has three of them, and a submenu of zeroes buries the one
       // number worth reading.
-      .filter { $0.1 > 0 }
-      .sorted { $0.1 > $1.1 }
-      .map { row(for: $0.0, bytes: $0.1) }
+      .filter { $0.bytes > 0 }
+      .map { ($0.order, $0.bytes, row(for: $0.kind, bytes: $0.bytes)) }
+    if report.legacyTrashBytes > 0 {
+      rows.append(
+        (
+          DiskEntryKind.allCases.count, report.legacyTrashBytes,
+          L10n.diskStandfastTrash(ByteText.short(report.legacyTrashBytes))
+        ))
+    }
+    var lines = rows.sorted {
+      $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 > $1.1
+    }.map(\.2)
     if report.logBytes > 0 { lines.append(L10n.diskLogs(ByteText.short(report.logBytes))) }
     return lines
   }
@@ -280,6 +297,21 @@ extension CleanupPrompt {
       message: [
         L10n.cleanupConfirmBody(ByteText.short(plan.bytes), runner.displayName),
         L10n.cleanupLogsEffect(plan.count),
+      ].joined(separator: "\n\n"),
+      confirm: L10n.cleanupDelete,
+      cancel: L10n.cleanupCancel)
+  }
+
+  static func cleaningStandfastTrash(
+    in runner: DiscoveredRunner, bytes: Int64, measuredAgo: TimeInterval
+  ) -> CleanupPrompt {
+    let trash = runner.workDirectory.appendingPathComponent(Housekeeper.trashFolder)
+    return CleanupPrompt(
+      title: L10n.cleanupStandfastTrashTitle(PathText.abbreviated(trash)),
+      message: [
+        L10n.cleanupConfirmBody(ByteText.short(bytes), runner.displayName),
+        MaintenanceSection.measuredLine(ago: measuredAgo),
+        L10n.cleanupStandfastTrashEffect,
       ].joined(separator: "\n\n"),
       confirm: L10n.cleanupDelete,
       cancel: L10n.cleanupCancel)

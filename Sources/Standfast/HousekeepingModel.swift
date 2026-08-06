@@ -177,6 +177,7 @@ final class HousekeepingModel: ObservableObject {
     }
     switch kind {
     case .measure: measure(snapshot.runner)
+    case .cleanStandfastTrash: cleanStandfastTrash(on: snapshot)
     case .trimLogs: trimLogs(on: snapshot)
     // Handled above, by the one place that knows which directory each is.
     case .cleanToolCache, .cleanActionCache: break
@@ -268,6 +269,28 @@ final class HousekeepingModel: ObservableObject {
     }
   }
 
+  private func cleanStandfastTrash(on snapshot: RunnerSnapshot) {
+    let runner = snapshot.runner
+    guard let measurement = measurements[runner.label], let report = measurement.report
+    else { return }
+    let bytes = report.legacyTrashBytes
+    guard bytes > 0, !working.contains(runner.label),
+      snapshot.display.allowsHousekeeping
+    else { return }
+    guard
+      confirmation.confirm(
+        .cleaningStandfastTrash(
+          in: runner, bytes: bytes,
+          measuredAgo: clock().timeIntervalSince(measurement.readAt)))
+    else { return }
+
+    let housekeeper = housekeeper
+    let trash = runner.workDirectory.appendingPathComponent(Housekeeper.trashFolder)
+    perform(on: runner, failurePath: trash) {
+      try housekeeper.blockingCleanLegacyTrash(in: runner)
+    }
+  }
+
   /// - Parameters:
   ///   - work: blocking, and run off both pools.
   ///   - failurePath: what to name in the menu when it did not work and did not
@@ -300,7 +323,11 @@ final class HousekeepingModel: ObservableObject {
         didModify: answer.didModify)
       // The numbers on screen now describe a directory that is not there any
       // more, and the next thing the user does is look at them.
-      if answer.outcome == .done || answer.didModify { self.measure(runner) }
+      if answer.outcome == .done || answer.outcome == .refusedAfterChange
+        || answer.didModify
+      {
+        self.measure(runner)
+      }
     }
   }
 
@@ -314,7 +341,7 @@ final class HousekeepingModel: ObservableObject {
     case .done, .nothingToDo: return nil
     // The one outcome that has to be reported: the user asked for something,
     // agreed to it, and did not get it.
-    case .refused: return L10n.cleanupRefused(runner)
+    case .refused, .refusedAfterChange: return L10n.cleanupRefused(runner)
     // By the time anything can throw, the only thing left that can go wrong is
     // the filesystem saying no.
     case nil:

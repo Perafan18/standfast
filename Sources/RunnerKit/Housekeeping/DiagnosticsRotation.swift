@@ -38,7 +38,7 @@ public struct DiagnosticsFile: Equatable, Sendable {
     do {
       entries = try FileManager.default.contentsOfDirectory(
         at: directory, includingPropertiesForKeys: keys)
-    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+    } catch let error where FileSystemFailure.isMissing(error) {
       // A runner that has never started has no `_diag` yet. That is the one
       // listing failure equivalent to an empty directory; every other failure
       // means the directory exists but could not be read.

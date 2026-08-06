@@ -41,10 +41,13 @@ public enum HousekeepingOutcome: Equatable, Sendable {
   /// not touched. Its own case rather than an error: refusing is this type
   /// working correctly, and the user has to be told which of the two happened.
   ///
-  /// A statement about the runner's directory and not about the whole of
-  /// `_work`: a refusal still clears this app's own grave, which holds nothing
-  /// but what a previous run of this app left behind. See `blockingClean`.
+  /// Nothing changed before the runner became unsafe. Kept distinct from the
+  /// refusal below so callers do not remeasure an unchanged directory.
   case refused
+  /// The runner's current directory was preserved, but a grave left by an
+  /// earlier Standfast cleanup was removed before the safety probe answered.
+  /// Callers keep the refusal notice and refresh the disk measurement.
+  case refusedAfterChange
 }
 
 /// A write the filesystem refused, and the directory it refused it about.
@@ -83,6 +86,19 @@ public struct HousekeepingFailure: Error, Equatable, Sendable {
 /// at all — which is a cache miss and a slower build — rather than half a tool
 /// cache, which is a broken toolchain and a failed build.
 public struct Housekeeper: Sendable {
+  private enum GraveSelection {
+    case cache(CleanupTarget)
+    case legacy
+
+    func includes(_ grave: StandfastGrave) -> Bool {
+      switch (self, grave) {
+      case (.cache(let wanted), .cache(let found)): wanted == found
+      case (.legacy, .legacy): true
+      case (.cache, .legacy), (.legacy, .cache): false
+      }
+    }
+  }
+
   /// Where a directory goes while it is being taken apart.
   ///
   /// Inside `_work` on purpose. A move within one volume is a rename and costs
@@ -128,10 +144,11 @@ public struct Housekeeper: Sendable {
     //
     // Above the guard below, which is the whole point of where this line sits.
     // A delete that failed halfway has already renamed the directory away, so
-    // every later call finds nothing to clean and returns before it reaches
-    // here — and those gigabytes are then reported under "Other runner files"
-    // with no button in the menu that can reach them again.
-    let sweptLeftovers = sweepLeftovers(in: trash)
+    // every later call finds no live cache and returns before it reaches here.
+    // The measurement below now keeps a recovery button visible for a typed
+    // grave, but that button only works because its call reaches this sweep
+    // before the absent-cache return.
+    let sweptLeftovers = try sweepLeftovers(in: trash, matching: .cache(target))
 
     let victim = workDirectory.appendingPathComponent(target.folderName)
     guard FileManager.default.fileExists(atPath: victim.path) else {
@@ -142,8 +159,10 @@ public struct Housekeeper: Sendable {
     // `_work` and not the trash: what could not be written to is the directory
     // the trash was going to be made in, and sending the user to look at a
     // hidden folder that does not exist helps nobody.
-    try attempting(configuredWorkDirectory) { try files.createDirectory(at: trash) }
-    let grave = trash.appendingPathComponent(UUID().uuidString)
+    try attempting(configuredWorkDirectory, didModify: sweptLeftovers) {
+      try files.createDirectory(at: trash)
+    }
+    let grave = trash.appendingPathComponent(target.graveName(identifier: UUID()))
 
     // Everything above this line is preparation, and it is above the check for
     // that reason: what follows the check is one syscall.
@@ -153,12 +172,37 @@ public struct Housekeeper: Sendable {
       // user is told changed nothing into a directory the next measurement
       // reports to them under "Other runner files".
       removeIfEmpty(trash)
-      return .refused
+      return sweptLeftovers ? .refusedAfterChange : .refused
     }
-    try attempting(target.directory(in: runner)) { try files.move(victim, to: grave) }
+    try attempting(target.directory(in: runner), didModify: sweptLeftovers) {
+      try files.move(victim, to: grave)
+    }
     try attempting(configuredTrash, didModify: true) { try files.remove(grave) }
     removeIfEmpty(trash)
     return .done
+  }
+
+  /// Removes UUID-only graves made before Standfast encoded their cache kind.
+  ///
+  /// No runner cache is named or inferred here. These entries have already
+  /// crossed the atomic rename and can be recovered only as generic Standfast
+  /// leftovers; malformed names and typed graves are deliberately left for
+  /// their own evidence-backed paths.
+  @discardableResult
+  public func blockingCleanLegacyTrash(
+    in runner: DiscoveredRunner
+  ) throws -> HousekeepingOutcome {
+    guard let workDirectory = runner.containedWorkDirectory else {
+      throw HousekeepingFailure(directory: runner.workDirectory)
+    }
+    let configuredTrash = runner.workDirectory.appendingPathComponent(Self.trashFolder)
+    guard !Self.isSymbolicLink(at: configuredTrash),
+      let trash = DiscoveredRunner.resolvedPath(configuredTrash, containedIn: workDirectory)
+    else { throw HousekeepingFailure(directory: configuredTrash) }
+
+    let swept = try sweepLeftovers(in: trash, matching: .legacy)
+    removeIfEmpty(trash)
+    return swept ? .done : .nothingToDo
   }
 
   /// Blocks the calling thread on a directory listing and a handful of
@@ -242,20 +286,38 @@ public struct Housekeeper: Sendable {
   }
 
   private static func isSymbolicLink(at url: URL) -> Bool {
-    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-    return attributes?[.type] as? FileAttributeType == .typeSymbolicLink
+    fileType(at: url) == .typeSymbolicLink
   }
 
-  private func sweepLeftovers(in trash: URL) -> Bool {
-    let entries =
-      (try? FileManager.default.contentsOfDirectory(
-        at: trash, includingPropertiesForKeys: nil)) ?? []
+  private static func fileType(at url: URL) -> FileAttributeType? {
+    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+    return attributes?[.type] as? FileAttributeType
+  }
+
+  private func sweepLeftovers(
+    in trash: URL, matching selection: GraveSelection
+  ) throws -> Bool {
+    let entries: [URL]
+    do {
+      entries = try FileManager.default.contentsOfDirectory(
+        at: trash, includingPropertiesForKeys: nil)
+    } catch let error where FileSystemFailure.isMissing(error) {
+      return false
+    } catch {
+      throw HousekeepingFailure(directory: trash)
+    }
     var didModify = false
     for entry in entries {
+      guard Self.fileType(at: entry) == .typeDirectory,
+        let grave = StandfastGrave(name: entry.lastPathComponent),
+        selection.includes(grave)
+      else { continue }
       do {
         try files.remove(entry)
         didModify = true
-      } catch {}
+      } catch {
+        throw HousekeepingFailure(directory: trash, didModify: didModify)
+      }
     }
     return didModify
   }

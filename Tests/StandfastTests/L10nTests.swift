@@ -115,14 +115,16 @@ private func speaking(_ localization: String) throws -> Bundle {
       "duration.hours", "duration.minutes", "duration.seconds",
       "menu.maintenance", "menu.maintenance.measure",
       "menu.maintenance.freeToolCache", "menu.maintenance.freeActionCache",
-      "menu.maintenance.trimLogs", "menu.maintenance.onlyWhenIdle",
+      "menu.maintenance.cleanStandfastTrash", "menu.maintenance.trimLogs",
+      "menu.maintenance.onlyWhenIdle",
       "menu.runnerVersion", "menu.runnerVersion.update",
       "disk.toolCache", "disk.actionCache", "disk.checkout", "disk.temporary",
-      "disk.other", "disk.logs", "disk.working", "disk.notMeasured",
+      "disk.other", "disk.standfastTrash", "disk.logs", "disk.working", "disk.notMeasured",
       "disk.measuredJustNow", "disk.measuredAgo", "disk.unavailable",
       "cleanup.confirm.title", "cleanup.confirm.body", "cleanup.confirm.delete",
       "cleanup.confirm.cancel", "cleanup.toolCache.effect",
-      "cleanup.actionCache.effect", "cleanup.logs.title", "cleanup.logs.effect",
+      "cleanup.actionCache.effect", "cleanup.standfastTrash.title",
+      "cleanup.standfastTrash.effect", "cleanup.logs.title", "cleanup.logs.effect",
       "cleanup.refused", "cleanup.failed", "cleanup.partiallyFailed",
     ])
   #expect(everyKey == reached)
@@ -205,11 +207,14 @@ private func speaking(_ localization: String) throws -> Bundle {
     // dropped one leaves a dialogue that does not say what is about to be
     // deleted, or does not say how much.
     "cleanup.confirm.title": 1, "cleanup.confirm.body": 2, "cleanup.failed": 1,
-    "cleanup.partiallyFailed": 1, "cleanup.refused": 1, "cleanup.logs.title": 1,
+    "cleanup.partiallyFailed": 1, "cleanup.refused": 1,
+    "cleanup.standfastTrash.title": 1, "cleanup.logs.title": 1,
     // The size is the reason to press the button.
     "menu.maintenance.freeToolCache": 1, "menu.maintenance.freeActionCache": 1,
-    "menu.maintenance.trimLogs": 1, "disk.toolCache": 1, "disk.actionCache": 1,
-    "disk.checkout": 1, "disk.temporary": 1, "disk.other": 1, "disk.logs": 1,
+    "menu.maintenance.cleanStandfastTrash": 1, "menu.maintenance.trimLogs": 1,
+    "disk.toolCache": 1, "disk.actionCache": 1,
+    "disk.checkout": 1, "disk.temporary": 1, "disk.other": 1,
+    "disk.standfastTrash": 1, "disk.logs": 1,
     "disk.measuredAgo": 1,
     "menu.runnerVersion": 1, "menu.runnerVersion.update": 2,
   ]

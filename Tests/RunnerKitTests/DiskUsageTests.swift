@@ -105,6 +105,22 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   #expect(report == nil)
 }
 
+@Test func aWorkListingFailureMakesTheMeasurementUnavailable() throws {
+  // A regular file at `_work` is a deterministic directory-listing failure.
+  // Folding it into `[]` reports a successful zero-byte measurement, which is
+  // indistinguishable from a runner that genuinely has never taken a job.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try Data("not a directory".utf8).write(to: sandbox.work)
+  let runner = FakeCommandRunner()
+
+  let report = DiskUsage(commandRunner: runner).blockingReport(
+    for: sandbox.runner, retention: .standard, now: Date())
+
+  #expect(report == nil)
+  #expect(runner.invocations.isEmpty)
+}
+
 // MARK: - What comes back
 
 @Test func theBreakdownSaysWhatEachDirectoryIsFor() throws {
@@ -174,6 +190,107 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
       for: sandbox.runner, retention: .standard, now: Date()))
 
   #expect(report.bytes(of: .checkout) == (420_724 + 102_400) * 1024)
+}
+
+@Test func pendingCacheGravesKeepTheirKindsAndAddUp() throws {
+  // A failed recursive delete leaves the cache behind Standfast's atomic
+  // rename. The original `_tool` or `_actions` name is gone, but the next
+  // measurement still has to offer the matching recovery action. Two tool
+  // graves exercise aggregation rather than a single lucky entry.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let trash = sandbox.work.appendingPathComponent(Housekeeper.trashFolder)
+  let firstTool = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.00000000-0000-0000-0000-000000000001"
+  )
+  let secondTool = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.00000000-0000-0000-0000-000000000002"
+  )
+  let action = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.actionCache.00000000-0000-0000-0000-000000000003"
+  )
+  let runner = FakeCommandRunner([
+    ["/usr/bin/du", "-sk", action.path, firstTool.path, secondTool.path]:
+      duLine(3, action) + duLine(5, firstTool) + duLine(7, secondTool)
+  ])
+
+  let report = try #require(
+    DiskUsage(commandRunner: runner).blockingReport(
+      for: sandbox.runner, retention: .standard, now: Date()))
+
+  #expect(report.bytes(of: .toolCache) == 12 * 1024)
+  #expect(report.bytes(of: .actionCache) == 3 * 1024)
+  #expect(report.bytes(of: .other) == 0)
+  #expect(!runner.invocations[0].arguments.contains(trash.path))
+}
+
+@Test func legacyAndMalformedGravesStayDistinctBesideTypedOnes() throws {
+  // Version 0.4.0 named graves with a bare UUID, before the cache kind was
+  // encoded. That history is recoverable only as generic Standfast leftovers;
+  // guessing tool or actions would make a destructive promise without evidence.
+  // A malformed neighbour is not legacy either and must remain Other.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let firstLegacy = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/AAAAAAAA-0000-0000-0000-000000000001")
+  let secondLegacy = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/AAAAAAAA-0000-0000-0000-000000000003")
+  let malformed = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/not-a-standfast-grave")
+  let typed = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000002"
+  )
+  let runner = FakeCommandRunner([
+    [
+      "/usr/bin/du", "-sk", firstLegacy.path, secondLegacy.path, malformed.path, typed.path,
+    ]:
+      duLine(4, firstLegacy) + duLine(6, secondLegacy) + duLine(2, malformed)
+      + duLine(5, typed)
+  ])
+
+  let report = try #require(
+    DiskUsage(commandRunner: runner).blockingReport(
+      for: sandbox.runner, retention: .standard, now: Date()))
+
+  #expect(report.bytes(of: .toolCache) == 5 * 1024)
+  #expect(report.bytes(of: .actionCache) == 0)
+  #expect(report.legacyTrashBytes == 10 * 1024)
+  #expect(report.bytes(of: .other) == 2 * 1024)
+  #expect(
+    report.bytes(of: .toolCache) + report.legacyTrashBytes
+      + report.bytes(of: .other) == 17 * 1024)
+}
+
+@Test func untrustedTrashNamesAndSymlinksCannotPoseAsCaches() throws {
+  // Only the exact versioned name Housekeeper emits may recover a cache kind.
+  // A plausible typo stays "Other", and a symlink with a perfect name must not
+  // make its destination count as safe cache bytes.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let malformed = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.not-a-uuid")
+  let wrongVersion = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v2.actionCache.00000000-0000-0000-0000-000000000004"
+  )
+  let outside = try sandbox.makeOutsideFolder("foreign-tool", kilobytes: 8)
+  let disguisedSymlink = sandbox.work.appendingPathComponent(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.00000000-0000-0000-0000-000000000005"
+  )
+  try FileManager.default.createSymbolicLink(
+    at: disguisedSymlink, withDestinationURL: outside)
+  let runner = FakeCommandRunner([
+    ["/usr/bin/du", "-sk", disguisedSymlink.path, malformed.path, wrongVersion.path]:
+      duLine(1, disguisedSymlink) + duLine(2, malformed) + duLine(3, wrongVersion)
+  ])
+
+  let report = try #require(
+    DiskUsage(commandRunner: runner).blockingReport(
+      for: sandbox.runner, retention: .standard, now: Date()))
+
+  #expect(report.bytes(of: .toolCache) == 0)
+  #expect(report.bytes(of: .actionCache) == 0)
+  #expect(report.bytes(of: .other) == 6 * 1024)
+  #expect(!runner.invocations[0].arguments.contains(outside.path))
 }
 
 @Test func blocksAreNotBytes() throws {

@@ -45,6 +45,7 @@ enum L10n {
   // whole reason these two are the only things this app offers to delete.
   static let cleanupToolCacheEffect = t("cleanup.toolCache.effect")
   static let cleanupActionCacheEffect = t("cleanup.actionCache.effect")
+  static let cleanupStandfastTrashEffect = t("cleanup.standfastTrash.effect")
 
   static let noRunnersFound = t("state.noRunners")
   static let launchAgentsUnreadable = t("state.launchAgentsUnreadable")
@@ -182,6 +183,10 @@ enum L10n {
     String(format: t("disk.other"), size)
   }
 
+  static func diskStandfastTrash(_ size: String) -> String {
+    String(format: t("disk.standfastTrash"), size)
+  }
+
   static func diskLogs(_ size: String) -> String {
     String(format: t("disk.logs"), size)
   }
@@ -202,6 +207,10 @@ enum L10n {
 
   static func freeActionCache(_ size: String) -> String {
     String(format: t("menu.maintenance.freeActionCache"), size)
+  }
+
+  static func cleanStandfastTrash(_ size: String) -> String {
+    String(format: t("menu.maintenance.cleanStandfastTrash"), size)
   }
 
   static func deleteOldLogs(_ size: String) -> String {
@@ -228,6 +237,10 @@ enum L10n {
   /// How much it frees and whose it is.
   static func cleanupConfirmBody(_ size: String, _ runner: String) -> String {
     String(format: t("cleanup.confirm.body"), size, runner)
+  }
+
+  static func cleanupStandfastTrashTitle(_ path: String) -> String {
+    String(format: t("cleanup.standfastTrash.title"), path)
   }
 
   static func cleanupLogsTitle(_ count: Int, _ path: String) -> String {
@@ -295,6 +308,8 @@ enum L10n {
     "menu.maintenance.measure": "Measure disk use",
     "menu.maintenance.freeToolCache": "Free up the tool cache (%@)…",
     "menu.maintenance.freeActionCache": "Free up downloaded actions (%@)…",
+    "menu.maintenance.cleanStandfastTrash":
+      "Delete Standfast cleanup leftovers (%@)…",
     "menu.maintenance.trimLogs": "Delete old logs (%@)…",
     "menu.maintenance.onlyWhenIdle":
       "Deleting is offered while this runner is idle or stopped",
@@ -307,6 +322,7 @@ enum L10n {
     "disk.checkout": "Repository checkouts — %@",
     "disk.temporary": "Job scratch space — %@",
     "disk.other": "Other runner files — %@",
+    "disk.standfastTrash": "Standfast cleanup leftovers — %@",
     "disk.logs": "Logs — %@",
     "disk.working": "Working…",
     "disk.notMeasured": "Disk use not measured yet",
@@ -323,11 +339,18 @@ enum L10n {
     "cleanup.actionCache.effect":
       "These are the actions your workflows use, checked out here. "
       + "The runner fetches back any it cannot find.",
+    "cleanup.standfastTrash.title":
+      "Delete Standfast cleanup leftovers from %@?",
+    "cleanup.standfastTrash.effect":
+      "These cache directories were moved aside by an earlier Standfast cleanup. "
+      + "Their old names no longer say which cache they held. Only UUID-named "
+      + "leftovers in Standfast's private trash are deleted; current caches and "
+      + "other files stay.",
     "cleanup.logs.title": "Delete %d old log files from %@?",
     "cleanup.logs.effect":
       "%d files nothing has written to in over a week. The log the runner is "
       + "writing now is never deleted, and neither is the history this menu shows.",
-    "cleanup.refused": "Nothing was deleted: %@ picked up work",
+    "cleanup.refused": "Cleanup stopped: %@ picked up work",
     "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
     "cleanup.partiallyFailed":
       "Some files were deleted, but cleanup did not finish; check that %@ is writable",

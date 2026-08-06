@@ -174,6 +174,11 @@ private struct QueueNotingCommands: CommandRunning {
   // the model does anything and the loop below proves nothing about it.
   try Data(repeating: 0, count: 4096)
     .write(to: sandbox.root.appendingPathComponent("_work/_actions/payload"))
+  let legacy = sandbox.root.appendingPathComponent(
+    "_work/\(Housekeeper.trashFolder)/DDDDDDDD-0000-0000-0000-000000000001")
+  try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+  try Data(repeating: 0, count: 4096)
+    .write(to: legacy.appendingPathComponent("payload"))
   let subject = model(sandbox, confirmation: FakeConfirmation())
   subject.measure(sandbox.runner)
   await subject.quiesce()
@@ -182,9 +187,20 @@ private struct QueueNotingCommands: CommandRunning {
     let before = sandbox.probeCount
     subject.perform(kind, on: snapshot(display: .resolved(.idle), of: sandbox))
     await subject.quiesce()
-    // Measuring is a read and costs no probe; everything else deletes, and
-    // deleting is gated on one. Either way the call reached something.
-    #expect(kind == .measure ? sandbox.probeCount == before : sandbox.probeCount > before)
+    switch kind {
+    case .measure:
+      // A measurement is a read and costs no probe.
+      #expect(sandbox.probeCount == before)
+    case .cleanStandfastTrash:
+      // These graves already crossed the atomic rename. The runner cannot be
+      // using them as `_tool` or `_actions`, so their generic recovery neither
+      // needs nor spends a live-state probe; disappearance proves it was wired.
+      #expect(sandbox.probeCount == before)
+      #expect(!FileManager.default.fileExists(atPath: legacy.path))
+    case .cleanToolCache, .cleanActionCache, .trimLogs:
+      // Current caches and logs can still be in use, so each gets a fresh gate.
+      #expect(sandbox.probeCount > before)
+    }
   }
 }
 
@@ -288,6 +304,41 @@ private struct AlwaysBusyGitHub: GitHubClient {
   #expect(sandbox.names(in: "_work").contains("_tool"))
   // Said out loud rather than swallowed: the user asked for something, agreed
   // to it, and did not get it.
+  #expect(subject.notice(for: sandbox.runner) == L10n.cleanupRefused("build-mac"))
+}
+
+@MainActor
+@Test func aRefusalRemeasuresAStandfastGraveItAlreadySwept() async throws {
+  // The safety probe protects the runner's current cache, not a tomb left by a
+  // previous Standfast delete. That tomb is swept before the probe. If the
+  // runner has picked up work, the refusal notice must survive, but the disk
+  // report must stop offering bytes that are no longer on disk.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let grave = sandbox.root.appendingPathComponent(
+    "_work/\(Housekeeper.trashFolder)/standfast-v1.toolCache.00000000-0000-0000-0000-000000000006"
+  )
+  try FileManager.default.createDirectory(at: grave, withIntermediateDirectories: true)
+  try Data(repeating: UInt8(ascii: "x"), count: 8192)
+    .write(to: grave.appendingPathComponent("payload"))
+  let clock = TestClock()
+  let subject = model(
+    sandbox, confirmation: FakeConfirmation(), clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  let bytesBefore = try #require(before.report?.bytes(of: .toolCache))
+  sandbox.set(.busy)
+
+  clock.advance(60)
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  #expect(after.readAt > before.readAt)
+  #expect(try #require(after.report?.bytes(of: .toolCache)) < bytesBefore)
+  #expect(!FileManager.default.fileExists(atPath: grave.path))
+  #expect(sandbox.names(in: "_work").contains("_tool"))
   #expect(subject.notice(for: sandbox.runner) == L10n.cleanupRefused("build-mac"))
 }
 
@@ -484,7 +535,7 @@ private struct SlowerForTheSecondRunner: Sendable {
 }
 
 @MainActor
-@Test func aHalfDoneDeleteRemeasuresAndSaysThatItPartiallySucceeded() async throws {
+@Test func aHalfDoneDeleteStaysRecoverableUntilAConfirmedRetrySweepsIt() async throws {
   // The rename worked and the delete behind it did not, so `_work/_tool` — the
   // directory the user agreed to and the one this used to name — no longer
   // exists. Sending them to fix a permission on a path that is not there is
@@ -492,9 +543,10 @@ private struct SlowerForTheSecondRunner: Sendable {
   let sandbox = try HousekeepingSandbox()
   defer { sandbox.cleanUp() }
   let clock = TestClock()
+  let files = FailingFirstGraveDeleteOperations()
   let subject = HousekeepingModel(
     usage: DiskUsage(),
-    housekeeper: Housekeeper(files: MovingButNotDeletingOperations()),
+    housekeeper: Housekeeper(files: files),
     confirmation: FakeConfirmation(), probe: sandbox.probe, clock: clock.read)
   subject.measure(sandbox.runner)
   await subject.quiesce()
@@ -512,7 +564,83 @@ private struct SlowerForTheSecondRunner: Sendable {
   #expect(!sandbox.names(in: "_work").contains("_tool"))
   let after = try #require(subject.measurement(for: sandbox.runner))
   #expect(after.readAt > before.readAt)
-  #expect(after.report?.bytes(of: .toolCache) == 0)
+  #expect(after.report?.bytes(of: .toolCache) ?? 0 > 0)
+  let recovery = MaintenanceSection.building(
+    snapshot(display: .resolved(.idle), of: sandbox), measurement: after,
+    latest: nil, isWorking: false, notice: subject.notice(for: sandbox.runner),
+    now: clock.read())
+  #expect(recovery.offer(.cleanToolCache)?.isEnabled == true)
+
+  clock.advance(60)
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let recovered = try #require(subject.measurement(for: sandbox.runner))
+  #expect(recovered.readAt > after.readAt)
+  #expect(recovered.report?.bytes(of: .toolCache) == 0)
+  let finished = MaintenanceSection.building(
+    snapshot(display: .resolved(.idle), of: sandbox), measurement: recovered,
+    latest: nil, isWorking: false, notice: subject.notice(for: sandbox.runner),
+    now: clock.read())
+  #expect(finished.offer(.cleanToolCache) == nil)
+  #expect(!sandbox.names(in: "_work").contains(Housekeeper.trashFolder))
+}
+
+@MainActor
+@Test func aConfirmedLegacyRecoveryLeavesCurrentCachesAndMalformedTrashAlone() async throws
+{
+  // UUID-only graves came from the shipped naming scheme, but no longer carry
+  // enough evidence to call them tool or actions. Their generic action removes
+  // only that exact legacy shape; current caches and an untrusted neighbour in
+  // the same private trash stay where they are.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let trash = sandbox.root.appendingPathComponent("_work/\(Housekeeper.trashFolder)")
+  let legacy = trash.appendingPathComponent(
+    "BBBBBBBB-0000-0000-0000-000000000001")
+  let malformed = trash.appendingPathComponent("not-a-standfast-grave")
+  for directory in [legacy, malformed] {
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true)
+    try Data(repeating: UInt8(ascii: "x"), count: 4096)
+      .write(to: directory.appendingPathComponent("payload"))
+  }
+  let clock = TestClock()
+  let confirmation = FakeConfirmation()
+  let subject = model(
+    sandbox, confirmation: confirmation, clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  #expect(before.report?.legacyTrashBytes ?? 0 > 0)
+  #expect(before.report?.bytes(of: .other) ?? 0 > 0)
+
+  clock.advance(60)
+  subject.perform(
+    .cleanStandfastTrash, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let prompt = try #require(confirmation.prompts.first)
+  #expect(
+    prompt.title
+      == L10n.cleanupStandfastTrashTitle(PathText.abbreviated(trash)))
+  #expect(prompt.message.contains(ByteText.short(before.report?.legacyTrashBytes ?? 0)))
+  #expect(prompt.message.contains("build-mac"))
+  #expect(prompt.message.contains(L10n.cleanupStandfastTrashEffect))
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  #expect(after.readAt > before.readAt)
+  #expect(after.report?.legacyTrashBytes == 0)
+  #expect(after.report?.bytes(of: .other) ?? 0 > 0)
+  #expect(!FileManager.default.fileExists(atPath: legacy.path))
+  #expect(FileManager.default.fileExists(atPath: malformed.path))
+  #expect(sandbox.names(in: "_work").contains("_tool"))
+  #expect(sandbox.names(in: "_work").contains("_actions"))
+  #expect(sandbox.probeCount == 0)
+  let section = MaintenanceSection.building(
+    snapshot(display: .resolved(.idle), of: sandbox), measurement: after,
+    latest: nil, isWorking: false, notice: subject.notice(for: sandbox.runner),
+    now: clock.read())
+  #expect(section.offer(.cleanStandfastTrash) == nil)
 }
 
 /// A filesystem that says no to everything, which is what a directory this app
@@ -526,15 +654,27 @@ private struct RefusingFileOperations: DestructiveFileOperations {
 
 /// Renames for real and refuses to delete: a directory holding one file this
 /// app cannot unlink, which is what a step running `sudo` leaves behind.
-private struct MovingButNotDeletingOperations: DestructiveFileOperations {
+private final class FailingFirstGraveDeleteOperations:
+  DestructiveFileOperations, @unchecked Sendable
+{
   struct Refusal: Error {}
+  private let lock = NSLock()
+  private var hasFailed = false
+
   func createDirectory(at url: URL) throws {
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
   }
   func move(_ url: URL, to destination: URL) throws {
     try FileManager.default.moveItem(at: url, to: destination)
   }
-  func remove(_ url: URL) throws { throw Refusal() }
+  func remove(_ url: URL) throws {
+    lock.lock()
+    let shouldFail = !hasFailed
+    hasFailed = true
+    lock.unlock()
+    if shouldFail { throw Refusal() }
+    try FileManager.default.removeItem(at: url)
+  }
 }
 
 // MARK: - Sweeping the logs

@@ -21,6 +21,7 @@
 "menu.maintenance.measure" = "Measure disk use";
 "menu.maintenance.freeToolCache" = "Free up the tool cache (%@)…";
 "menu.maintenance.freeActionCache" = "Free up downloaded actions (%@)…";
+"menu.maintenance.cleanStandfastTrash" = "Delete Standfast cleanup leftovers (%@)…";
 "menu.maintenance.trimLogs" = "Delete old logs (%@)…";
 "menu.maintenance.onlyWhenIdle" = "Deleting is offered while this runner is idle or stopped";
 
@@ -35,6 +36,7 @@
 "disk.checkout" = "Repository checkouts — %@";
 "disk.temporary" = "Job scratch space — %@";
 "disk.other" = "Other runner files — %@";
+"disk.standfastTrash" = "Standfast cleanup leftovers — %@";
 "disk.logs" = "Logs — %@";
 "disk.working" = "Working…";
 "disk.notMeasured" = "Disk use not measured yet";
@@ -48,9 +50,11 @@
 "cleanup.confirm.cancel" = "Cancel";
 "cleanup.toolCache.effect" = "The tool cache holds the toolchains that setup steps downloaded. The next job that needs one downloads it again.";
 "cleanup.actionCache.effect" = "These are the actions your workflows use, checked out here. The runner fetches back any it cannot find.";
+"cleanup.standfastTrash.title" = "Delete Standfast cleanup leftovers from %@?";
+"cleanup.standfastTrash.effect" = "These cache directories were moved aside by an earlier Standfast cleanup. Their old names no longer say which cache they held. Only UUID-named leftovers in Standfast's private trash are deleted; current caches and other files stay.";
 "cleanup.logs.title" = "Delete %d old log files from %@?";
 "cleanup.logs.effect" = "%d files nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history this menu shows.";
-"cleanup.refused" = "Nothing was deleted: %@ picked up work";
+"cleanup.refused" = "Cleanup stopped: %@ picked up work";
 "cleanup.failed" = "Nothing could be deleted; check that %@ is writable";
 "cleanup.partiallyFailed" = "Some files were deleted, but cleanup did not finish; check that %@ is writable";
 

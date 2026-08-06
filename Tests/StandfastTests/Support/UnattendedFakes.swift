@@ -134,7 +134,7 @@ func snapshot(
 /// a disk without there being one.
 func measured(
   toolCache: Int64 = 0, actionCache: Int64 = 0, checkout: Int64 = 0, logs: Int64 = 0,
-  temporary: Int64 = 0, other: Int64 = 0,
+  temporary: Int64 = 0, other: Int64 = 0, legacyTrash: Int64 = 0,
   rotatable: Int64 = 0, rotatableCount: Int = 0,
   at readAt: Date = Date(timeIntervalSince1970: 1_785_962_174)
 ) -> DiskMeasurement {
@@ -149,7 +149,8 @@ func measured(
       logBytes: logs,
       rotation: DiagnosticsRotationPlan(
         doomed: (0..<rotatableCount).map { URL(fileURLWithPath: "/tmp/_diag/log\($0)") },
-        bytes: rotatable)),
+        bytes: rotatable),
+      legacyTrashBytes: legacyTrash),
     readAt: readAt)
 }
 
