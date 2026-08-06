@@ -165,7 +165,7 @@ public struct Housekeeper: Sendable {
     in runner: DiscoveredRunner, retention: DiagnosticsRetention = .standard,
     now: Date, agreedTo agreed: DiagnosticsRotationPlan? = nil,
     isStillSafe: () -> Bool
-  ) -> HousekeepingOutcome {
+  ) throws -> HousekeepingOutcome {
     let plan = Self.rotationPlan(
       for: runner, retention: retention, now: now,
       limitedTo: agreed.map { Set($0.doomed) })
@@ -178,7 +178,9 @@ public struct Housekeeper: Sendable {
     //
     // A file that has gone since the plan was made is not a failure either: the
     // point of the whole operation is that it is not there any more.
-    for url in plan.doomed { try? files.remove(url) }
+    for url in plan.doomed {
+      try removingIfPresent(url, blaming: runner.diagnosticsDirectory)
+    }
     return .done
   }
 
@@ -217,6 +219,16 @@ public struct Housekeeper: Sendable {
   /// one thing the user can fix.
   private func attempting(_ directory: URL, _ write: () throws -> Void) throws {
     do { try write() } catch { throw HousekeepingFailure(directory: directory) }
+  }
+
+  private func removingIfPresent(_ url: URL, blaming directory: URL) throws {
+    do {
+      try files.remove(url)
+    } catch let error as CocoaError where error.code == .fileNoSuchFile {
+      return
+    } catch {
+      throw HousekeepingFailure(directory: directory)
+    }
   }
 }
 

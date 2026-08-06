@@ -262,7 +262,7 @@ final class HousekeepingModel: ObservableObject {
       // has since become the active log out of the sweep; the plan going in is
       // what keeps the sweep from taking more than the number in the dialogue,
       // which was drawn from a measurement of any age at all.
-      housekeeper.blockingRotateDiagnostics(
+      try housekeeper.blockingRotateDiagnostics(
         in: runner, retention: retention, now: now, agreedTo: plan,
         isStillSafe: { probe(runner).allowsHousekeeping })
     }

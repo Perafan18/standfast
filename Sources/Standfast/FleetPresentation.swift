@@ -212,6 +212,8 @@ extension FleetNotice {
     switch self {
     case .noRunnersInstalled:
       [L10n.noRunnersFound]
+    case .launchAgentsUnreadable(let directory):
+      [L10n.launchAgentsUnreadable, PathText.abbreviated(directory)]
     case .unreadable(let paths):
       // The paths themselves, never a count: going and looking at the file is
       // the entire point, the file name alone does not say where it is, and a

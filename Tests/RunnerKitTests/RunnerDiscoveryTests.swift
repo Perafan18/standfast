@@ -65,6 +65,8 @@ private struct Sandbox {
   func cleanUp() { try? FileManager.default.removeItem(at: root) }
 }
 
+private struct DirectoryListingFailure: Error {}
+
 @Test func discoversASingleRunner() throws {
   let box = try Sandbox()
   defer { box.cleanUp() }
@@ -189,6 +191,26 @@ private struct Sandbox {
   #expect(found.runners[0].workDirectory.path.hasPrefix(dir.path + "/"))
 }
 
+@Test func reportsRunnersWithEscapingWorkFoldersAsUnreadable() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.relative", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "../outside")
+  try box.addRunner(
+    label: "actions.runner.acme-widget.absolute", agentId: 2,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "/tmp/outside")
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(
+    found.unreadable.map(\.lastPathComponent) == [
+      "actions.runner.acme-widget.absolute.plist",
+      "actions.runner.acme-widget.relative.plist",
+    ])
+}
+
 @Test func fallsBackToTheStandardWorkFolderWhenTheFileDoesNotSayOne() throws {
   // `workFolder` is one of the cosmetic fields, so a runner release that stops
   // writing it must not cost the runner its row — nor leave the work directory
@@ -305,4 +327,18 @@ private struct Sandbox {
 
   #expect(found.runners.isEmpty)
   #expect(found.unreadable.isEmpty)
+  #expect(found.failure == nil)
+}
+
+@Test func reportsAnExistingLaunchAgentsDirectoryThatCannotBeListed() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let found = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents,
+    listDirectory: { _ in throw DirectoryListingFailure() }
+  ).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(found.unreadable.isEmpty)
+  #expect(found.failure == .launchAgentsUnreadable(box.launchAgents))
 }

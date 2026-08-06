@@ -48,13 +48,22 @@ enum FleetNotice: Equatable {
   /// a Mac that has never had a runner, where the answer is to install one
   /// rather than to fix anything.
   case noRunnersInstalled
+  /// The directory that should contain every runner LaunchAgent could not be
+  /// listed, so an empty result says nothing about what is installed.
+  case launchAgentsUnreadable(URL)
   /// LaunchAgents that announced themselves as runners and could not be
   /// resolved. The paths, never a count: a plist duplicated in Finder
   /// describes one runner and appears here twice, so "2 unreadable runners"
   /// would be a number this app made up.
   case unreadable([URL])
 
-  static func resolving(runners: [DiscoveredRunner], unreadable: [URL]) -> FleetNotice? {
+  static func resolving(
+    runners: [DiscoveredRunner], unreadable: [URL],
+    failure: DiscoveryFailure? = nil
+  ) -> FleetNotice? {
+    if case .launchAgentsUnreadable(let directory) = failure {
+      return .launchAgentsUnreadable(directory)
+    }
     // Unreadable wins wherever it appears, including next to runners that did
     // resolve. A runner silently missing from the menu is worse than a line of
     // noise, and this is the only case here a user can act on.
@@ -387,7 +396,8 @@ final class RunnerFleetModel: ObservableObject {
           version: rest.1.1)
       }
     notice = FleetNotice.resolving(
-      runners: scan.found.runners, unreadable: scan.found.unreadable)
+      runners: scan.found.runners, unreadable: scan.found.unreadable,
+      failure: scan.found.failure)
     lastReadAt = readAt
     // Read from what the menu is about to show rather than from the scan, so a
     // runner the settling window is covering for cannot be announced as

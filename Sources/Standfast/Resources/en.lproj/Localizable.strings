@@ -54,6 +54,7 @@
 "cleanup.failed" = "Nothing could be deleted; check that %@ is writable";
 
 "state.noRunners" = "No runners installed on this Mac";
+"state.launchAgentsUnreadable" = "The LaunchAgents directory could not be read:";
 "state.unreadable" = "Some runner files could not be read:";
 "state.unreadable.more" = "…and more";
 

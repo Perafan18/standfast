@@ -247,7 +247,7 @@ private func log(
     retention: DiagnosticsRetention(keepFor: 7 * day, listenerLogsKept: 3), now: now)
   #expect(plan.doomed == [worker])
 
-  Housekeeper().blockingRotateDiagnostics(
+  try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner,
     retention: DiagnosticsRetention(keepFor: 7 * day, listenerLogsKept: 3), now: now,
     isStillSafe: { true })
@@ -295,7 +295,7 @@ private func log(
   var before = JobLogReader()
   #expect(before.read(diagnosticsIn: sandbox.diagnostics).records.map(\.name) == ["build"])
 
-  let outcome = Housekeeper().blockingRotateDiagnostics(
+  let outcome = try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner, now: now, isStillSafe: { true })
   #expect(outcome == .done)
   #expect(!sandbox.exists(worker))
@@ -323,7 +323,7 @@ private func log(
       modified: now.addingTimeInterval(-400 * day))
   }
 
-  Housekeeper().blockingRotateDiagnostics(
+  try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner,
     retention: DiagnosticsRetention(keepFor: 7 * day, listenerLogsKept: 1), now: now,
     isStillSafe: { true })

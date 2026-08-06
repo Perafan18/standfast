@@ -61,6 +61,10 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
 /// both come out as no runners, and only the second means something is
 /// wrong — telling that user to install a runner is the one answer certain
 /// to be useless.
+public enum DiscoveryFailure: Equatable, Sendable {
+  case launchAgentsUnreadable(URL)
+}
+
 public struct DiscoveryResult: Equatable, Sendable {
   public let runners: [DiscoveredRunner]
   /// LaunchAgents that announced themselves as runners and could not be
@@ -68,10 +72,17 @@ public struct DiscoveryResult: Equatable, Sendable {
   /// Paths rather than errors — enough to name the file that needs looking
   /// at, without a diagnosis this version could not act on anyway.
   public let unreadable: [URL]
+  /// Why the scan itself could not start, rather than why one runner candidate
+  /// could not be resolved.
+  public let failure: DiscoveryFailure?
 
-  public init(runners: [DiscoveredRunner], unreadable: [URL] = []) {
+  public init(
+    runners: [DiscoveredRunner], unreadable: [URL] = [],
+    failure: DiscoveryFailure? = nil
+  ) {
     self.runners = runners
     self.unreadable = unreadable
+    self.failure = failure
   }
 }
 
@@ -81,12 +92,25 @@ public struct DiscoveryResult: Equatable, Sendable {
 /// `.runner`.
 public struct RunnerDiscovery: Sendable {
   private let launchAgentsDirectory: URL
+  private let listDirectory: @Sendable (URL) throws -> [URL]
 
   public init(launchAgentsDirectory: URL? = nil) {
     self.launchAgentsDirectory =
       launchAgentsDirectory
       ?? FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/LaunchAgents")
+    self.listDirectory = { directory in
+      try FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: nil)
+    }
+  }
+
+  init(
+    launchAgentsDirectory: URL,
+    listDirectory: @escaping @Sendable (URL) throws -> [URL]
+  ) {
+    self.launchAgentsDirectory = launchAgentsDirectory
+    self.listDirectory = listDirectory
   }
 
   /// Reads the whole LaunchAgents directory and a file from each runner, on the
@@ -101,10 +125,16 @@ public struct RunnerDiscovery: Sendable {
   /// actor is not enough; see `offCooperativePool`, which is what the menu bar
   /// app wraps this call in.
   public func discover() -> DiscoveryResult {
-    let entries =
-      (try? FileManager.default.contentsOfDirectory(
-        at: launchAgentsDirectory,
-        includingPropertiesForKeys: nil)) ?? []
+    let entries: [URL]
+    do {
+      entries = try listDirectory(launchAgentsDirectory)
+    } catch {
+      guard FileManager.default.fileExists(atPath: launchAgentsDirectory.path) else {
+        return DiscoveryResult(runners: [])
+      }
+      return DiscoveryResult(
+        runners: [], failure: .launchAgentsUnreadable(launchAgentsDirectory))
+    }
 
     let candidates =
       entries

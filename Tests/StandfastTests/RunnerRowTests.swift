@@ -171,6 +171,16 @@ private func snapshot(
   #expect(FleetNotice.noRunnersInstalled.lines == [L10n.noRunnersFound])
 }
 
+@Test func theLaunchAgentsFailureNamesTheDirectoryThatCouldNotBeRead() {
+  let directory = URL(fileURLWithPath: "/Users/someone/Library/LaunchAgents")
+
+  #expect(
+    FleetNotice.launchAgentsUnreadable(directory).lines == [
+      L10n.launchAgentsUnreadable,
+      "/Users/someone/Library/LaunchAgents",
+    ])
+}
+
 @Test func theUnreadableNoticePrintsPathsAndNeverACount() {
   // A plist duplicated in Finder describes one runner and appears twice, so
   // any number here is one this app invented. The paths are also the only

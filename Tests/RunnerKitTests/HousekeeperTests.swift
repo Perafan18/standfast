@@ -287,12 +287,52 @@ private func blamedDirectory(
     modified: now.addingTimeInterval(-30 * 24 * 3600))
   let active = try sandbox.makeLog("Runner_20260805-000000-utc.log", modified: now)
 
-  let outcome = Housekeeper().blockingRotateDiagnostics(
+  let outcome = try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner, now: now, isStillSafe: { true })
 
   #expect(outcome == .done)
   #expect(!sandbox.exists(old))
   #expect(sandbox.exists(active))
+}
+
+@Test func aDiagnosticLogThatCannotBeRemovedReportsTheDiagnosticsDirectory() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600))
+
+  let files = RecordingFileOperations()
+  files.failing = true
+
+  #expect(throws: HousekeepingFailure(directory: sandbox.diagnostics)) {
+    try Housekeeper(files: files).blockingRotateDiagnostics(
+      in: sandbox.runner, now: now, isStillSafe: { true })
+  }
+}
+
+@Test func aDiagnosticLogThatDisappearedBeforeUnlinkIsStillDone() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let old = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600))
+
+  let outcome = try Housekeeper(files: RemovingThenMissingOperations())
+    .blockingRotateDiagnostics(
+      in: sandbox.runner, now: now, isStillSafe: { true })
+
+  #expect(outcome == .done)
+  #expect(!sandbox.exists(old))
+}
+
+private struct RemovingThenMissingOperations: DestructiveFileOperations {
+  func createDirectory(at url: URL) throws {}
+  func move(_ url: URL, to destination: URL) throws {}
+  func remove(_ url: URL) throws {
+    try FileManager.default.removeItem(at: url)
+    throw CocoaError(.fileNoSuchFile)
+  }
 }
 
 @Test func rotationRefusesWhileTheRunnerIsWorkingToo() throws {
@@ -302,7 +342,7 @@ private func blamedDirectory(
     "Worker_20260101-000000-utc.log", modified: now.addingTimeInterval(-30 * 24 * 3600))
 
   let files = RecordingFileOperations()
-  let outcome = Housekeeper(files: files).blockingRotateDiagnostics(
+  let outcome = try Housekeeper(files: files).blockingRotateDiagnostics(
     in: sandbox.runner, now: now, isStillSafe: { false })
 
   #expect(outcome == .refused)
@@ -316,7 +356,7 @@ private func blamedDirectory(
   try sandbox.makeLog("Runner_20260805-000000-utc.log", modified: now)
 
   var probes = 0
-  let outcome = Housekeeper().blockingRotateDiagnostics(in: sandbox.runner, now: now) {
+  let outcome = try Housekeeper().blockingRotateDiagnostics(in: sandbox.runner, now: now) {
     probes += 1
     return true
   }

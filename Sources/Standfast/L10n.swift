@@ -47,6 +47,7 @@ enum L10n {
   static let cleanupActionCacheEffect = t("cleanup.actionCache.effect")
 
   static let noRunnersFound = t("state.noRunners")
+  static let launchAgentsUnreadable = t("state.launchAgentsUnreadable")
   static let someRunnersUnreadable = t("state.unreadable")
   static let moreUnreadable = t("state.unreadable.more")
 
@@ -325,6 +326,7 @@ enum L10n {
     "cleanup.refused": "Nothing was deleted: %@ picked up work",
     "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
     "state.noRunners": "No runners installed on this Mac",
+    "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",
     "state.idle": "Idle — ready for jobs",

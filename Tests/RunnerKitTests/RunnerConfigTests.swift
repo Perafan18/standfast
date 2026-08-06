@@ -46,6 +46,23 @@ import Testing
   #expect(config.agentId == 7)
   #expect(config.agentName == "")
   #expect(config.workFolder == "_work")
+
+  let nullWorkFolder = Data(
+    #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","workFolder":null}"#.utf8)
+  #expect(try RunnerConfig(data: nullWorkFolder).workFolder == "_work")
+}
+
+@Test func refusesExplicitWorkFoldersThatCanEscapeTheRunnerDirectory() {
+  let unsafe = [
+    #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","workFolder":"../outside"}"#,
+    #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","workFolder":"/tmp/outside"}"#,
+  ]
+
+  for json in unsafe {
+    #expect(throws: (any Error).self) {
+      try RunnerConfig(data: Data(json.utf8))
+    }
+  }
 }
 
 @Test func refusesFilesItCannotTrust() {

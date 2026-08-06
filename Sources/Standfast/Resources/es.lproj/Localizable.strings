@@ -54,6 +54,7 @@
 "cleanup.failed" = "No se pudo borrar nada; comprueba que se puede escribir en %@";
 
 "state.noRunners" = "No hay runners instalados en esta Mac";
+"state.launchAgentsUnreadable" = "No se pudo leer el directorio LaunchAgents:";
 "state.unreadable" = "No se pudieron leer algunos archivos de runner:";
 "state.unreadable.more" = "…y más";
 
