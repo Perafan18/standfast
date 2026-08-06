@@ -91,6 +91,14 @@ final class FleetSandbox: @unchecked Sendable {
   /// Discovery, plus a note of where it was called from. Reading the whole
   /// LaunchAgents directory and a file per runner is filesystem work, and on a
   /// networked home directory it is not the microsecond it is here.
+  /// Takes a runner off the machine the way an uninstall does: launchd stops
+  /// advertising it, and the directory it pointed at may well stay behind.
+  func removeRunner(name: String = "build-mac") throws {
+    let label = "actions.runner.acme-widget.\(name)"
+    try FileManager.default.removeItem(
+      at: launchAgents.appendingPathComponent("\(label).plist"))
+  }
+
   var discover: @Sendable () -> DiscoveryResult {
     { [self] in
       let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""

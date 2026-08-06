@@ -7,12 +7,13 @@ import Testing
 @MainActor
 private func model(
   _ sandbox: FleetSandbox, commands: RecordingCommandRunner = RecordingCommandRunner(),
-  settling: SettlingWindow = SettlingWindow(), settleDelay: TimeInterval = 0
+  settling: SettlingWindow = SettlingWindow(), settleDelay: TimeInterval = 0,
+  probeDelay: TimeInterval = 0
 ) -> RunnerFleetModel {
   RunnerFleetModel(
     discover: sandbox.discover, resolver: sandbox.resolver,
     controller: ServiceController(commandRunner: commands, settleDelay: settleDelay),
-    settling: settling, probeDelay: 0,
+    settling: settling, probeDelay: probeDelay,
     // No ticker: these tests drive every refresh themselves.
     refreshInterval: nil)
 }
@@ -181,6 +182,34 @@ private func model(
   #expect(fleet.snapshots.map(\.display) == [.starting])
 }
 
+@Test @MainActor func aRunnerThatLeavesTheMachineTakesItsWindowWithIt() async throws {
+  // A settling window is closed by the answer that reads it, so a runner that
+  // stops being discovered leaves one behind with nothing left to clear it.
+  // Uninstall and reinstall inside the window and the new runner would inherit
+  // the old one's benefit of the doubt.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let fleet = model(box)
+  await fleet.quiesce()
+
+  fleet.start(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+
+  try box.removeRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  try box.addRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
+}
+
 // MARK: - Acting on one runner, not on the machine
 
 @Test @MainActor func anActionThatCouldNotRunOpensNoWindow() async throws {
@@ -279,12 +308,13 @@ private func model(
   #expect(!commands.queuesUsed.contains { $0.contains("cooperative") })
 }
 
-@Test @MainActor func restartDoesNotBlockTheMainThreadEither() async throws {
+@Test @MainActor func restartKeepsItsBlockingOffBothPoolsToo() async throws {
   // Restart is the one action that goes through `ServiceController.restart`
-  // rather than being handed to a queue, because it is already `async` and
-  // taking it apart here would move launchd's unload-before-load gap into the
-  // menu. That leaves its two `svc.sh` calls on the cooperative pool — which
-  // this pins, so the trade stays a choice — but never on the main thread.
+  // rather than being handed to a queue here, because it is already `async`
+  // and taking it apart would move launchd's unload-before-load gap out of the
+  // controller and into the menu. It makes the hop itself instead, so the
+  // guarantee is identical to Start's and Stop's — no exception to the
+  // concurrency model, and nothing left to argue about.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
@@ -297,4 +327,60 @@ private func model(
 
   #expect(commands.invocations.count == 2)
   #expect(commands.queuesUsed.allSatisfy { $0 != "com.apple.main-thread" })
+  #expect(!commands.queuesUsed.contains { $0.contains("cooperative") })
+}
+
+@Test @MainActor func theReProbeWaitsForLaunchdBeforeItAsks() async throws {
+  // `svc.sh` returns before launchd has settled, so a re-probe fired the
+  // instant the command exits reports the state we just left.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box, probeDelay: 0.3)
+  await fleet.quiesce()
+  let probesBefore = box.probeCount
+  let started = Date()
+
+  fleet.start(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(box.probeCount > probesBefore)
+  #expect(Date().timeIntervalSince(started) >= 0.3)
+}
+
+@Test @MainActor func theMenusSingleEntryPointReachesEveryAction() async throws {
+  // The view calls only `perform(_:on:)`, so a kind wired to the wrong verb
+  // would be a menu whose Stop button starts things.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let commands = RecordingCommandRunner()
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let script = directory.appendingPathComponent("svc.sh").path
+
+  fleet.perform(.start, on: fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(commands.invocations.last == ["/bin/bash", script, "start"])
+
+  fleet.perform(.stop, on: fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(commands.invocations.last == ["/bin/bash", script, "stop"])
+
+  // Counted from where restart began rather than read off the tail: the verb
+  // before it was already `stop`, so a restart that only started would leave
+  // the last two entries looking exactly right.
+  let beforeRestart = commands.invocations.count
+  fleet.perform(.restart, on: fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(commands.invocations.dropFirst(beforeRestart).map { $0 } == [
+    ["/bin/bash", script, "stop"], ["/bin/bash", script, "start"],
+  ])
+
+  // `openOnGitHub` opens a URL and runs no command, which is the only way to
+  // see it from here.
+  let before = commands.invocations.count
+  fleet.perform(.openOnGitHub, on: fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(commands.invocations.count == before)
 }

@@ -77,6 +77,20 @@ private let label = "actions.runner.acme-widget.build-mac"
   #expect(window.display(.disconnected, for: label, at: epoch + 1) == .starting)
 }
 
+@Test func pruningForgetsRunnersThatAreGoneAndKeepsTheRest() {
+  var window = SettlingWindow(duration: 30)
+  window.open(for: label, at: epoch)
+  window.open(for: "another.runner", at: epoch)
+
+  window.keepOnly([label])
+
+  #expect(window.settlingLabels == [label])
+  #expect(window.display(.disconnected, for: label, at: epoch + 1) == .starting)
+  #expect(
+    window.display(.disconnected, for: "another.runner", at: epoch + 1)
+      == .resolved(.disconnected))
+}
+
 @Test func reopeningExtendsTheWindowFromTheNewStart() {
   // Start, give up, start again: the second attempt gets its own full window
   // rather than the remains of the first.

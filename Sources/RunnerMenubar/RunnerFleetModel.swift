@@ -150,6 +150,9 @@ final class RunnerFleetModel: ObservableObject {
 
   private func apply(_ scan: (found: DiscoveryResult, states: [RunnerState])) {
     let now = clock()
+    // A runner that has been uninstalled since it was started would otherwise
+    // leave its deadline behind, with nothing left to ever read and clear it.
+    settling.keepOnly(Set(scan.found.runners.map(\.label)))
     snapshots = zip(scan.found.runners, scan.states).map { runner, state in
       RunnerSnapshot(
         runner: runner,
@@ -160,6 +163,17 @@ final class RunnerFleetModel: ObservableObject {
   }
 
   // MARK: - Acting
+
+  /// The one way the menu acts on a runner, so the view has nothing to wire
+  /// up wrongly.
+  func perform(_ kind: RunnerRow.Action.Kind, on runner: DiscoveredRunner) {
+    switch kind {
+    case .start: start(runner)
+    case .stop: stop(runner)
+    case .restart: restart(runner)
+    case .openOnGitHub: openSettings(runner)
+    }
+  }
 
   func start(_ runner: DiscoveredRunner) {
     perform(on: runner, thenSettles: true) { controller, directory in
@@ -175,13 +189,10 @@ final class RunnerFleetModel: ObservableObject {
   }
 
   func restart(_ runner: DiscoveredRunner) {
+    // No hop here: `restart` is `async` and makes its own, which is where it
+    // belongs — launchd's unload-before-load gap sits between its two halves
+    // and is the controller's to keep.
     perform(on: runner, thenSettles: true) { controller, directory in
-      // Not routed off the pool like the other two. `restart` is already
-      // `async`, so there is no thread to hand it, and prising it apart here
-      // to wrap each half would move launchd's unload-before-load gap out of
-      // the controller and into the menu. What is left blocking is two
-      // `svc.sh` calls on one cooperative thread, during an action the user
-      // is watching, bounded by the command timeout.
       try await controller.restart(in: directory)
     }
   }

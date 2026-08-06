@@ -41,6 +41,16 @@ struct SettlingWindow: Sendable {
   /// Whatever this runner was settling towards, it is not that any more.
   mutating func close(for label: String) { deadlines[label] = nil }
 
+  /// Forgets runners that are no longer installed. `display` clears a deadline
+  /// as soon as it reads one, so the only entries that can outlive their
+  /// runner belong to a runner that stopped being discovered.
+  mutating func keepOnly(_ labels: Set<String>) {
+    deadlines = deadlines.filter { labels.contains($0.key) }
+  }
+
+  /// The runners currently being given the benefit of the doubt.
+  var settlingLabels: Set<String> { Set(deadlines.keys) }
+
   /// Reads one runner's state as the menu should show it.
   ///
   /// Only `.disconnected` is held back, and only until anything else arrives.

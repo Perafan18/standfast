@@ -14,18 +14,22 @@ struct RunnerMenubarApp: App {
   }
 }
 
+/// Renders what has already been decided elsewhere. Nothing in this file picks
+/// a label, an enabled state or a line of text — `RunnerRow` and
+/// `FleetNotice.lines` do, where a test can read them. Every measured bug this
+/// unit exists to prevent was a wiring bug, and wiring is all this file is.
 private struct FleetMenu: View {
   @ObservedObject var fleet: RunnerFleetModel
 
   var body: some View {
     // One section per runner. One runner reads as a flat menu; several read as
-    // one group each, which is the only way the per-runner buttons make sense.
+    // one group each, which is the only way per-runner buttons make sense.
     ForEach(fleet.snapshots) { snapshot in
       RunnerSection(snapshot: snapshot, fleet: fleet)
       Divider()
     }
     if let notice = fleet.notice {
-      NoticeSection(notice: notice)
+      ForEach(notice.lines, id: \.self) { Text($0) }
       Divider()
     }
     Button(L10n.refreshNow) { fleet.refresh() }
@@ -38,37 +42,11 @@ private struct RunnerSection: View {
   let fleet: RunnerFleetModel
 
   var body: some View {
-    // `displayName`, not `agentName`: the `.runner` file does not always carry
-    // a name, and that runner would render as a blank row followed by four
-    // buttons belonging to nobody.
-    Text("\(snapshot.runner.displayName) — \(snapshot.display.summary)")
-    // Each button reads this runner's own state. Nothing here consults the
-    // fleet summary, which is for the icon and only the icon.
-    Button(L10n.start) { fleet.start(snapshot.runner) }
-      .disabled(!snapshot.display.canStart)
-    Button(L10n.stop) { fleet.stop(snapshot.runner) }
-      .disabled(!snapshot.display.canStop)
-    Button(L10n.restart) { fleet.restart(snapshot.runner) }
-      .disabled(!snapshot.display.canRestart)
-    Button(L10n.openOnGitHub) { fleet.openSettings(snapshot.runner) }
-  }
-}
-
-private struct NoticeSection: View {
-  let notice: FleetNotice
-
-  var body: some View {
-    switch notice {
-    case .noRunnersInstalled:
-      Text(L10n.noRunnersFound)
-    case .unreadable(let paths):
-      Text(L10n.someRunnersUnreadable)
-      // The path, not the file name. Going and looking at the file is the
-      // entire point of printing these, and the file name alone does not say
-      // where it is.
-      ForEach(paths, id: \.self) { path in
-        Text((path.path as NSString).abbreviatingWithTildeInPath)
-      }
+    let row = snapshot.row
+    Text(row.title)
+    ForEach(row.actions, id: \.kind) { action in
+      Button(action.label) { fleet.perform(action.kind, on: snapshot.runner) }
+        .disabled(!action.isEnabled)
     }
   }
 }

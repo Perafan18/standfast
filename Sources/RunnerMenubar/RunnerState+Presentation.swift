@@ -1,3 +1,4 @@
+import Foundation
 import RunnerKit
 
 /// What one runner's row shows.
@@ -67,6 +68,77 @@ extension DisplayState {
   /// runner has Start for that, and offering both would be two buttons for
   /// one outcome.
   var canRestart: Bool { isServiceRunning }
+}
+
+/// One runner's slice of the menu, as data.
+///
+/// Pulled out of the view on purpose. Every bug this unit was written to
+/// prevent was a wiring bug — an action gated on the fleet summary, a name
+/// read from the wrong field, a count printed instead of a list — and a
+/// `View` body is the one thing in this app a test cannot make an assertion
+/// about. The view below renders this and decides nothing.
+struct RunnerRow: Equatable {
+  let title: String
+  let actions: [Action]
+
+  struct Action: Equatable {
+    let kind: Kind
+    let label: String
+    let isEnabled: Bool
+
+    enum Kind: Hashable, CaseIterable {
+      case start, stop, restart, openOnGitHub
+    }
+  }
+
+  func action(_ kind: Action.Kind) -> Action? { actions.first { $0.kind == kind } }
+}
+
+extension RunnerSnapshot {
+  var row: RunnerRow {
+    RunnerRow(
+      // `displayName`, not `agentName`: the `.runner` file does not always
+      // carry a name, and that runner would render as a blank row followed by
+      // four buttons belonging to nobody.
+      title: L10n.runnerRow(runner.displayName, display.summary),
+      // Every action reads this runner's own state. Nothing here consults the
+      // fleet summary, which is for the icon and only the icon.
+      actions: [
+        .init(kind: .start, label: L10n.start, isEnabled: display.canStart),
+        .init(kind: .stop, label: L10n.stop, isEnabled: display.canStop),
+        .init(kind: .restart, label: L10n.restart, isEnabled: display.canRestart),
+        // Always available: a runner GitHub cannot see is the one you most
+        // want to go and look at.
+        .init(kind: .openOnGitHub, label: L10n.openOnGitHub, isEnabled: true),
+      ])
+  }
+}
+
+extension FleetNotice {
+  /// How many paths the menu will print before it stops.
+  ///
+  /// A menu bar menu that runs off the screen is not more informative than one
+  /// that does not. Ten is far past any real machine and still short of a
+  /// directory somebody has been copying plists around in.
+  static let pathsShown = 10
+
+  /// The lines this notice puts in the menu, in order.
+  var lines: [String] {
+    switch self {
+    case .noRunnersInstalled:
+      [L10n.noRunnersFound]
+    case .unreadable(let paths):
+      // The paths themselves, never a count: going and looking at the file is
+      // the entire point, the file name alone does not say where it is, and a
+      // plist duplicated in Finder describes one runner while appearing twice.
+      // The overflow line carries no number for that same reason.
+      [L10n.someRunnersUnreadable]
+        + paths.prefix(Self.pathsShown).map {
+          ($0.path as NSString).abbreviatingWithTildeInPath
+        }
+        + (paths.count > Self.pathsShown ? [L10n.moreUnreadable] : [])
+    }
+  }
 }
 
 /// The single state the menu bar icon shows for the whole machine.
