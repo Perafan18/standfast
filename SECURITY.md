@@ -31,6 +31,15 @@ notification authorization when you enable one. Standfast:
   runner's `_work`, moves and deletes the selected caches, or deletes the eligible old
   diagnostic logs in `_diag` while preserving the active and retained listener logs.
 
+Before housekeeping measures or deletes anything, it resolves the runner, work and
+diagnostics paths and refuses a target that resolves outside the runner. Its private
+trash directory must be a real directory rather than a symbolic link. These pathname
+checks protect against stale or accidental filesystem configuration; they are not a
+sandbox against another process running concurrently as the same user. Such a process
+already has the same file authority and can replace a checked path before the next
+filesystem call. Eliminating that race would require descriptor-relative operations such
+as `openat`, `renameat` and `unlinkat` with no-follow checks.
+
 Standfast opens no listening ports, has no telemetry or analytics, and never checks for
 updates to Standfast itself. Its outgoing GitHub requests are functional: runner-status
 requests identify the configured scope and runner, while the latest-runner-release request
