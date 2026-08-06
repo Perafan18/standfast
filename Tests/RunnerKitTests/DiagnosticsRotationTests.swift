@@ -203,7 +203,7 @@ private func log(
     at: sandbox.diagnostics.appendingPathComponent("Runner_20260102-000000-utc.log"),
     withIntermediateDirectories: true)
 
-  let listing = DiagnosticsFile.listing(in: sandbox.diagnostics)
+  let listing = try DiagnosticsFile.listing(in: sandbox.diagnostics)
   #expect(
     Set(listing.map(\.name)) == [
       "Runner_20260101-000000-utc.log", "Worker_20260101-000000-utc.log",
@@ -240,7 +240,7 @@ private func log(
   let before = reader.read(diagnosticsIn: sandbox.diagnostics)
   #expect(before.records.map(\.name) == ["build-3", "build-2", "build-1"])
 
-  let plan = Housekeeper.rotationPlan(
+  let plan = try Housekeeper.rotationPlan(
     for: sandbox.runner,
     // Every listener log here is older than the retention, so only the floor
     // stands between this sweep and the menu's history.

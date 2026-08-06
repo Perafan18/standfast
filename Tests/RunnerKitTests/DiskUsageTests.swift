@@ -90,6 +90,21 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   #expect(sandbox.exists(foreignLog))
 }
 
+@Test func aDiagnosticsListingFailureMakesTheMeasurementUnavailable() throws {
+  // `_diag` exists, so `du` can still size this regular file; the failure is
+  // specifically that it cannot be enumerated as the directory a rotation
+  // plan requires. Returning a report with an empty plan would present that as
+  // a successful measurement and hide the read failure.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try Data("not a directory".utf8).write(to: sandbox.diagnostics)
+
+  let report = DiskUsage().blockingReport(
+    for: sandbox.runner, retention: .standard, now: Date())
+
+  #expect(report == nil)
+}
+
 // MARK: - What comes back
 
 @Test func theBreakdownSaysWhatEachDirectoryIsFor() throws {

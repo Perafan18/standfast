@@ -131,12 +131,12 @@ public struct Housekeeper: Sendable {
     // every later call finds nothing to clean and returns before it reaches
     // here — and those gigabytes are then reported under "Other runner files"
     // with no button in the menu that can reach them again.
-    sweepLeftovers(in: trash)
+    let sweptLeftovers = sweepLeftovers(in: trash)
 
     let victim = workDirectory.appendingPathComponent(target.folderName)
     guard FileManager.default.fileExists(atPath: victim.path) else {
       removeIfEmpty(trash)
-      return .nothingToDo
+      return sweptLeftovers ? .done : .nothingToDo
     }
 
     // `_work` and not the trash: what could not be written to is the directory
@@ -156,7 +156,7 @@ public struct Housekeeper: Sendable {
       return .refused
     }
     try attempting(target.directory(in: runner)) { try files.move(victim, to: grave) }
-    try attempting(configuredTrash) { try files.remove(grave) }
+    try attempting(configuredTrash, didModify: true) { try files.remove(grave) }
     removeIfEmpty(trash)
     return .done
   }
@@ -185,9 +185,14 @@ public struct Housekeeper: Sendable {
     guard let diagnostics = runner.containedDiagnosticsDirectory else {
       throw HousekeepingFailure(directory: runner.diagnosticsDirectory)
     }
-    let plan = Self.rotationPlan(
-      in: diagnostics, retention: retention, now: now,
-      limitedTo: agreed.map { Set($0.doomed) })
+    let plan: DiagnosticsRotationPlan
+    do {
+      plan = try Self.rotationPlan(
+        in: diagnostics, retention: retention, now: now,
+        limitedTo: agreed.map { Set($0.doomed) })
+    } catch {
+      throw HousekeepingFailure(directory: runner.diagnosticsDirectory)
+    }
     guard !plan.isEmpty else { return .nothingToDo }
     guard isStillSafe() else { return .refused }
     // Unlinked one at a time rather than moved aside first. Each unlink is
@@ -215,18 +220,24 @@ public struct Housekeeper: Sendable {
   public static func rotationPlan(
     for runner: DiscoveredRunner, retention: DiagnosticsRetention = .standard,
     now: Date, limitedTo allowed: Set<URL>? = nil
-  ) -> DiagnosticsRotationPlan {
-    guard let diagnostics = runner.containedDiagnosticsDirectory else { return .empty }
-    return rotationPlan(
-      in: diagnostics, retention: retention, now: now, limitedTo: allowed)
+  ) throws -> DiagnosticsRotationPlan {
+    guard let diagnostics = runner.containedDiagnosticsDirectory else {
+      throw HousekeepingFailure(directory: runner.diagnosticsDirectory)
+    }
+    do {
+      return try rotationPlan(
+        in: diagnostics, retention: retention, now: now, limitedTo: allowed)
+    } catch {
+      throw HousekeepingFailure(directory: runner.diagnosticsDirectory)
+    }
   }
 
   private static func rotationPlan(
     in diagnostics: URL, retention: DiagnosticsRetention,
     now: Date, limitedTo allowed: Set<URL>?
-  ) -> DiagnosticsRotationPlan {
+  ) throws -> DiagnosticsRotationPlan {
     DiagnosticsRotation.plan(
-      DiagnosticsFile.listing(in: diagnostics),
+      try DiagnosticsFile.listing(in: diagnostics),
       retention: retention, now: now, limitedTo: allowed)
   }
 
@@ -235,11 +246,18 @@ public struct Housekeeper: Sendable {
     return attributes?[.type] as? FileAttributeType == .typeSymbolicLink
   }
 
-  private func sweepLeftovers(in trash: URL) {
+  private func sweepLeftovers(in trash: URL) -> Bool {
     let entries =
       (try? FileManager.default.contentsOfDirectory(
         at: trash, includingPropertiesForKeys: nil)) ?? []
-    for entry in entries { try? files.remove(entry) }
+    var didModify = false
+    for entry in entries {
+      do {
+        try files.remove(entry)
+        didModify = true
+      } catch {}
+    }
+    return didModify
   }
 
   /// Removes the trash only when it is ours alone to remove. Two cleanups
@@ -259,8 +277,12 @@ public struct Housekeeper: Sendable {
 
   /// Names the directory a failed write was about, so the menu can point at the
   /// one thing the user can fix.
-  private func attempting(_ directory: URL, _ write: () throws -> Void) throws {
-    do { try write() } catch { throw HousekeepingFailure(directory: directory) }
+  private func attempting(
+    _ directory: URL, didModify: Bool = false, _ write: () throws -> Void
+  ) throws {
+    do { try write() } catch {
+      throw HousekeepingFailure(directory: directory, didModify: didModify)
+    }
   }
 
   private func removingIfPresent(_ url: URL, blaming directory: URL) throws -> Bool {

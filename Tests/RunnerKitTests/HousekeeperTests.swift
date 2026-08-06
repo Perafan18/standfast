@@ -89,7 +89,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
 }
 
-@Test func aGraveIsSweptEvenWhenThereIsNothingLeftToClean() throws {
+@Test func sweepingAGraveIsReportedAsAChangeEvenWhenTheCacheIsAlreadyGone() throws {
   // The state the test above cannot reach, and the one that does not heal
   // itself. Being killed between the rename and the delete leaves no `_tool`
   // either — but the next build puts one back, and the cleanup after that
@@ -105,7 +105,9 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   let outcome = try Housekeeper().blockingClean(
     .toolCache, in: sandbox.runner, isStillSafe: { true })
 
-  #expect(outcome == .nothingToDo)
+  // The cache itself was already gone, but removing the grave changed the
+  // directory and invalidated any measurement a caller is still showing.
+  #expect(outcome == .done)
   #expect(sandbox.names(in: sandbox.work).isEmpty)
 }
 
@@ -126,6 +128,29 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
 
   try Housekeeper().blockingClean(.toolCache, in: sandbox.runner, isStillSafe: { true })
   #expect(sandbox.names(in: sandbox.work).isEmpty)
+}
+
+@Test func aDeleteFailureAfterTheRenameReportsThatItModifiedTheDirectory() throws {
+  // The cache has crossed the atomic point of no return before the recursive
+  // delete fails. A caller must invalidate its old cache measurement and say
+  // that the operation partially succeeded, rather than claiming nothing
+  // changed merely because the final unlink threw.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 8)
+
+  do {
+    _ = try Housekeeper(files: MovingButNotDeletingOperations()).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+    Issue.record("Expected the recursive delete behind the rename to fail")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.didModify)
+    #expect(
+      failure.directory.path
+        == sandbox.work.appendingPathComponent(Housekeeper.trashFolder).path)
+  }
+
+  #expect(!sandbox.names(in: sandbox.work).contains("_tool"))
 }
 
 /// Renames for real and refuses to delete, which is what a directory holding a
@@ -363,6 +388,30 @@ private func blamedDirectory(
 
   #expect(outcome == .done)
   #expect(!sandbox.exists(old))
+}
+
+@Test func aDiagnosticsDirectoryThatCannotBeEnumeratedIsReportedAsAFailure() throws {
+  // A regular file at `_diag` is a deterministic stand-in for any filesystem
+  // refusal to enumerate that path. Treating the listing error as `[]` tells
+  // callers there were simply no old logs and suppresses the warning entirely.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try Data("not a directory".utf8).write(to: sandbox.diagnostics)
+  var probes = 0
+
+  do {
+    _ = try Housekeeper().blockingRotateDiagnostics(in: sandbox.runner, now: now) {
+      probes += 1
+      return true
+    }
+    Issue.record("Expected enumerating a non-directory _diag to fail")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.directory.path == sandbox.diagnostics.path)
+    #expect(!failure.didModify)
+  }
+
+  // Planning failed before the safety probe; no deletion was attempted.
+  #expect(probes == 0)
 }
 
 @Test func rotationLeavesTheActiveLogAndTakesTheRest() throws {

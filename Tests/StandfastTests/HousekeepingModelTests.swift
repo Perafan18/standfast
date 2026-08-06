@@ -484,28 +484,35 @@ private struct SlowerForTheSecondRunner: Sendable {
 }
 
 @MainActor
-@Test func theComplaintNamesWhereTheBytesActuallyAreAfterAHalfDoneDelete() async throws {
+@Test func aHalfDoneDeleteRemeasuresAndSaysThatItPartiallySucceeded() async throws {
   // The rename worked and the delete behind it did not, so `_work/_tool` — the
   // directory the user agreed to and the one this used to name — no longer
   // exists. Sending them to fix a permission on a path that is not there is
   // worse than saying nothing; where the gigabytes are is the grave.
   let sandbox = try HousekeepingSandbox()
   defer { sandbox.cleanUp() }
+  let clock = TestClock()
   let subject = HousekeepingModel(
     usage: DiskUsage(),
     housekeeper: Housekeeper(files: MovingButNotDeletingOperations()),
-    confirmation: FakeConfirmation(), probe: sandbox.probe)
+    confirmation: FakeConfirmation(), probe: sandbox.probe, clock: clock.read)
   subject.measure(sandbox.runner)
   await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  #expect(before.report?.bytes(of: .toolCache) ?? 0 > 0)
 
+  clock.advance(60)
   subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
   await subject.quiesce()
 
   let grave = sandbox.root.appendingPathComponent("_work/\(Housekeeper.trashFolder)")
   #expect(
     subject.notice(for: sandbox.runner)
-      == L10n.cleanupFailed(PathText.abbreviated(grave)))
+      == L10n.cleanupPartiallyFailed(PathText.abbreviated(grave)))
   #expect(!sandbox.names(in: "_work").contains("_tool"))
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  #expect(after.readAt > before.readAt)
+  #expect(after.report?.bytes(of: .toolCache) == 0)
 }
 
 /// A filesystem that says no to everything, which is what a directory this app

@@ -89,7 +89,7 @@ public struct DiskUsage: Sendable {
       let diagnostics = runner.containedDiagnosticsDirectory
     else { return nil }
     let children = Self.children(of: workDirectory)
-    let logs = DiagnosticsFile.listing(in: diagnostics)
+    guard let logs = try? DiagnosticsFile.listing(in: diagnostics) else { return nil }
     var paths = children
     if FileManager.default.fileExists(atPath: diagnostics.path) {
       paths.append(diagnostics)
