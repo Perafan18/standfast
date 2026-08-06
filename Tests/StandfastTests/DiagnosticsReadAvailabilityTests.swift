@@ -114,10 +114,44 @@ private struct DiagnosticsUntouchableFiles: DestructiveFileOperations {
   let fleet = diagnosticsModel(box, notifications: notifications, sleep: sleep)
   await fleet.quiesce()
   #expect(delivery.posted.isEmpty)
+  #expect(fleet.snapshots[0].isJobHistoryAvailable)
 
   let suspended = try SuspendedDiagnostics(runnerDirectory: directory)
   fleet.refresh()
   await fleet.quiesce()
+  #expect(delivery.posted.isEmpty)
+  #expect(!fleet.snapshots[0].isJobHistoryAvailable)
+
+  try suspended.restore()
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].jobs.records.map(\.name) == ["testflight"])
+  #expect(fleet.snapshots[0].isJobHistoryAvailable)
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor
+func firstAvailableDiagnosticsReadBaselinesHistoricalFailures() async throws {
+  // The app may launch while iCloud, permissions, or the volume makes `_diag`
+  // unreadable. That empty answer is not a job-history baseline: once the
+  // directory answers, everything already in it still predates monitoring and
+  // must be absorbed without a login-time failure banner.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z", result: "Failed")
+  let suspended = try SuspendedDiagnostics(runnerDirectory: directory)
+  box.set(remote: .failure(.noAnswer))
+  let (notifications, delivery) = await enabledNotifications()
+  let sleep = SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults())
+
+  let fleet = diagnosticsModel(box, notifications: notifications, sleep: sleep)
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].jobs == .empty)
+  #expect(!fleet.snapshots[0].isJobHistoryAvailable)
   #expect(delivery.posted.isEmpty)
 
   try suspended.restore()
@@ -125,5 +159,70 @@ private struct DiagnosticsUntouchableFiles: DestructiveFileOperations {
   await fleet.quiesce()
 
   #expect(fleet.snapshots[0].jobs.records.map(\.name) == ["testflight"])
+  #expect(fleet.snapshots[0].isJobHistoryAvailable)
   #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func firstReadableListenerLogBaselinesHistoricalFailures() async throws {
+  // Listing and stat can both succeed while the listener path itself cannot be
+  // read. A directory named like the log makes that boundary deterministic:
+  // treating the failed cold read as an available empty history recreates the
+  // same launch-time false notification when a real log replaces it.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let diagnostics = directory.appendingPathComponent("_diag")
+  let listener = diagnostics.appendingPathComponent(
+    "Runner_20260805-000000-utc.log")
+  try FileManager.default.createDirectory(
+    at: listener, withIntermediateDirectories: true)
+  box.set(remote: .failure(.noAnswer))
+  let (notifications, delivery) = await enabledNotifications()
+  let sleep = SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults())
+
+  let fleet = diagnosticsModel(box, notifications: notifications, sleep: sleep)
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].jobs == .empty)
+  #expect(!fleet.snapshots[0].isJobHistoryAvailable)
+  #expect(delivery.posted.isEmpty)
+
+  try FileManager.default.removeItem(at: listener)
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z", result: "Failed")
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].jobs.records.map(\.name) == ["testflight"])
+  #expect(fleet.snapshots[0].isJobHistoryAvailable)
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func unavailableDiagnosticsPreserveTheLastInstalledVersion() async throws {
+  // History and the installed version come from the same listener log. When
+  // `_diag` stops answering, keeping one while erasing the other would make an
+  // update warning flicker off on evidence that says nothing changed.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z", version: "2.320.0")
+  box.set(remote: .failure(.noAnswer))
+  let (notifications, _) = await enabledNotifications()
+  let sleep = SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults())
+  let fleet = diagnosticsModel(box, notifications: notifications, sleep: sleep)
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].version == RunnerVersion(2, 320, 0))
+  #expect(box.versionQueuesUsed.count == 1)
+
+  let suspended = try SuspendedDiagnostics(runnerDirectory: directory)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(!fleet.snapshots[0].isJobHistoryAvailable)
+  #expect(fleet.snapshots[0].version == RunnerVersion(2, 320, 0))
+  #expect(box.versionQueuesUsed.count == 1)
+
+  try suspended.restore()
 }

@@ -13,6 +13,9 @@ struct RunnerSnapshot: Identifiable, Equatable {
   let qualifier: String?
   /// What this runner's own listener log says it has been doing.
   let jobs: JobHistory
+  /// Whether `_diag` supplied a reading for this snapshot. An unavailable
+  /// cold read also carries an empty history, but cannot baseline job events.
+  let isJobHistoryAvailable: Bool
   /// When the scan behind this snapshot read the machine.
   ///
   /// Carried into the row rather than left to the clock so that every number
@@ -39,13 +42,15 @@ struct RunnerSnapshot: Identifiable, Equatable {
   init(
     runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
-    stateReadAt: Date? = nil, version: RunnerVersion? = nil,
+    isJobHistoryAvailable: Bool = true, stateReadAt: Date? = nil,
+    version: RunnerVersion? = nil,
     isServiceActionReserved: Bool = false
   ) {
     self.runner = runner
     self.display = display
     self.qualifier = qualifier
     self.jobs = jobs
+    self.isJobHistoryAvailable = isJobHistoryAvailable
     self.readAt = readAt
     self.stateReadAt = stateReadAt ?? readAt
     self.version = version
@@ -357,7 +362,7 @@ final class RunnerFleetModel: ObservableObject {
     let discoveryStartedAt = clock()
     let found = await offCooperativePool { discover() }
     var states: [RunnerState] = []
-    var jobs: [JobHistory] = []
+    var jobs: [JobLogReader.Reading] = []
     var installed: [RunnerVersion?] = []
     var readAt: [Date] = []
     var stateReadAt: [Date] = []
@@ -380,10 +385,11 @@ final class RunnerFleetModel: ObservableObject {
       // with the file count the sweep exists to bound.
       let read = await offCooperativePool { () -> Reading in
         var reader = reader
-        let history = reader.read(diagnosticsIn: diagnostics)
+        let history = reader.reading(diagnosticsIn: diagnostics)
         return Reading(
           jobs: history, reader: reader,
-          version: reader.activeLog.flatMap(versions.blockingVersion))
+          version: history.isAvailable
+            ? reader.activeLog.flatMap(versions.blockingVersion) : nil)
       }
       jobs.append(read.jobs)
       readers[runner.label] = read.reader
@@ -401,7 +407,7 @@ final class RunnerFleetModel: ObservableObject {
   /// One hop rather than two because both halves come out of the same directory
   /// listing — the version is read off the log the history was just read from.
   private struct Reading: Sendable {
-    let jobs: JobHistory
+    let jobs: JobLogReader.Reading
     let reader: JobLogReader
     let version: RunnerVersion?
   }
@@ -411,7 +417,7 @@ final class RunnerFleetModel: ObservableObject {
   private struct Scan: Sendable {
     let found: DiscoveryResult
     let states: [RunnerState]
-    let jobs: [JobHistory]
+    let jobs: [JobLogReader.Reading]
     let readers: [String: JobLogReader]
     let versions: [RunnerVersion?]
     /// The conservative instant just before discovery began. This dates
@@ -461,19 +467,26 @@ final class RunnerFleetModel: ObservableObject {
     housekeeping.keepOnly(retainedLabels)
     releaseServiceActionsObserved(in: scan, retainedLabels: retainedLabels)
     let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
+    let previousVersions = snapshots.reduce(into: [String: RunnerVersion]()) {
+      versions, snapshot in
+      if let version = snapshot.version { versions[snapshot.runner.label] = version }
+    }
     snapshots = scan.found.runners.indices.map { index in
       let runner = scan.found.runners[index]
       let readAt = scan.readAt[index]
+      let jobReading = scan.jobs[index]
       return RunnerSnapshot(
         runner: runner,
         display: settling.display(scan.states[index], for: runner.label, readAt: readAt),
         // Only where the name alone would not say which runner this is.
         qualifier: repeated.contains(runner.displayName)
           ? runner.scope.displayName : nil,
-        jobs: scan.jobs[index],
+        jobs: jobReading.history,
         readAt: readAt,
+        isJobHistoryAvailable: jobReading.isAvailable,
         stateReadAt: scan.stateReadAt[index],
-        version: scan.versions[index],
+        version: jobReading.isAvailable
+          ? scan.versions[index] : previousVersions[runner.label],
         isServiceActionReserved: serviceActionsInFlight.contains(runner.label))
     }
     activityEvidence = activityEvidence.filter { retainedLabels.contains($0.key) }
@@ -541,7 +554,9 @@ final class RunnerFleetModel: ObservableObject {
       return RunnerSnapshot(
         runner: snapshot.runner, display: snapshot.display,
         qualifier: snapshot.qualifier, jobs: snapshot.jobs,
-        readAt: snapshot.readAt, stateReadAt: snapshot.stateReadAt,
+        readAt: snapshot.readAt,
+        isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
+        stateReadAt: snapshot.stateReadAt,
         version: snapshot.version,
         isServiceActionReserved: true)
     }

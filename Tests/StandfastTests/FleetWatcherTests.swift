@@ -45,9 +45,12 @@ import Testing
 
 @Test func aJobThatFailsWhileTheAppIsWatchingIsReported() {
   var watcher = FleetWatcher()
-  _ = watcher.events(in: [
-    snapshot(jobs: history([job("testflight", at: 1_785_950_000, result: .succeeded)]))
-  ])
+  // A successful empty read is a baseline, unlike an unavailable empty read.
+  // The failure appearing after it is therefore new and must be reported.
+  #expect(
+    watcher.events(in: [
+      snapshot(jobs: .empty, isJobHistoryAvailable: true)
+    ]).isEmpty)
 
   let events = watcher.events(in: [
     snapshot(

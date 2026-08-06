@@ -90,6 +90,18 @@ public struct JobLogReader: Sendable {
 
   private var cache: Cache?
 
+  /// One history read and whether `_diag` actually answered this time.
+  ///
+  /// Availability is deliberately separate from `history`: on a transient
+  /// failure the latter contains the last evidence this reader could preserve,
+  /// while a cold reader has no evidence and therefore returns an empty
+  /// history. Neither case is the same as successfully reading an empty
+  /// directory.
+  public struct Reading: Equatable, Sendable {
+    public let history: JobHistory
+    public let isAvailable: Bool
+  }
+
   /// A successful empty listing is evidence that the history is gone. A
   /// failed listing is no evidence about the directory's contents at all.
   private enum LogListing {
@@ -120,6 +132,15 @@ public struct JobLogReader: Sendable {
   ///
   /// - Parameter directory: the runner's `_diag`.
   public mutating func read(diagnosticsIn directory: URL) -> JobHistory {
+    reading(diagnosticsIn: directory).history
+  }
+
+  /// Reads history while preserving whether the filesystem supplied evidence.
+  ///
+  /// Callers that compare readings over time must use this overload. An empty
+  /// available history is a real baseline; an empty unavailable one is only an
+  /// admission that a cold reader could not inspect `_diag` yet.
+  public mutating func reading(diagnosticsIn directory: URL) -> Reading {
     let logs: [URL]
     switch Self.listenerLogs(in: directory) {
     case .available(let listed): logs = listed
@@ -127,20 +148,20 @@ public struct JobLogReader: Sendable {
       // A transient permissions, volume or filesystem error cannot prove that
       // jobs ended or logs disappeared. Preserve both the last history and the
       // offset needed to resume incrementally when `_diag` answers again.
-      return history()
+      return Reading(history: history(), isAvailable: false)
     }
     guard let active = logs.last else {
       // No listener has ever run here, or `_diag` has been cleared out. Either
       // way there is no history, and holding on to the one from before would
       // be showing jobs whose evidence is gone.
       cache = nil
-      return .empty
+      return Reading(history: .empty, isAvailable: true)
     }
     guard let size = Self.size(of: active) else {
       // The file was there a moment ago and would not answer now. Whatever is
       // already known is better than an empty menu, and the next refresh is
       // fifteen seconds away.
-      return history()
+      return Reading(history: history(), isAvailable: false)
     }
 
     if var cached = cache, cached.activeLog == active, cached.consumed <= size {
@@ -150,21 +171,32 @@ public struct JobLogReader: Sendable {
       if cached.consumed < size {
         // Nothing is skipped here: the delta starts exactly where the last
         // whole line ended, so its first line is a whole one.
-        let delta = Self.events(
-          in: active, from: cached.consumed, to: size, skippingFirstLine: false)
+        guard
+          let delta = Self.events(
+            in: active, from: cached.consumed, to: size, skippingFirstLine: false)
+        else {
+          return Reading(history: history(), isAvailable: false)
+        }
         cached.active = Self.trimmed(Self.fold(delta.events, into: cached.active))
         cached.consumed = delta.consumed
       }
       cache = cached
-      return history()
+      return Reading(history: history(), isAvailable: true)
     }
 
     // Either nothing has been read yet, or the listener has rotated. A rotation
     // is not a special case worth handling in place: the new log is short, and
     // re-deriving the history from the files on disk needs no offset to have
     // survived anything.
-    cache = Self.coldStart(logs, active: active, activeSize: size)
-    return history()
+    guard let refreshed = Self.coldStart(logs, active: active, activeSize: size)
+    else {
+      // Do not install a partial cache. In particular, a cold reader must try
+      // the historical logs again rather than remember an I/O failure as a
+      // successfully empty history.
+      return Reading(history: history(), isAvailable: false)
+    }
+    cache = refreshed
+    return Reading(history: history(), isAvailable: true)
   }
 
   private func history() -> JobHistory {
@@ -181,10 +213,14 @@ public struct JobLogReader: Sendable {
 
   // MARK: - Reading
 
-  private static func coldStart(_ logs: [URL], active: URL, activeSize: Int) -> Cache {
+  private static func coldStart(
+    _ logs: [URL], active: URL, activeSize: Int
+  ) -> Cache? {
     let from = max(0, activeSize - tailWindow)
-    let read = events(
-      in: active, from: from, to: activeSize, skippingFirstLine: from > 0)
+    guard
+      let read = events(
+        in: active, from: from, to: activeSize, skippingFirstLine: from > 0)
+    else { return nil }
     let current = trimmed(fold(read.events, into: []))
 
     // Backwards through the rotations until there is enough history or enough
@@ -202,7 +238,8 @@ public struct JobLogReader: Sendable {
       // second line is the one that ended. Folding them together would let a
       // completion at the top of one log close a job left dangling at the
       // bottom of the log before it, and hand it hours of somebody else's time.
-      let records = fold(tailEvents(of: log), into: [])
+      guard let events = tailEvents(of: log) else { return nil }
+      let records = fold(events, into: [])
       budget -= min(size(of: log) ?? 0, tailWindow)
       known += records.count
       older.append(records)
@@ -217,10 +254,10 @@ public struct JobLogReader: Sendable {
       active: current)
   }
 
-  private static func tailEvents(of log: URL) -> [JobLogEvent] {
-    guard let size = size(of: log) else { return [] }
+  private static func tailEvents(of log: URL) -> [JobLogEvent]? {
+    guard let size = size(of: log) else { return nil }
     let from = max(0, size - tailWindow)
-    return events(in: log, from: from, to: size, skippingFirstLine: from > 0).events
+    return events(in: log, from: from, to: size, skippingFirstLine: from > 0)?.events
   }
 
   /// The events in the whole lines of `[from, to)`, and the offset one past the
@@ -236,15 +273,18 @@ public struct JobLogReader: Sendable {
   ///   real line per refresh, which is a job start or a job result.
   private static func events(
     in log: URL, from: Int, to end: Int, skippingFirstLine: Bool
-  ) -> (events: [JobLogEvent], consumed: Int) {
-    guard end > from, let handle = try? FileHandle(forReadingFrom: log) else {
+  ) -> (events: [JobLogEvent], consumed: Int)? {
+    guard end > from else { return ([], from) }
+    guard let handle = try? FileHandle(forReadingFrom: log) else { return nil }
+    defer { try? handle.close() }
+    guard (try? handle.seek(toOffset: UInt64(from))) != nil else { return nil }
+    guard let data = try? handle.read(upToCount: end - from), !data.isEmpty
+    else { return nil }
+    // A successful read with no complete line is still an available reading.
+    // Leave the bytes unconsumed so the next append can complete the line.
+    guard let lastBreak = data.lastIndex(of: UInt8(ascii: "\n")) else {
       return ([], from)
     }
-    defer { try? handle.close() }
-    guard (try? handle.seek(toOffset: UInt64(from))) != nil,
-      let data = try? handle.read(upToCount: end - from), !data.isEmpty,
-      let lastBreak = data.lastIndex(of: UInt8(ascii: "\n"))
-    else { return ([], from) }
 
     let whole = data[data.startIndex...lastBreak]
     // Counted in bytes rather than in characters. Lossy UTF-8 decoding turns

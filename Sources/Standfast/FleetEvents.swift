@@ -63,8 +63,11 @@ struct FleetWatcher {
   /// What the last reading of one runner said.
   private struct Seen {
     let display: DisplayState
+    /// False until `_diag` has answered at least once. A nil finish after that
+    /// is a real empty-history watermark; before it, nil means no evidence.
+    let hasJobBaseline: Bool
     /// The start time of the newest *finished* job already accounted for, and
-    /// nil for a runner whose log held none.
+    /// nil for an available history whose log held none.
     ///
     /// A start time rather than a count or an index: `_diag` rotates, so the
     /// list shrinks and shifts underneath this, and one runner runs one job at
@@ -164,16 +167,33 @@ struct FleetWatcher {
       let newestFinish = snapshot.jobs.records.first { $0.finishedAt != nil }?
         .startedAt
       guard let before = seen[label] else {
-        // First sight of this runner. Everything in its log predates the app.
-        seen[label] = Seen(display: snapshot.display, newestFinish: newestFinish)
+        // First sight of this runner baselines its state immediately, but its
+        // jobs only when `_diag` actually answered. An unavailable cold read
+        // carries the same empty value as a successfully empty directory and
+        // must not turn historical failures into new ones on recovery.
+        seen[label] = Seen(
+          display: snapshot.display,
+          hasJobBaseline: snapshot.isJobHistoryAvailable,
+          newestFinish: snapshot.isJobHistoryAvailable ? newestFinish : nil)
         continue
       }
-      events += failures(in: snapshot, after: before.newestFinish)
+      let hasJobBaseline: Bool
+      let jobBaseline: Date?
+      if snapshot.isJobHistoryAvailable {
+        if before.hasJobBaseline {
+          events += failures(in: snapshot, after: before.newestFinish)
+        }
+        hasJobBaseline = true
+        jobBaseline = newestFinish
+      } else {
+        hasJobBaseline = before.hasJobBaseline
+        jobBaseline = before.newestFinish
+      }
       let stateChange = stateChange(in: snapshot, from: before.display)
       events += stateChange.events
       seen[label] = Seen(
         display: stateChange.advancesBaseline ? snapshot.display : before.display,
-        newestFinish: newestFinish)
+        hasJobBaseline: hasJobBaseline, newestFinish: jobBaseline)
     }
     return events
   }
