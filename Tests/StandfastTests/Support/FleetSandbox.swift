@@ -10,7 +10,7 @@ import RunnerKit
 final class FleetSandbox: @unchecked Sendable {
   let root: URL
   private let lock = NSLock()
-  private var running: Bool
+  private var running: Bool?
   private var remote: Result<RemoteStatus, GitHubError>
   private var scans = 0
   private var probes = 0
@@ -121,7 +121,7 @@ final class FleetSandbox: @unchecked Sendable {
 
   func set(releaseDelay seconds: TimeInterval) { withLock { releaseDelay = seconds } }
 
-  func set(serviceRunning: Bool) { withLock { running = serviceRunning } }
+  func set(serviceRunning: Bool?) { withLock { running = serviceRunning } }
   func set(remote answer: Result<RemoteStatus, GitHubError>) {
     withLock { remote = answer }
   }
@@ -431,11 +431,16 @@ final class FailingVerbCommandRunner: CommandRunning, @unchecked Sendable {
 final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
   private let lock = NSLock()
   private let gate = DispatchSemaphore(value: 0)
+  private let failureAfterRelease: Bool
   private let onReleaseVerb: @Sendable (String) -> Void
   private var seen: [[String]] = []
   private var completed = 0
 
-  init(onReleaseVerb: @escaping @Sendable (String) -> Void = { _ in }) {
+  init(
+    failureAfterRelease: Bool = false,
+    onReleaseVerb: @escaping @Sendable (String) -> Void = { _ in }
+  ) {
+    self.failureAfterRelease = failureAfterRelease
     self.onReleaseVerb = onReleaseVerb
   }
 
@@ -475,6 +480,7 @@ final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
     lock.lock()
     completed += 1
     lock.unlock()
+    if failureAfterRelease { throw DeliberateCommandFailure.failed }
     return CommandResult(standardOutput: "", exitCode: 0)
   }
 
@@ -496,6 +502,7 @@ final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
   }
 
   private enum WaitFailure: Error { case timedOut }
+  private enum DeliberateCommandFailure: Error { case failed }
 }
 
 /// A one-shot gate placed immediately before the sandbox reads launchd state.

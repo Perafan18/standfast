@@ -54,7 +54,20 @@ struct FleetWatcher {
   private var seen: [String: Seen] = [:]
   private struct ExpectedStop {
     let requestedAt: Date
-    var completedAt: Date?
+    var completion: Completion?
+  }
+
+  private enum Completion {
+    /// svc.sh Stop returned, including the successful first half of Restart.
+    case confirmed(Date)
+    /// The command was killed at its deadline, so its effects are unknowable.
+    case uncertain(Date)
+
+    var completedAt: Date {
+      switch self {
+      case .confirmed(let date), .uncertain(let date): date
+      }
+    }
   }
 
   private let expectedStopLifetime: TimeInterval
@@ -85,7 +98,13 @@ struct FleetWatcher {
   /// Until then an idle reading means merely that Stop has not reached
   /// launchd yet; it says nothing about the stop that is still in flight.
   mutating func completeExpectedStop(for label: String, at completedAt: Date) {
-    expectedStops[label]?.completedAt = completedAt
+    expectedStops[label]?.completion = .confirmed(completedAt)
+  }
+
+  /// Records the only bounded form of intent: a timed-out Stop may or may not
+  /// have taken effect, so it cannot suppress an unrelated crash forever.
+  mutating func markExpectedStopUncertain(for label: String, at completedAt: Date) {
+    expectedStops[label]?.completion = .uncertain(completedAt)
   }
 
   /// Revokes an intent whose command definitely failed before completing.
@@ -109,15 +128,17 @@ struct FleetWatcher {
       let label = snapshot.runner.label
       let newestFinish = snapshot.jobs.records.first { $0.finishedAt != nil }?
         .startedAt
-      defer {
-        seen[label] = Seen(display: snapshot.display, newestFinish: newestFinish)
-      }
       guard let before = seen[label] else {
         // First sight of this runner. Everything in its log predates the app.
+        seen[label] = Seen(display: snapshot.display, newestFinish: newestFinish)
         continue
       }
       events += failures(in: snapshot, after: before.newestFinish)
-      events += stateChange(in: snapshot, from: before.display)
+      let stateChange = stateChange(in: snapshot, from: before.display)
+      events += stateChange.events
+      seen[label] = Seen(
+        display: stateChange.advancesBaseline ? snapshot.display : before.display,
+        newestFinish: newestFinish)
     }
     return events
   }
@@ -146,10 +167,10 @@ struct FleetWatcher {
   /// What this runner's state moving says, and the expected stop it may spend.
   private mutating func stateChange(
     in snapshot: RunnerSnapshot, from before: DisplayState
-  ) -> [FleetEvent] {
+  ) -> (events: [FleetEvent], advancesBaseline: Bool) {
     let changed = snapshot.display != before
     var expectedStop = expectedStops[snapshot.runner.label]
-    if let completedAt = expectedStop?.completedAt,
+    if case .uncertain(let completedAt)? = expectedStop?.completion,
       snapshot.readAt >= completedAt.addingTimeInterval(expectedStopLifetime)
     {
       // An uncertain timeout cannot grant permanent silence. Expiration is
@@ -160,8 +181,8 @@ struct FleetWatcher {
     }
     let maySuppressStop = expectedStop.map { snapshot.readAt >= $0.requestedAt } ?? false
     let maySpendExpectedStop =
-      expectedStop?.completedAt.map {
-        snapshot.readAt >= $0
+      expectedStop?.completion.map {
+        snapshot.readAt >= $0.completedAt
       } ?? false
     switch snapshot.display.resolvedState {
     case .stopped:
@@ -172,22 +193,47 @@ struct FleetWatcher {
         expectedStops.removeValue(forKey: snapshot.runner.label)
       }
       let expected = maySuppressStop
-      guard changed, !expected else { return [] }
-      return [.runnerStoppedUnexpectedly(runner: snapshot.name)]
+      // A stopped transition seen before the command returns is provisional.
+      // Keep the previous display baseline until the command outcome can
+      // either confirm and spend it or cancel intent and expose it next scan.
+      let advancesBaseline = expectedStop?.completion != nil || !expected
+      guard changed, !expected else { return ([], advancesBaseline) }
+      return ([.runnerStoppedUnexpectedly(runner: snapshot.name)], true)
     case .idle, .busy:
       // Up and taking work, so whatever stop was expected has been and gone —
       // which is what a restart looks like when the scan misses the gap.
       if maySpendExpectedStop {
         expectedStops.removeValue(forKey: snapshot.runner.label)
       }
-      return []
+      return ([], true)
     case .disconnected:
-      return changed ? [.runnerDisconnected(runner: snapshot.name)] : []
+      // GitHub is offline, but the resolver only reaches this state after
+      // launchd answered that the service is running. That local evidence is
+      // enough to settle an expected stop whose command already completed.
+      if maySpendExpectedStop {
+        expectedStops.removeValue(forKey: snapshot.runner.label)
+      }
+      return (
+        changed ? [.runnerDisconnected(runner: snapshot.name)] : [],
+        true
+      )
     // `.unknown` is this app failing to read the machine, not the machine
     // failing, and `.starting` is a runner in the middle of the handshake. Both
     // are states with nothing to report yet.
-    case .unknown, nil:
-      return []
+    case .unknown(let reason):
+      // Every GitHub-side unknown also follows a successful local "running"
+      // probe. Only launchd's own unreadable result leaves the stop uncertain.
+      if reason != .serviceStateUnreadable, maySpendExpectedStop {
+        expectedStops.removeValue(forKey: snapshot.runner.label)
+      }
+      return ([], true)
+    case nil:
+      // Settling only covers `.disconnected`, whose launchd evidence is
+      // likewise conclusive even though the presentation hides it.
+      if maySpendExpectedStop {
+        expectedStops.removeValue(forKey: snapshot.runner.label)
+      }
+      return ([], true)
     }
   }
 }

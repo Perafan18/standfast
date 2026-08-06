@@ -342,6 +342,32 @@ import Testing
   #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
+@Test func everyConclusiveRunningProbeSettlesACompletedStopIntent() {
+  // These presentations differ only in GitHub's answer. Each proves launchd
+  // said the service is running, so none may leave an old Stop intent behind
+  // to silence a later crash.
+  for display in [
+    DisplayState.resolved(.disconnected),
+    .resolved(.unknown(.noAnswer)),
+    .starting,
+  ] {
+    let requestedAt = Date(timeIntervalSince1970: 100)
+    let completedAt = Date(timeIntervalSince1970: 101)
+    var watcher = FleetWatcher()
+    let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+    _ = watcher.events(in: [runner])
+    watcher.expectStop(for: runner.runner.label, at: requestedAt)
+    watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+
+    _ = watcher.events(in: [snapshot(display: display, readAt: completedAt)])
+    let crash = watcher.events(in: [
+      snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(1))
+    ])
+
+    #expect(crash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+  }
+}
+
 @Test func stoppingARunnerThatWasAlreadyStoppedStillSpendsTheToken() {
   // Nothing stops a user pressing Stop on a runner that is already down. No
   // transition follows, so nothing is reported either way — and the token must
@@ -378,6 +404,28 @@ import Testing
   #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
+@Test func aConfirmedStopWaitsForItsFirstObservationWithoutExpiring() {
+  // svc.sh returned success, so the stop is not a guess with a deadline. A
+  // slow fleet scan may reach this runner well after thirty seconds; its first
+  // stopped observation still belongs to the confirmed command.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 10)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+
+  let orderedStop = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(100))
+  ])
+  #expect(orderedStop.isEmpty)
+
+  _ = watcher.events(in: [snapshot(display: .resolved(.idle))])
+  let laterCrash = watcher.events(in: [snapshot(display: .resolved(.stopped))])
+  #expect(laterCrash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
 @Test func anUncertainStopIntentExpiresBeforeAFutureCrash() {
   // A timeout may have stopped the service, so its immediate observation is
   // suppressed. It may not buy silence forever when only inconclusive states
@@ -388,11 +436,11 @@ import Testing
   let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
   _ = watcher.events(in: [runner])
   watcher.expectStop(for: runner.runner.label, at: requestedAt)
-  watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+  watcher.markExpectedStopUncertain(for: runner.runner.label, at: completedAt)
 
   _ = watcher.events(in: [
     snapshot(
-      display: .resolved(.unknown(.noAnswer)),
+      display: .resolved(.unknown(.serviceStateUnreadable)),
       readAt: completedAt.addingTimeInterval(5))
   ])
   let events = watcher.events(in: [

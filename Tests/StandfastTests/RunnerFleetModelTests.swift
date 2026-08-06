@@ -926,6 +926,70 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(delivery.posted.isEmpty)
 }
 
+@Test @MainActor func aRunnerRemainsOwnedUntilItsReprobeIsApplied() async throws {
+  // Stop has returned and its re-probe has started, but that probe has not
+  // reached apply. A second mutation here must not replace the first action's
+  // still-unobserved intent. The same mutation is accepted after apply.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = box.svcDrivingCommandRunner
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  let probe = box.blockNextProbe()
+  defer { probe.release() }
+  fleet.stop(runner)
+  try await probe.waitUntilEntered()
+  clock.advance(1)
+  fleet.restart(runner)
+  probe.release()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+  #expect(delivery.posted.isEmpty)
+
+  fleet.restart(runner)
+  await fleet.quiesce()
+  #expect(commands.invocations.compactMap(\.last) == ["stop", "stop", "start"])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func removingARunnerReleasesItsServiceAction() async throws {
+  // No post-completion probe can exist after uninstall. Applying that absence
+  // must release ownership so a runner later installed under the same label is
+  // not born permanently blocked by its predecessor.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner { [box] verb in
+    box.set(serviceRunning: verb == "start")
+  }
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  try box.removeRunner()
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  try box.addRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+  fleet.start(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(2)
+  commands.release()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop", "start"])
+}
+
 @Test @MainActor func aFailedStopDoesNotSilenceTheNextRealCrash() async throws {
   // A definite command failure revokes the intent immediately. The runner can
   // go down independently before the re-probe, and that crash still belongs
@@ -940,6 +1004,32 @@ private enum TestWaitFailure: Error { case timedOut }
   await fleet.quiesce()
 
   fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+}
+
+@Test @MainActor func aStopSeenInFlightIsRecoveredWhenTheCommandFails() async throws {
+  // The stopped transition lands while svc.sh is still running, so it is
+  // provisionally suppressed. If svc.sh then fails definitively, the next
+  // probe must recover that transition instead of accepting stopped as the
+  // new baseline forever.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner(failureAfterRelease: true)
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  try await waitUntil { fleet.snapshots.map(\.display) == [.resolved(.stopped)] }
+  #expect(delivery.posted.isEmpty)
+
+  commands.release()
   await fleet.quiesce()
 
   #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
@@ -1004,17 +1094,15 @@ private enum TestWaitFailure: Error { case timedOut }
 }
 
 @Test @MainActor func aTimedOutStopCannotSilenceACrashAfterItsLifetime() async throws {
-  // The timeout leaves effects uncertain and the immediate disconnected probe
-  // cannot settle that uncertainty. Thirty seconds later the intent expires;
-  // a new stopped transition is announced instead of inheriting old silence.
+  // The timeout leaves effects uncertain and launchd cannot answer the first
+  // probe. Thirty seconds later the uncertain intent expires; a new stopped
+  // transition is announced instead of inheriting old silence.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
   let clock = TestClock()
   let commands = TimingOutCommandRunner { [box] verb in
-    if verb == "stop" {
-      box.set(remote: .success(RemoteStatus(online: false, busy: false)))
-    }
+    if verb == "stop" { box.set(serviceRunning: nil) }
   }
   let (fleet, delivery) = await listening(
     box, commands: commands, clock: clock.read)
@@ -1022,7 +1110,9 @@ private enum TestWaitFailure: Error { case timedOut }
 
   fleet.stop(fleet.snapshots[0].runner)
   await fleet.quiesce()
-  #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
+  #expect(
+    fleet.snapshots.map(\.display)
+      == [.resolved(.unknown(.serviceStateUnreadable))])
 
   clock.advance(30)
   box.set(serviceRunning: false)

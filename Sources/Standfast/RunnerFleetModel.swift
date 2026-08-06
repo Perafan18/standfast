@@ -123,10 +123,21 @@ final class RunnerFleetModel: ObservableObject {
   /// Actions still running, each removing itself when it finishes. Kept only
   /// so `quiesce()` has something to wait on.
   private var actions: [UUID: Task<Void, Never>] = [:]
-  /// A service mutation owns its runner until it has requested the re-probe.
-  /// Labels, rather than one fleet-wide flag, keep independent runners
-  /// independent while making contradictory clicks on one runner harmless.
+  /// A service mutation owns its runner until a conclusive post-completion
+  /// launchd probe has been applied. Labels, rather than one fleet-wide flag,
+  /// keep independent runners independent while making contradictory clicks
+  /// on one runner harmless.
   private var serviceActionsInFlight: Set<String> = []
+  /// The boundary a probe must reach before it can release the corresponding
+  /// action. Absent while svc.sh itself is still running.
+  private var serviceActionCompletions: [String: Date] = [:]
+
+  private enum ExpectedStopOutcome {
+    case none
+    case confirmed
+    case uncertain
+    case cancelled
+  }
 
   /// - Parameters:
   ///   - discover: a call rather than a `RunnerDiscovery`, because *where* the
@@ -421,6 +432,33 @@ final class RunnerFleetModel: ObservableObject {
         $0.display.resolvedState == .busy
           || ($0.display.resolvedState != .stopped && $0.jobs.running != nil)
       })
+    releaseServiceActionsObserved(in: snapshots, installed: installed)
+  }
+
+  /// Releases a runner only after apply has consumed local evidence newer than
+  /// its action. A GitHub failure is still conclusive here because the resolver
+  /// asks GitHub only after launchd answered "running"; only an unreadable
+  /// launchd probe remains inconclusive. Removal is terminal evidence too.
+  private func releaseServiceActionsObserved(
+    in snapshots: [RunnerSnapshot], installed: Set<String>
+  ) {
+    let byLabel = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.runner.label, $0) })
+    for label in Array(serviceActionsInFlight) {
+      guard let completedAt = serviceActionCompletions[label] else { continue }
+      guard installed.contains(label) else {
+        releaseServiceAction(for: label)
+        continue
+      }
+      guard let snapshot = byLabel[label], snapshot.readAt >= completedAt,
+        snapshot.hasConclusiveServiceEvidence
+      else { continue }
+      releaseServiceAction(for: label)
+    }
+  }
+
+  private func releaseServiceAction(for label: String) {
+    serviceActionsInFlight.remove(label)
+    serviceActionCompletions.removeValue(forKey: label)
   }
 
   /// Whether some runner's job has already taken longer than that job usually
@@ -497,14 +535,15 @@ final class RunnerFleetModel: ObservableObject {
     let id = UUID()
     actions[id] = Task {
       var ranSomething = true
+      var stopOutcome = ExpectedStopOutcome.none
       do {
         try await work(controller, directory)
-        if expectsStop { watcher.completeExpectedStop(for: label, at: clock()) }
+        if expectsStop { stopOutcome = .confirmed }
       } catch let failure as RestartStartFailure {
         // Stop completed before ServiceController attempted Start. Whatever
         // happened in the second half, a stopped re-probe belongs to this
         // restart and must retain its expected-stop intent.
-        watcher.completeExpectedStop(for: label, at: clock())
+        if expectsStop { stopOutcome = .confirmed }
         ranSomething = failure.timedOut
       } catch CommandError.timedOut {
         // The command was killed at the deadline, which says nothing at all
@@ -519,25 +558,41 @@ final class RunnerFleetModel: ObservableObject {
         // of "Starting…" and then the truth, because the window only ever
         // holds back `.disconnected` and a failed start reports `.stopped`.
         // That is the cheaper of the two mistakes by a wide margin.
-        if expectsStop { watcher.completeExpectedStop(for: label, at: clock()) }
+        if expectsStop { stopOutcome = .uncertain }
       } catch {
-        // Nothing ran. A missing `svc.sh` throws before a process is launched,
-        // and opening a window here would dress a half-uninstalled runner up
-        // as "Starting…" for thirty seconds over an action that never
-        // happened.
+        // This is a definite failure rather than a timeout. A missing `svc.sh`
+        // throws before a process is launched, and opening a window here would
+        // dress a half-uninstalled runner up as "Starting…" for thirty seconds
+        // over an action that never happened.
         ranSomething = false
-        if expectsStop { watcher.cancelExpectedStop(for: label) }
+        if expectsStop { stopOutcome = .cancelled }
       }
-      if thenSettles && ranSomething { settling.open(for: label, at: clock()) }
+      let completedAt = clock()
+      switch stopOutcome {
+      case .confirmed:
+        watcher.completeExpectedStop(for: label, at: completedAt)
+      case .uncertain:
+        watcher.markExpectedStopUncertain(for: label, at: completedAt)
+      case .cancelled:
+        watcher.cancelExpectedStop(for: label)
+      case .none:
+        break
+      }
+      if thenSettles && ranSomething { settling.open(for: label, at: completedAt) }
+      serviceActionCompletions[label] = completedAt
       // `svc.sh` returns before launchd has settled, so an immediate re-probe
       // reports the state we just left.
       try? await Task.sleep(for: .seconds(probeDelay))
       refresh()
-      // The action owns the label through re-probe scheduling. Releasing it
-      // sooner lets a second click alter settling or expected-stop state before
-      // the first action has even asked to observe its result.
-      serviceActionsInFlight.remove(label)
       actions[id] = nil
     }
+  }
+}
+
+extension RunnerSnapshot {
+  /// Every resolver answer except this one contains a definite launchd result.
+  /// `.starting` is a covered `.disconnected`, so launchd said running there.
+  fileprivate var hasConclusiveServiceEvidence: Bool {
+    display != .resolved(.unknown(.serviceStateUnreadable))
   }
 }

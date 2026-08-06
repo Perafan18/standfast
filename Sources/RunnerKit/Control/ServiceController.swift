@@ -6,11 +6,11 @@ public enum ServiceControlError: Error, Equatable {
   case scriptMissing(URL)
 }
 
-/// Restart's Stop completed, but its later Start did not.
+/// Restart's Stop completed, but its later settle-or-Start phase did not.
 ///
 /// Keeping that phase is essential to callers that suppress an expected stop:
-/// the runner is down because of the completed first half even though Restart
-/// as a whole threw.
+/// the runner may be down because of the completed first half even though
+/// Restart as a whole threw.
 public struct RestartStartFailure: Error {
   public let underlying: any Error
 
@@ -80,8 +80,8 @@ public struct ServiceController: Sendable {
   /// knows about it.
   public func restart(in directory: URL) async throws {
     try await stop(in: directory)
-    if settleDelay > 0 { try await Task.sleep(for: .seconds(settleDelay)) }
     do {
+      if settleDelay > 0 { try await Task.sleep(for: .seconds(settleDelay)) }
       try await start(in: directory)
     } catch {
       throw RestartStartFailure(underlying: error)

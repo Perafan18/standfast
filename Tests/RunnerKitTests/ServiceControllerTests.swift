@@ -30,6 +30,36 @@ private struct RunnerSandbox {
   }
 }
 
+private final class LockedFlag: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage = false
+
+  var value: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+
+  func set() {
+    lock.lock()
+    storage = true
+    lock.unlock()
+  }
+}
+
+private func waitUntil(
+  timeout: Duration = .seconds(1), _ condition: () -> Bool
+) async throws {
+  let clock = ContinuousClock()
+  let deadline = clock.now.advanced(by: timeout)
+  while !condition() {
+    guard clock.now < deadline else { throw TestWaitFailure.timedOut }
+    try await Task.sleep(for: .milliseconds(1))
+  }
+}
+
+private enum TestWaitFailure: Error { case timedOut }
+
 @Test func startRunsSvcStartInTheRunnerDirectory() async throws {
   let box = try RunnerSandbox()
   defer { box.cleanUp() }
@@ -100,6 +130,31 @@ private struct RunnerSandbox {
     .restart(in: box.directory)
 
   #expect(Date().timeIntervalSince(started) >= 0.2)
+}
+
+@Test func cancellationDuringRestartPauseIsAPostStopFailure() async throws {
+  // Stop has returned before the pause begins. Cancellation there must retain
+  // that phase instead of looking like a failure that happened before Stop.
+  let box = try RunnerSandbox()
+  defer { box.cleanUp() }
+  let fake = FakeCommandRunner()
+  let stopped = LockedFlag()
+  fake.onRun = { stopped.set() }
+  let controller = ServiceController(commandRunner: fake, settleDelay: 60)
+  let restart = Task { try await controller.restart(in: box.directory) }
+
+  try await waitUntil { stopped.value }
+  restart.cancel()
+
+  do {
+    try await restart.value
+    Issue.record("Restart unexpectedly succeeded after cancellation")
+  } catch let failure as RestartStartFailure {
+    #expect(failure.underlying is CancellationError)
+  } catch {
+    Issue.record("Expected RestartStartFailure, got \(error)")
+  }
+  #expect(fake.invocations == [box.invocation("stop")])
 }
 
 @Test @MainActor func everyAsyncEntryPointKeepsItsBlockingOffBothPools() async throws {
