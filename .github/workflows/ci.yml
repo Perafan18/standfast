@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# macos-15 everywhere, not macos-14, even though the app targets macOS 14: the
+# manifest declares swift-tools-version 6.0, and the macos-14 image's default
+# Xcode still carries a Swift 5 toolchain that cannot read it. `swift format`
+# is a subcommand of that same Swift 6 toolchain, so it would be missing too.
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      # Warnings are treated as errors here rather than in Package.swift so a
+      # contributor's local build stays readable while CI stays strict.
+      - name: Build (debug, warnings are errors)
+        run: swift build -Xswiftc -warnings-as-errors
+
+      - name: Test
+        run: swift test
+
+      # Release uses different optimisation and cross-module settings, so a
+      # debug-only build genuinely does not cover it.
+      - name: Build (release, warnings are errors)
+        run: swift build -c release -Xswiftc -warnings-as-errors
+
+  package:
+    name: Package the app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble Standfast.app
+        run: ./Scripts/build-app.sh
+
+      - name: Validate Info.plist
+        run: |
+          plutil -lint .build/Standfast.app/Contents/Info.plist
+          # Without LSUIElement the app takes a Dock icon and stops being a
+          # menu bar app at all.
+          plutil -extract LSUIElement raw .build/Standfast.app/Contents/Info.plist \
+            | grep -qx 'true'
+
+      # The only check that catches a bundle which resolves on the machine that
+      # built it and traps everywhere else. It reassembles the app, deletes
+      # .build on purpose, and launches what is left.
+      #
+      # This is what `make check` runs. The target itself is not used here only
+      # because it would repeat the whole test suite the job above just ran.
+      - name: Launch the packaged app
+        run: ./Scripts/check-app.sh
+
+  hygiene:
+    name: Hygiene
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # `swift format`, with a space: the toolchain ships it as a subcommand of
+      # `swift`, not as a `swift-format` binary on PATH. It picks up the
+      # versioned `.swift-format` by walking up from each file it reads.
+      - name: Format
+        run: swift format lint --strict --recursive Sources Tests
+
+      # This app used to be hardcoded to one person's machine. The whole point
+      # of v0.1 was removing that, and it is exactly the kind of thing a
+      # regression reintroduces without anyone noticing.
+      #
+      # Sources only, and that boundary is deliberate: the tests name
+      # `/Users/ci/actions-runner` and a real repository throughout their
+      # fixtures, because a LaunchAgent plist has an absolute WorkingDirectory
+      # in it and there is nothing to parse without one.
+      - name: No machine-specific paths in the source
+        run: |
+          if grep -rnE '/Users/|actions-runner|Perafan18/' Sources/; then
+            echo "::error::Sources must not name a specific machine, user or repository"
+            exit 1
+          fi
+
+      # Two files carry the release version and nothing in the build links
+      # them: CFBundleShortVersionString in the bundle, and the tag inside the
+      # formula's url. Bump one, forget the other, and the installed app
+      # reports the wrong version to everybody until somebody happens to look.
+      - name: The bundle version and the formula agree
+        run: |
+          bundle="$(/usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          formula="$(sed -n 's|.*/tags/v\(.*\)\.tar\.gz.*|\1|p' Formula/standfast.rb)"
+          if [ -z "$formula" ]; then
+            echo "::error::no version tag found in the url in Formula/standfast.rb"
+            exit 1
+          fi
+          if [ "$bundle" != "$formula" ]; then
+            echo "::error::Info.plist says $bundle, Formula/standfast.rb says $formula"
+            exit 1
+          fi
+          echo "both say $bundle"
