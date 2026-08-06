@@ -4,7 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] — unreleased
+**0.4.0 is the first public release.** The three sections below it are development
+milestones that were built and reviewed in sequence but never published separately, so
+everything in this file ships at once. They are kept apart because each one answers a
+different question about the app, and collapsing them would lose that.
+
+## [0.4.0] — 2026-08-06
 
 Stops the runner quietly eating the disk. Measured on one real runner: `_work` was 4.5 GB,
 of which the hosted tool cache alone was 4.33 GB — 91% of it, and a cache — while `_diag`
@@ -62,7 +67,7 @@ half gigabytes a year of text nobody will ever read.
   none, so nothing ever failed. The opener now goes behind a seam like the notification
   centre and the power assertion, and the test pins the URL.
 
-## [0.3.0] — unreleased
+## [0.3.0] — development milestone, shipped in 0.4.0
 
 Makes the app worth having when nobody is looking at it. Everything here is off until
 switched on, and the whole design question was not how to notify but what is worth
@@ -104,7 +109,7 @@ a day of which one in six carries information.
   bundle is now ad-hoc signed at the end of `build-app.sh`, and the packaging check fails
   if the signed identifier is not the one `Info.plist` claims.
 
-## [0.2.0] — unreleased
+## [0.2.0] — development milestone, shipped in 0.4.0
 
 Turns a status light into a progress indicator. Everything new here is read from logs the
 runner already writes beside itself, so it stays true to the premise: no API call, no
@@ -139,7 +144,7 @@ token, nothing to configure.
   flight, and again while its answer is younger than the interval; an explicit refresh is
   still remembered.
 
-## [0.1.0] — unreleased
+## [0.1.0] — development milestone, shipped in 0.4.0
 
 First public release. The app previously worked on exactly one machine, with the
 repository and runner path written into the source; this release is about making it
