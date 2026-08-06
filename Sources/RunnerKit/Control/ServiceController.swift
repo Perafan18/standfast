@@ -34,10 +34,26 @@ public struct ServiceController: Sendable {
   ///
   /// Async so the pause cannot be taken on the main actor by accident — a
   /// button wired straight to a sleeping function freezes the menu.
+  ///
+  /// Each half is handed to a queue that is allowed to block, for the same
+  /// reason `RunnerStateResolver` keeps an async facade: `stop` and `start`
+  /// park the calling thread inside `waitUntilExit()` for up to the command
+  /// timeout, and every `Task` — detached or not — runs on the cooperative
+  /// pool, which has one thread per core. Doing the hop here rather than
+  /// leaving it to callers keeps launchd's unload-before-load gap where it
+  /// belongs, in the only type that knows about it.
   public func restart(in directory: URL) async throws {
-    try stop(in: directory)
+    try await blocking { try stop(in: directory) }
     if settleDelay > 0 { try await Task.sleep(for: .seconds(settleDelay)) }
-    try start(in: directory)
+    try await blocking { try start(in: directory) }
+  }
+
+  private func blocking(_ work: @escaping @Sendable () throws -> Void) async throws {
+    try await withCheckedThrowingContinuation { continuation in
+      DispatchQueue.global().async {
+        continuation.resume(with: Result { try work() })
+      }
+    }
   }
 
   private func svc(_ verb: String, in directory: URL) throws {

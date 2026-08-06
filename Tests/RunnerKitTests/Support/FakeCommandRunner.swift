@@ -28,6 +28,9 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
   /// exit-code-only: 127 when it is not on PATH, 4 when it is not
   /// authenticated, both with an empty stdout.
   var exitCodes: [[String]: Int32] = [:]
+  /// Runs inside `run`, on whatever thread called it. The only way to observe
+  /// where a synchronous command was executed from.
+  var onRun: (@Sendable () -> Void)?
 
   /// Keyed by the argument list rather than by a joined string: `["gh", "a b"]`
   /// and `["gh", "a", "b"]` are different commands, and a `gh --jq` filter is
@@ -37,6 +40,7 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
   func run(_ executable: String, _ arguments: [String], workingDirectory: URL?) throws
     -> CommandResult
   {
+    onRun?()
     invocations.append(
       Invocation(
         executable: executable, arguments: arguments,

@@ -87,6 +87,40 @@ private struct RunnerSandbox {
   #expect(Date().timeIntervalSince(started) >= 0.2)
 }
 
+@Test @MainActor func restartKeepsItsBlockingOffTheCooperativePool() async throws {
+  // `stop` and `start` each park a thread inside waitUntilExit for up to the
+  // command timeout. The cooperative pool has one thread per core and runs
+  // every `Task {}`, so an app restarting a runner from a button would stall
+  // it — and `restart` is `async`, which means callers have no thread of their
+  // own to hand it. The hop has to happen in here.
+  final class Queues: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: [String] = []
+    func record(_ label: String) {
+      lock.lock()
+      defer { lock.unlock() }
+      seen.append(label)
+    }
+    var all: [String] {
+      lock.lock()
+      defer { lock.unlock() }
+      return seen
+    }
+  }
+  let box = try RunnerSandbox()
+  defer { box.cleanUp() }
+  let queues = Queues()
+  let fake = FakeCommandRunner()
+  fake.onRun = { queues.record(String(cString: __dispatch_queue_get_label(nil))) }
+
+  try await ServiceController(commandRunner: fake, settleDelay: 0)
+    .restart(in: box.directory)
+
+  #expect(queues.all.count == 2)
+  #expect(!queues.all.contains { $0.hasSuffix(".cooperative") })
+  #expect(!queues.all.contains { $0 == "com.apple.main-thread" })
+}
+
 @Test func eachRunnerIsControlledInItsOwnDirectory() throws {
   // One controller serves the whole machine; the directory is an argument,
   // not state, so two runners cannot end up sharing one svc.sh.
