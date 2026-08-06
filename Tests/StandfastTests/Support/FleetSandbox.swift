@@ -19,6 +19,9 @@ final class FleetSandbox: @unchecked Sendable {
   /// Held for the duration of every GitHub call, so a test can make a scan
   /// slow enough to still be running when the next one is asked for.
   private var delay: TimeInterval = 0
+  private var latest: Result<RunnerVersion, GitHubError> = .success(
+    RunnerVersion(2, 336, 0))
+  private var releaseChecks = 0
 
   init(
     serviceRunning: Bool = false,
@@ -48,6 +51,30 @@ final class FleetSandbox: @unchecked Sendable {
   /// hopped off the main thread — onto the cooperative pool, which is the one
   /// place a blocking call must never land.
   var queuesUsed: [String] { withLock { queues } }
+
+  /// How many times GitHub was asked what the newest runner is. The number this
+  /// app has to keep small: it is a call against the same rate limit as the
+  /// status one, about something that changes every few weeks.
+  var releaseCheckCount: Int { withLock { releaseChecks } }
+
+  func set(latest answer: Result<RunnerVersion, GitHubError>) {
+    withLock { latest = answer }
+  }
+
+  /// Never the real client. `GHCommandLineClient` would spawn `gh` and make a
+  /// network call, from every test that builds a model.
+  var releases: any RunnerReleaseChecking { Releases(sandbox: self) }
+
+  private struct Releases: RunnerReleaseChecking {
+    let sandbox: FleetSandbox
+
+    func blockingLatestRunnerRelease() throws -> RunnerVersion {
+      try sandbox.withLock {
+        sandbox.releaseChecks += 1
+        return sandbox.latest
+      }.get()
+    }
+  }
 
   func set(serviceRunning: Bool) { withLock { running = serviceRunning } }
   func set(remote answer: Result<RemoteStatus, GitHubError>) {
@@ -102,17 +129,21 @@ final class FleetSandbox: @unchecked Sendable {
   /// fixture that drifts from the real format is the one failure the suite
   /// cannot see.
   ///
-  /// - Parameter finished: nil for a job still running.
+  /// - Parameters:
+  ///   - finished: nil for a job still running.
+  ///   - version: the header a real listener writes before anything else, and
+  ///     the only place on disk that says which runner is installed.
   func writeListenerLog(
     in directory: URL, job name: String, startedAt: String, finished: String?,
-    result: String = "Succeeded"
+    result: String = "Succeeded", version: String? = nil
   ) throws {
     let diagnostics = directory.appendingPathComponent("_diag")
     try FileManager.default.createDirectory(
       at: diagnostics, withIntermediateDirectories: true)
-    var lines = [
-      "[\(startedAt) INFO Terminal] WRITE LINE: \(startedAt): Running job: \(name)"
-    ]
+    var lines: [String] = []
+    if let version { lines.append("[\(startedAt) INFO Listener] Version: \(version)") }
+    lines.append(
+      "[\(startedAt) INFO Terminal] WRITE LINE: \(startedAt): Running job: \(name)")
     if let finished {
       lines.append(
         "[\(finished) INFO Terminal] WRITE LINE: \(finished): "

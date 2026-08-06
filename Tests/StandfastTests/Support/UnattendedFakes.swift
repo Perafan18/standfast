@@ -90,14 +90,37 @@ func scratchDefaults() -> UserDefaults {
 func snapshot(
   _ name: String = "build-mac", scope: String = "widget",
   display: DisplayState = .resolved(.idle), qualifier: String? = nil,
-  jobs: JobHistory = .empty, readAt: Date = Date(timeIntervalSince1970: 1_785_962_174)
+  jobs: JobHistory = .empty, readAt: Date = Date(timeIntervalSince1970: 1_785_962_174),
+  version: RunnerVersion? = nil
 ) -> RunnerSnapshot {
   RunnerSnapshot(
     runner: DiscoveredRunner(
       label: "actions.runner.\(scope).\(name)",
       directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: 7, agentName: name,
       scope: .repository(owner: "acme", name: scope)),
-    display: display, qualifier: qualifier, jobs: jobs, readAt: readAt)
+    display: display, qualifier: qualifier, jobs: jobs, readAt: readAt,
+    version: version)
+}
+
+/// A measurement built by hand, so the menu can be asked what it would show for
+/// a disk without there being one.
+func measured(
+  toolCache: Int64 = 0, actionCache: Int64 = 0, checkout: Int64 = 0, logs: Int64 = 0,
+  rotatable: Int64 = 0, rotatableCount: Int = 0,
+  at readAt: Date = Date(timeIntervalSince1970: 1_785_962_174)
+) -> DiskMeasurement {
+  let named: [(String, DiskEntryKind, Int64)] = [
+    ("_tool", .toolCache, toolCache), ("_actions", .actionCache, actionCache),
+    ("nest-rules-app", .checkout, checkout),
+  ]
+  return DiskMeasurement(
+    report: DiskReport(
+      entries: named.map { DiskEntry(name: $0.0, kind: $0.1, bytes: $0.2) },
+      logBytes: logs,
+      rotation: DiagnosticsRotationPlan(
+        doomed: (0..<rotatableCount).map { URL(fileURLWithPath: "/tmp/_diag/log\($0)") },
+        bytes: rotatable)),
+    readAt: readAt)
 }
 
 /// A finished job, the way `_diag` describes one.

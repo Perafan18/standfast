@@ -17,8 +17,41 @@
 "menu.preventSleep" = "Mantener esta Mac despierta mientras corre un job";
 "menu.preventSleep.lid" = "Cerrar la tapa la sigue durmiendo";
 
+"menu.maintenance" = "Mantenimiento";
+"menu.maintenance.measure" = "Medir el uso de disco";
+"menu.maintenance.freeToolCache" = "Liberar la caché de herramientas (%@)…";
+"menu.maintenance.freeActionCache" = "Liberar las acciones descargadas (%@)…";
+"menu.maintenance.trimLogs" = "Borrar los logs antiguos (%@)…";
+"menu.maintenance.onlyWhenIdle" = "Borrar se ofrece con este runner inactivo o detenido";
+
+"menu.runnerVersion" = "Runner %@";
+"menu.runnerVersion.update" = "Runner %@ — hay %@ disponible";
+
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
+
+"disk.toolCache" = "Caché de herramientas — %@";
+"disk.actionCache" = "Acciones descargadas — %@";
+"disk.checkout" = "Copias de trabajo de repositorios — %@";
+"disk.temporary" = "Espacio temporal de los jobs — %@";
+"disk.other" = "Otros archivos del runner — %@";
+"disk.logs" = "Logs — %@";
+"disk.working" = "Trabajando…";
+"disk.notMeasured" = "Uso de disco aún sin medir";
+"disk.measuredJustNow" = "Medido ahora mismo";
+"disk.measuredAgo" = "Medido hace %@";
+"disk.unavailable" = "No se pudo medir el uso de disco";
+
+"cleanup.confirm.title" = "¿Borrar %@?";
+"cleanup.confirm.body" = "Esto libera %@ en %@.";
+"cleanup.confirm.delete" = "Borrar";
+"cleanup.confirm.cancel" = "Cancelar";
+"cleanup.toolCache.effect" = "La caché de herramientas guarda lo que descargaron los pasos de setup. El siguiente job que necesite una la vuelve a descargar.";
+"cleanup.actionCache.effect" = "Son las acciones que usan tus workflows, clonadas aquí. El runner recupera las que no encuentre.";
+"cleanup.logs.title" = "¿Borrar %d archivos de log antiguos de %@?";
+"cleanup.logs.effect" = "%d archivos en los que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra este menú.";
+"cleanup.refused" = "No se borró nada: %@ tomó trabajo";
+"cleanup.failed" = "No se pudo borrar nada; comprueba que se puede escribir en %@";
 
 "state.noRunners" = "No hay runners instalados en esta Mac";
 "state.unreadable" = "No se pudieron leer algunos archivos de runner:";

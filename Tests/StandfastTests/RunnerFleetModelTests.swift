@@ -13,10 +13,14 @@ private func model(
   // and a permission CI cannot grant, and a power assertion would be taken out
   // on whatever machine runs the suite.
   notifications: NotificationSettings? = nil, sleep: SleepGuard? = nil,
+  // Nor this one. The real opener hands the URL to the user's browser, so a
+  // suite that reaches it buries whoever ran it in tabs pointed at a fixture.
+  opener: FakeURLOpener = FakeURLOpener(),
   // No ticker by default: these tests drive every refresh themselves. A test
   // that wants the freshness rule passes an interval long enough that the real
   // ticker cannot fire inside it, and calls `tick()` by hand.
-  refreshInterval: TimeInterval? = nil
+  refreshInterval: TimeInterval? = nil,
+  releaseInterval: TimeInterval = 24 * 60 * 60
 ) -> RunnerFleetModel {
   RunnerFleetModel(
     discover: sandbox.discover, resolver: sandbox.resolver,
@@ -27,7 +31,12 @@ private func model(
         delivery: FakeNotificationDelivery(), defaults: scratchDefaults()),
     sleep: sleep
       ?? SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults()),
-    clock: clock, probeDelay: probeDelay, refreshInterval: refreshInterval)
+    // Never the real one, which would spawn `gh` and make a network call from
+    // every test in this file.
+    releases: sandbox.releases,
+    opener: opener,
+    clock: clock, probeDelay: probeDelay, refreshInterval: refreshInterval,
+    releaseInterval: releaseInterval)
 }
 
 /// A model whose notifications are all switched on, with the delivery it posts
@@ -1006,10 +1015,149 @@ private func listening(
       ["/bin/bash", script, "stop"], ["/bin/bash", script, "start"],
     ])
 
-  // `openOnGitHub` opens a URL and runs no command, which is the only way to
-  // see it from here.
+  // `openOnGitHub` spawns no command, so counting invocations says only that
+  // nothing else happened. What it opens is the part worth pinning.
   let before = commands.invocations.count
   fleet.perform(.openOnGitHub, on: fleet.snapshots[0].runner)
   await fleet.quiesce()
   #expect(commands.invocations.count == before)
+}
+
+@Test @MainActor func openOnGitHubHandsTheBrowserThisRunnersOwnSettingsPage() async throws {
+  let sandbox = try FleetSandbox()
+  defer { sandbox.cleanUp() }
+  _ = try sandbox.addRunner(name: "build-mac", scope: "widget")
+  let opener = FakeURLOpener()
+  let fleet = model(sandbox, opener: opener)
+  await fleet.quiesce()
+
+  #expect(opener.urls.isEmpty)
+  fleet.perform(.openOnGitHub, on: fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(
+    opener.urls.map(\.absoluteString)
+      == ["https://github.com/acme/widget/settings/actions/runners"])
+}
+
+// MARK: - Which runner is installed, and whether there is a newer one
+
+@Test @MainActor func theVersionTheRunnerPrintsReachesTheMenu() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(name: "build-mac")
+  // The header a listener writes at the top of every log it opens, which is the
+  // only place on disk that says which runner is installed.
+  try box.writeListenerLog(
+    in: directory, job: "build", startedAt: "2026-08-05 20:36:14Z", finished: nil,
+    version: "2.336.0")
+
+  let fleet = model(box)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.first?.version == RunnerVersion(2, 336, 0))
+}
+
+@Test @MainActor func aRunnerThatSaysNothingAboutItsVersionIsGivenNoNumber() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(name: "build-mac")
+  try box.writeListenerLog(
+    in: directory, job: "build", startedAt: "2026-08-05 20:36:14Z", finished: nil)
+
+  let fleet = model(box)
+  await fleet.quiesce()
+  // Nothing rather than a number this app made up, which would then sit in the
+  // menu next to a real one and be indistinguishable from it.
+  #expect(fleet.snapshots.first?.version == nil)
+}
+
+@Test @MainActor func theLatestReleaseIsAskedForOnceADayAndNotEveryFifteenSeconds()
+  async throws
+{
+  // The rule this had to obey. The status call is about this machine and runs
+  // every fifteen seconds; this one is about a repository on the internet that
+  // ships every few weeks, and it costs the same rate limit.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+
+  let fleet = model(box, clock: clock.read)
+  await fleet.quiesce()
+  #expect(box.releaseCheckCount == 1)
+  #expect(fleet.latestRelease == RunnerVersion(2, 336, 0))
+
+  for _ in 0..<5 {
+    clock.advance(15)
+    fleet.refresh()
+    await fleet.quiesce()
+  }
+  // Five more scans, and the runner's own state was read for every one of them.
+  #expect(box.scanCount >= 6)
+  #expect(box.releaseCheckCount == 1)
+
+  clock.advance(24 * 60 * 60)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(box.releaseCheckCount == 2)
+}
+
+@Test @MainActor func aReleaseCheckThatGotNoAnswerStillCountsAsHavingAsked() async throws {
+  // Otherwise a Mac with no network spends an API call on every single scan,
+  // all day, for an answer it is not going to get — and does it fastest when
+  // the connection is worst.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(latest: .failure(.noAnswer))
+  let clock = TestClock()
+
+  let fleet = model(box, clock: clock.read)
+  await fleet.quiesce()
+  #expect(box.releaseCheckCount == 1)
+  #expect(fleet.latestRelease == nil)
+
+  clock.advance(60)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(box.releaseCheckCount == 1)
+}
+
+@Test @MainActor func aReleaseAnswerSurvivesTheNextCheckFailing() async throws {
+  // The runner did not stop being out of date because the Wi-Fi dropped.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(latest: .success(RunnerVersion(2, 337, 0)))
+  let clock = TestClock()
+
+  let fleet = model(box, clock: clock.read)
+  await fleet.quiesce()
+  #expect(fleet.latestRelease == RunnerVersion(2, 337, 0))
+
+  box.set(latest: .failure(.noAnswer))
+  clock.advance(24 * 60 * 60)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(box.releaseCheckCount == 2)
+  #expect(fleet.latestRelease == RunnerVersion(2, 337, 0))
+}
+
+@Test @MainActor func aRunnerThatLeavesTheMachineTakesItsDiskNumbersWithIt() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "build-mac")
+  let fleet = model(box)
+  await fleet.quiesce()
+  let runner = try #require(fleet.snapshots.first?.runner)
+  fleet.housekeeping.measure(runner)
+  await fleet.housekeeping.quiesce()
+  #expect(fleet.housekeeping.measurement(for: runner) != nil)
+
+  try box.removeRunner(name: "build-mac")
+  fleet.refresh()
+  await fleet.quiesce()
+  // Otherwise a measurement of four gigabytes sits in memory for the life of
+  // the app, describing a directory the uninstall may well have taken with it.
+  #expect(fleet.housekeeping.measurement(for: runner) == nil)
 }

@@ -16,7 +16,8 @@ struct StandfastApp: App {
         // Owned by the model, which is what makes "a scan produced an event"
         // testable. Observed separately because a nested `ObservableObject`
         // does not tell the view anything by itself.
-        notifications: fleet.notifications, sleep: fleet.sleep)
+        notifications: fleet.notifications, sleep: fleet.sleep,
+        housekeeping: fleet.housekeeping)
     } label: {
       Image(systemName: FleetSummary.symbolName(for: fleet.snapshots.map(\.display)))
     }
@@ -33,12 +34,15 @@ private struct FleetMenu: View {
   @ObservedObject var thermal: ThermalMonitor
   @ObservedObject var notifications: NotificationSettings
   @ObservedObject var sleep: SleepGuard
+  @ObservedObject var housekeeping: HousekeepingModel
 
   var body: some View {
     // One section per runner. One runner reads as a flat menu; several read as
     // one group each, which is the only way per-runner buttons make sense.
     ForEach(fleet.snapshots) { snapshot in
-      RunnerSection(snapshot: snapshot, fleet: fleet)
+      RunnerSection(
+        snapshot: snapshot, fleet: fleet, housekeeping: housekeeping,
+        latestRelease: fleet.latestRelease)
       Divider()
     }
     if let notice = fleet.notice {
@@ -91,6 +95,8 @@ private struct FleetMenu: View {
 private struct RunnerSection: View {
   let snapshot: RunnerSnapshot
   let fleet: RunnerFleetModel
+  let housekeeping: HousekeepingModel
+  let latestRelease: RunnerVersion?
 
   var body: some View {
     let row = snapshot.row
@@ -107,6 +113,24 @@ private struct RunnerSection: View {
       Menu(L10n.recentJobs) {
         ForEach(row.recentJobs) { Text($0.text) }
       }
+    }
+    // `Date()` here rather than a stored value, for the same reason the
+    // last-checked line uses it: the only thing in here that ages is how old
+    // the measurement is, and the menu's body is re-evaluated when it opens.
+    let section = MaintenanceSection.building(
+      snapshot, measurement: housekeeping.measurement(for: snapshot.runner),
+      latest: latestRelease, isWorking: housekeeping.isWorking(on: snapshot.runner),
+      notice: housekeeping.notice, now: Date())
+    Menu(L10n.maintenance) {
+      if let version = section.version { Text(version) }
+      ForEach(section.usage, id: \.self) { Text($0) }
+      Text(section.measured)
+      Divider()
+      ForEach(section.offers) { offer in
+        Button(offer.label) { housekeeping.perform(offer.kind, on: snapshot) }
+          .disabled(!offer.isEnabled)
+      }
+      ForEach(section.notes, id: \.self) { Text($0) }
     }
   }
 }

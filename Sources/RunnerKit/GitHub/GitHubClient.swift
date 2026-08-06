@@ -114,6 +114,12 @@ public struct GHCommandLineClient: GitHubClient {
   /// no JSON parsing. Note the spaces inside it: this is a single argument.
   static let statusFilter = #".status + " " + (.busy|tostring)"#
 
+  /// Where the newest published runner is announced. A public repository, so
+  /// this needs no more credentials than the status call beside it — but it is
+  /// still an API call against the same rate limit, which is why nothing calls
+  /// it on the refresh loop.
+  static let latestReleasePath = "repos/actions/runner/releases/latest"
+
   /// Exit 127 is the shell's "command not found", which is how `/usr/bin/env`
   /// reports a `gh` that is not on PATH. Exit 4 is gh's own code for missing
   /// credentials. Neither is reported any other way — stdout is empty for
@@ -134,24 +140,26 @@ public struct GHCommandLineClient: GitHubClient {
     // API happened to list first, so a second runner on the same repository
     // silently shadowed this one.
     let arguments = ["api", scope.runnerAPIPath(id: id), "--jq", Self.statusFilter]
+    return try status(from: answer(to: arguments))
+  }
 
-    // Whatever worked last time. On the machine this app is aimed at — Homebrew
-    // gh, launched from Finder — the search ends at the second candidate, so
-    // without this every question from every runner on every refresh would pay
-    // for a spawn that is known in advance to fail.
-    if let remembered = found.current,
-      let result = try attempt(remembered, arguments)
-    {
-      return try status(from: result)
+  /// Runs `gh` wherever it is on this Mac, and remembers what answered.
+  ///
+  /// Whatever worked last time is tried first. On the machine this app is aimed
+  /// at — Homebrew gh, launched from Finder — the search ends at the second
+  /// candidate, so without the memory every question from every runner on every
+  /// refresh would pay for a spawn that is known in advance to fail.
+  private func answer(to arguments: [String]) throws -> CommandResult {
+    if let remembered = found.current, let result = try attempt(remembered, arguments) {
+      return result
     }
-
     // Either nothing was remembered, or gh has moved or been uninstalled since.
     // Either way the search below overwrites the memory with whatever answers
     // now, so there is nothing to clear first.
     for location in locations {
       guard let result = try attempt(location, arguments) else { continue }
       found.remember(location)
-      return try status(from: result)
+      return result
     }
     throw GitHubError.cliUnavailable
   }
@@ -204,5 +212,23 @@ public struct GHCommandLineClient: GitHubClient {
       throw GitHubError.noAnswer
     }
     return RemoteStatus(online: fields[0] == "online", busy: fields[1] == "true")
+  }
+}
+
+extension GHCommandLineClient: RunnerReleaseChecking {
+  public func blockingLatestRunnerRelease() throws -> RunnerVersion {
+    let result = try answer(to: ["api", Self.latestReleasePath, "--jq", ".tag_name"])
+    guard result.exitCode != Self.authenticationRequired else {
+      throw GitHubError.notAuthenticated
+    }
+    // The same trap as the status call: `gh api` answers an API error by
+    // printing the raw JSON body and ignoring `--jq` entirely, so the exit code
+    // is the only thing that says whether there is an answer here at all. A
+    // body is not a version and would not parse, but relying on that would be
+    // relying on GitHub never publishing a release named after its own error.
+    guard result.exitCode == 0, let version = RunnerVersion(result.standardOutput) else {
+      throw GitHubError.noAnswer
+    }
+    return version
   }
 }

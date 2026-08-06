@@ -17,8 +17,41 @@
 "menu.preventSleep" = "Keep this Mac awake while a job runs";
 "menu.preventSleep.lid" = "Closing the lid still sends it to sleep";
 
+"menu.maintenance" = "Maintenance";
+"menu.maintenance.measure" = "Measure disk use";
+"menu.maintenance.freeToolCache" = "Free up the tool cache (%@)…";
+"menu.maintenance.freeActionCache" = "Free up downloaded actions (%@)…";
+"menu.maintenance.trimLogs" = "Delete old logs (%@)…";
+"menu.maintenance.onlyWhenIdle" = "Deleting is offered while this runner is idle or stopped";
+
+"menu.runnerVersion" = "Runner %@";
+"menu.runnerVersion.update" = "Runner %@ — %@ is available";
+
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
+
+"disk.toolCache" = "Tool cache — %@";
+"disk.actionCache" = "Downloaded actions — %@";
+"disk.checkout" = "Repository checkouts — %@";
+"disk.temporary" = "Job scratch space — %@";
+"disk.other" = "Other runner files — %@";
+"disk.logs" = "Logs — %@";
+"disk.working" = "Working…";
+"disk.notMeasured" = "Disk use not measured yet";
+"disk.measuredJustNow" = "Measured just now";
+"disk.measuredAgo" = "Measured %@ ago";
+"disk.unavailable" = "Disk use could not be measured";
+
+"cleanup.confirm.title" = "Delete %@?";
+"cleanup.confirm.body" = "This frees %@ on %@.";
+"cleanup.confirm.delete" = "Delete";
+"cleanup.confirm.cancel" = "Cancel";
+"cleanup.toolCache.effect" = "The tool cache holds the toolchains that setup steps downloaded. The next job that needs one downloads it again.";
+"cleanup.actionCache.effect" = "These are the actions your workflows use, checked out here. The runner fetches back any it cannot find.";
+"cleanup.logs.title" = "Delete %d old log files from %@?";
+"cleanup.logs.effect" = "%d files nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history this menu shows.";
+"cleanup.refused" = "Nothing was deleted: %@ picked up work";
+"cleanup.failed" = "Nothing could be deleted; check that %@ is writable";
 
 "state.noRunners" = "No runners installed on this Mac";
 "state.unreadable" = "Some runner files could not be read:";

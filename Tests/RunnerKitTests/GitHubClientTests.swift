@@ -260,3 +260,91 @@ private func ask(
     try client.blockingRunnerStatus(id: 21, scope: repositoryScope)
       == RemoteStatus(online: false, busy: false))
 }
+
+// MARK: - Reading the latest release
+
+private func releaseArguments() -> [String] {
+  ["api", GHCommandLineClient.latestReleasePath, "--jq", ".tag_name"]
+}
+
+@Test func asksGitHubForTheTagOfTheNewestRunner() throws {
+  let fake = FakeCommandRunner([["/usr/bin/env", "gh"] + releaseArguments(): "v2.337.0\n"])
+
+  #expect(
+    try GHCommandLineClient(commandRunner: fake).blockingLatestRunnerRelease()
+      == RunnerVersion(2, 337, 0))
+  // Pinned as literals, deliberately not built from the constants under test —
+  // the same reason the status filter is pinned above. A path built from
+  // `latestReleasePath` would agree with whatever that says, including a path
+  // that answers 404 for ever, and a `--jq` filter that stopped selecting the
+  // tag would leave this reading a whole JSON release object.
+  #expect(
+    fake.invocations.map(\.arguments) == [
+      ["gh", "api", "repos/actions/runner/releases/latest", "--jq", ".tag_name"]
+    ])
+}
+
+@Test func aGhThatFailedIsNotBelievedEvenWhenItPrintedAVersion() throws {
+  // The same trap as the status call, and the reason the exit code rather than
+  // the output is what decides: `gh api` answers an API error by printing the
+  // raw body and ignoring `--jq` entirely. Parsing whatever came out was enough
+  // to turn a measured 404 into a healthy repository reported as a
+  // disconnected runner, so nothing here reads stdout from a `gh` that failed —
+  // not even output that parses perfectly.
+  let command = ["/usr/bin/env", "gh"] + releaseArguments()
+  let fake = FakeCommandRunner([command: "v2.337.0\n"])
+  fake.exitCodes[command] = 1
+
+  #expect(throws: GitHubError.noAnswer) {
+    try GHCommandLineClient(commandRunner: fake).blockingLatestRunnerRelease()
+  }
+}
+
+@Test func anApiErrorBodyIsNotAVersion() throws {
+  let command = ["/usr/bin/env", "gh"] + releaseArguments()
+  let fake = FakeCommandRunner([command: #"{"message":"Not Found"}"#])
+  fake.exitCodes[command] = 1
+
+  #expect(throws: GitHubError.noAnswer) {
+    try GHCommandLineClient(commandRunner: fake).blockingLatestRunnerRelease()
+  }
+}
+
+@Test func ghWithNoCredentialsIsToldApartFromGhWithNoAnswer() throws {
+  // Different next steps: one is `gh auth login`, the other is a network to
+  // look at. `actions/runner` is public, so this only happens to somebody whose
+  // gh is broken rather than unauthorised for this endpoint — and pointing them
+  // at their network would send them to the wrong place.
+  let command = ["/usr/bin/env", "gh"] + releaseArguments()
+  let fake = FakeCommandRunner([command: ""])
+  fake.exitCodes[command] = 4
+
+  #expect(throws: GitHubError.notAuthenticated) {
+    try GHCommandLineClient(commandRunner: fake).blockingLatestRunnerRelease()
+  }
+}
+
+@Test func aReleaseCheckWithNoGhAnywhereSaysSoRatherThanGuessing() throws {
+  let fake = FakeCommandRunner()
+  fake.failingExecutables = [
+    "/usr/bin/env", "/opt/homebrew/bin/gh", "/usr/local/bin/gh",
+  ]
+  #expect(throws: GitHubError.cliUnavailable) {
+    try GHCommandLineClient(commandRunner: fake).blockingLatestRunnerRelease()
+  }
+}
+
+@Test func theReleaseCheckLooksForGhInTheSamePlacesTheStatusCallDoes() throws {
+  // An app launched from Finder has no Homebrew on its PATH, so the first
+  // candidate fails on exactly the machines this app is for. A release check
+  // that only tried `env gh` would report "no gh installed" beside a status
+  // line that had just answered.
+  let fake = FakeCommandRunner([
+    ["/opt/homebrew/bin/gh"] + releaseArguments(): "v2.337.0\n"
+  ])
+  fake.exitCodes[["/usr/bin/env", "gh"] + releaseArguments()] = 127
+
+  #expect(
+    try GHCommandLineClient(commandRunner: fake).blockingLatestRunnerRelease()
+      == RunnerVersion(2, 337, 0))
+}

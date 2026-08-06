@@ -21,17 +21,24 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// half a minute ago, and the row would be quietly describing two different
   /// machines.
   let readAt: Date
+  /// Which runner is installed here, and nil when nothing on disk says. Read
+  /// with the rest of the scan rather than on its own schedule: it comes out of
+  /// the head of the same log the job history is read from, and a runner that
+  /// updated itself an hour ago must not still be reported as the old one.
+  let version: RunnerVersion?
   var id: String { runner.label }
 
   init(
     runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil,
-    jobs: JobHistory = .empty, readAt: Date = .distantPast
+    jobs: JobHistory = .empty, readAt: Date = .distantPast,
+    version: RunnerVersion? = nil
   ) {
     self.runner = runner
     self.display = display
     self.qualifier = qualifier
     self.jobs = jobs
     self.readAt = readAt
+    self.version = version
   }
 }
 
@@ -65,6 +72,9 @@ final class RunnerFleetModel: ObservableObject {
   /// that hangs for thirty seconds leaves a stale menu, and a mark taken when
   /// the answer landed would describe it as fresh.
   @Published private(set) var lastReadAt: Date?
+  /// The newest runner GitHub has published, and nil until it has been asked.
+  /// Fleet-wide because the question is: there is one `actions/runner`.
+  @Published private(set) var latestRelease: RunnerVersion?
 
   /// Which events reach the user, held here rather than beside this model so
   /// that the one place a scan turns into a notification is testable. Every bug
@@ -72,6 +82,7 @@ final class RunnerFleetModel: ObservableObject {
   /// test can read.
   let notifications: NotificationSettings
   let sleep: SleepGuard
+  let housekeeping: HousekeepingModel
 
   private let discover: @Sendable () -> DiscoveryResult
   private let resolver: RunnerStateResolver
@@ -79,6 +90,16 @@ final class RunnerFleetModel: ObservableObject {
   private let clock: @Sendable () -> Date
   private let probeDelay: TimeInterval
   private let refreshInterval: TimeInterval?
+  private let versions: RunnerVersionReader
+  private let releases: any RunnerReleaseChecking
+  private let opener: any URLOpening
+  private let releaseInterval: TimeInterval
+  /// When GitHub was last asked what the newest runner is, and nil until it
+  /// has been. Held here rather than beside the answer because a question that
+  /// failed still counts as asked — otherwise a machine with no network would
+  /// spend an API call on every single scan, all day, for an answer it is not
+  /// going to get.
+  private var lastReleaseCheck: Date?
   private var settling: SettlingWindow
   /// What the last scan said, so this one can report what changed. Held here
   /// for the same reason `settling` is: no single scan can own it.
@@ -112,11 +133,20 @@ final class RunnerFleetModel: ObservableObject {
     settling: SettlingWindow = SettlingWindow(),
     notifications: NotificationSettings = NotificationSettings(),
     sleep: SleepGuard = SleepGuard(),
+    housekeeping: HousekeepingModel = HousekeepingModel(),
+    versions: RunnerVersionReader = RunnerVersionReader(),
+    releases: any RunnerReleaseChecking = GHCommandLineClient(),
+    opener: any URLOpening = WorkspaceURLOpener(),
     clock: @escaping @Sendable () -> Date = Date.init,
     probeDelay: TimeInterval = 2,
     // 15s: fast enough that "did my build start?" is answered by looking up,
     // slow enough not to spend a GitHub API call every second all day.
-    refreshInterval: TimeInterval? = 15
+    refreshInterval: TimeInterval? = 15,
+    // A day. `actions/runner` ships every few weeks, so anything shorter is an
+    // API call spent to learn nothing — and unlike the status call, which is
+    // about this machine and has to be current, being a few hours late with
+    // "there is a newer runner" costs nobody anything.
+    releaseInterval: TimeInterval = 24 * 60 * 60
   ) {
     self.discover = discover
     self.resolver = resolver
@@ -124,9 +154,14 @@ final class RunnerFleetModel: ObservableObject {
     self.settling = settling
     self.notifications = notifications
     self.sleep = sleep
+    self.housekeeping = housekeeping
+    self.versions = versions
+    self.releases = releases
+    self.opener = opener
     self.clock = clock
     self.probeDelay = probeDelay
     self.refreshInterval = refreshInterval
+    self.releaseInterval = releaseInterval
     refresh()
     guard let refreshInterval else { return }
     // A sleeping task rather than a `Timer`: a scheduled timer runs in the
@@ -161,9 +196,14 @@ final class RunnerFleetModel: ObservableObject {
     // settling window has to be able to tell, or a reading taken before the
     // user pressed Restart gets to close the window that click opened.
     let readAt = clock()
-    inFlight = Task { [discover, resolver, jobLogs] in
+    // Asked at most once a day, and the decision is made here rather than in
+    // the scan so that a scan is still a pure function of what it was given.
+    let askForRelease =
+      lastReleaseCheck.map { readAt.timeIntervalSince($0) >= releaseInterval } ?? true
+    inFlight = Task { [discover, resolver, jobLogs, versions, releases] in
       let scan = await Self.scan(
-        discover: discover, resolver: resolver, readers: jobLogs)
+        discover: discover, resolver: resolver, readers: jobLogs, versions: versions,
+        releases: askForRelease ? releases : nil)
       apply(scan, readAt: readAt)
       inFlight = nil
       if refreshRequested {
@@ -230,13 +270,19 @@ final class RunnerFleetModel: ObservableObject {
   /// Sequential because parallelism is not what makes this fast enough — there
   /// are rarely more than a handful of runners, and the coalescing in
   /// `refresh()` is what stops a slow scan from piling up.
+  ///
+  /// - Parameter releases: nil to skip the question entirely, which is what
+  ///   almost every scan does. Passing the client rather than a flag keeps the
+  ///   "how often" decision in the one place that owns a clock.
   private nonisolated static func scan(
     discover: @escaping @Sendable () -> DiscoveryResult, resolver: RunnerStateResolver,
-    readers: [String: JobLogReader]
+    readers: [String: JobLogReader], versions: RunnerVersionReader,
+    releases: (any RunnerReleaseChecking)?
   ) async -> Scan {
     let found = await offCooperativePool { discover() }
     var states: [RunnerState] = []
     var jobs: [JobHistory] = []
+    var installed: [RunnerVersion?] = []
     var readers = readers
     for runner in found.runners {
       states.append(await resolver.state(for: runner))
@@ -252,8 +298,18 @@ final class RunnerFleetModel: ObservableObject {
       }
       jobs.append(read.0)
       readers[runner.label] = read.1
+      installed.append(
+        await offCooperativePool { versions.blockingInstalledVersion(in: runner) })
     }
-    return Scan(found: found, states: states, jobs: jobs, readers: readers)
+    // Last, and never in the loop above: this is one question about the whole
+    // internet, not one per runner, and it costs an API call.
+    let latest = await offCooperativePool { () -> RunnerVersion? in
+      guard let releases else { return nil }
+      return try? releases.blockingLatestRunnerRelease()
+    }
+    return Scan(
+      found: found, states: states, jobs: jobs, readers: readers,
+      versions: installed, latestRelease: latest, askedForRelease: releases != nil)
   }
 
   /// One scan's answer. A named type rather than a tuple because it crosses a
@@ -263,6 +319,12 @@ final class RunnerFleetModel: ObservableObject {
     let states: [RunnerState]
     let jobs: [JobHistory]
     let readers: [String: JobLogReader]
+    let versions: [RunnerVersion?]
+    /// Nil both when nothing was asked and when the asking failed. Which of the
+    /// two it was is `askedForRelease`, and the difference decides whether the
+    /// last answer is kept or the clock is reset.
+    let latestRelease: RunnerVersion?
+    let askedForRelease: Bool
   }
 
   /// - Parameter readAt: when this scan started reading the machine, which is
@@ -278,17 +340,29 @@ final class RunnerFleetModel: ObservableObject {
     // that no longer exists, for as long as the app runs.
     jobLogs = scan.readers.filter { installed.contains($0.key) }
     watcher.keepOnly(installed)
+    // And its measured four gigabytes would sit in memory for the life of the
+    // app, describing a directory that may well have been deleted with it.
+    housekeeping.keepOnly(installed)
     let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
-    snapshots = zip(scan.found.runners, zip(scan.states, scan.jobs)).map {
-      runner, rest in
-      RunnerSnapshot(
-        runner: runner,
-        display: settling.display(rest.0, for: runner.label, readAt: readAt),
-        // Only where the name alone would not say which runner this is.
-        qualifier: repeated.contains(runner.displayName)
-          ? runner.scope.displayName : nil,
-        jobs: rest.1,
-        readAt: readAt)
+    snapshots = zip(scan.found.runners, zip(scan.states, zip(scan.jobs, scan.versions)))
+      .map { runner, rest in
+        RunnerSnapshot(
+          runner: runner,
+          display: settling.display(rest.0, for: runner.label, readAt: readAt),
+          // Only where the name alone would not say which runner this is.
+          qualifier: repeated.contains(runner.displayName)
+            ? runner.scope.displayName : nil,
+          jobs: rest.1.0,
+          readAt: readAt,
+          version: rest.1.1)
+      }
+    if scan.askedForRelease {
+      // Stamped whether or not there was an answer, so a Mac with no network
+      // asks once a day rather than once every fifteen seconds. The last known
+      // answer is kept for the same reason a stale version is better than none:
+      // the runner did not stop being out of date because the Wi-Fi dropped.
+      lastReleaseCheck = readAt
+      if let latest = scan.latestRelease { latestRelease = latest }
     }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable)
@@ -352,7 +426,7 @@ final class RunnerFleetModel: ObservableObject {
   }
 
   func openSettings(_ runner: DiscoveredRunner) {
-    NSWorkspace.shared.open(runner.scope.settingsURL)
+    opener.open(runner.scope.settingsURL)
   }
 
   private func perform(

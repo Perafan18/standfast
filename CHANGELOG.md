@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — unreleased
+
+Stops the runner quietly eating the disk. Measured on one real runner: `_work` was 4.5 GB,
+of which the hosted tool cache alone was 4.33 GB — 91% of it, and a cache — while `_diag`
+was 9 MB and growing by about ten a day with no rotation whatsoever, which is three and a
+half gigabytes a year of text nobody will ever read.
+
+### Added
+
+- **A per-runner Maintenance submenu** showing what `_work` and `_diag` actually cost,
+  broken down by what each directory is *for*: the tool cache, the actions the runner
+  downloaded, the repository checkouts, and the logs. The breakdown is the point — a total
+  is something to be alarmed by, a cache is something to press a button about.
+- **Measured on demand and never on the refresh loop.** `du -sk` in a child process rather
+  than a Foundation enumerator, because that is what the system optimises for a couple of
+  hundred thousand files; it took 0.54 s on the 4.5 GB above, which is far too long to
+  spend every fifteen seconds and nothing at all to spend when somebody asks. The submenu
+  says how old its numbers are.
+- **Freeing the two caches, and only those two.** `_work/_tool` and `_work/_actions` are
+  re-fetched on a miss, so losing either costs one slow build and nothing else. The
+  repository checkouts are never offered: nothing in one is a cache, a workflow that wrote
+  a file git does not track loses it, and they were 9% of `_work` here. Neither is
+  `_work/_temp`, which reads as the safest of the lot and is the most dangerous — it is
+  `$RUNNER_TEMP`, holding the scripts of a job in flight, and it is empty whenever the
+  runner is idle.
+- **Deleting is offered only while the runner is idle or stopped**, read off that runner
+  and never off the fleet summary, and the state is checked again immediately before
+  anything goes. `.disconnected` does not count: GitHub reports a Mac that dropped mid-job
+  as offline with the job still assigned to it.
+- **The deletion itself is a rename.** The directory is moved aside in one atomic syscall
+  and taken apart afterwards, so the window between the last check and the point of no
+  return is a single `rename(2)`. A job that starts a microsecond later finds no tool cache
+  — a cache miss and a slower build — rather than half a tool cache, which is a broken
+  toolchain and a failed build.
+- **A confirmation that names the directory, the size and the runner**, and says what
+  losing it costs. Return cancels rather than confirms.
+- **Rotating `_diag`**, keeping everything written in the last week. Almost all of it is
+  worker logs, which are half a megabyte each and which nothing in this app reads. The log
+  the listener has open is never deleted, and neither are the newest 24 listener logs —
+  that number is `JobLogReader`'s own reach, not a second opinion about it, so a sweep
+  cannot quietly shorten the job history the menu shows.
+- **The runner's own version**, read out of the header its listener writes, with the newest
+  published release beside it when there is a newer one. GitHub is asked at most once a
+  day, and a check that got no answer still counts as having asked.
+
 ## [0.3.0] — unreleased
 
 Makes the app worth having when nobody is looking at it. Everything here is off until

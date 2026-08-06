@@ -25,6 +25,27 @@ enum L10n {
   static let preventSleep = t("menu.preventSleep")
   static let preventSleepLidNotice = t("menu.preventSleep.lid")
 
+  static let maintenance = t("menu.maintenance")
+  static let measureDiskUse = t("menu.maintenance.measure")
+  static let deletingOnlyWhenIdle = t("menu.maintenance.onlyWhenIdle")
+
+  static let diskWorking = t("disk.working")
+  static let diskNotMeasured = t("disk.notMeasured")
+  static let diskMeasuredJustNow = t("disk.measuredJustNow")
+  static let diskUnavailable = t("disk.unavailable")
+
+  // The two buttons of the confirmation, and nothing else in it. Everything
+  // above them names a directory, a size or a runner, which is what makes the
+  // dialogue worth reading.
+  static let cleanupDelete = t("cleanup.confirm.delete")
+  static let cleanupCancel = t("cleanup.confirm.cancel")
+
+  // What deleting each cache actually costs, said in the dialogue rather than
+  // left to the user to know. Both answers are "one slower build", which is the
+  // whole reason these two are the only things this app offers to delete.
+  static let cleanupToolCacheEffect = t("cleanup.toolCache.effect")
+  static let cleanupActionCacheEffect = t("cleanup.actionCache.effect")
+
   static let noRunnersFound = t("state.noRunners")
   static let someRunnersUnreadable = t("state.unreadable")
   static let moreUnreadable = t("state.unreadable.more")
@@ -137,6 +158,96 @@ enum L10n {
     String(format: t("duration.seconds"), seconds)
   }
 
+  // Disk rows. One format per kind rather than one with the heading passed in:
+  // a heading is a sentence, and a language that puts the size first has to be
+  // able to say so.
+  static func diskToolCache(_ size: String) -> String {
+    String(format: t("disk.toolCache"), size)
+  }
+
+  static func diskActionCache(_ size: String) -> String {
+    String(format: t("disk.actionCache"), size)
+  }
+
+  static func diskCheckouts(_ size: String) -> String {
+    String(format: t("disk.checkout"), size)
+  }
+
+  static func diskTemporary(_ size: String) -> String {
+    String(format: t("disk.temporary"), size)
+  }
+
+  static func diskOther(_ size: String) -> String {
+    String(format: t("disk.other"), size)
+  }
+
+  static func diskLogs(_ size: String) -> String {
+    String(format: t("disk.logs"), size)
+  }
+
+  /// How long ago the disk was measured. Its own key rather than the one the
+  /// fleet uses, because this number is minutes-to-hours old by design where
+  /// that one is seconds.
+  static func diskMeasuredAgo(_ elapsed: String) -> String {
+    String(format: t("disk.measuredAgo"), elapsed)
+  }
+
+  // What each button offers, size and all. The size is in the label because it
+  // is the reason to press it: "free up the tool cache" is a chore, and "free
+  // up the tool cache (4.03 GB)" is a decision.
+  static func freeToolCache(_ size: String) -> String {
+    String(format: t("menu.maintenance.freeToolCache"), size)
+  }
+
+  static func freeActionCache(_ size: String) -> String {
+    String(format: t("menu.maintenance.freeActionCache"), size)
+  }
+
+  static func deleteOldLogs(_ size: String) -> String {
+    String(format: t("menu.maintenance.trimLogs"), size)
+  }
+
+  /// The runner's own version.
+  static func runnerVersion(_ version: String) -> String {
+    String(format: t("menu.runnerVersion"), version)
+  }
+
+  /// The same, with the newer one GitHub has published.
+  static func runnerVersionOutdated(_ installed: String, _ latest: String) -> String {
+    String(format: t("menu.runnerVersion.update"), installed, latest)
+  }
+
+  /// What is about to be deleted, named by its path. A folder name on its own
+  /// does not say which runner it belongs to, and this app is built for the Mac
+  /// with two of them.
+  static func cleanupConfirmTitle(_ path: String) -> String {
+    String(format: t("cleanup.confirm.title"), path)
+  }
+
+  /// How much it frees and whose it is.
+  static func cleanupConfirmBody(_ size: String, _ runner: String) -> String {
+    String(format: t("cleanup.confirm.body"), size, runner)
+  }
+
+  static func cleanupLogsTitle(_ count: Int, _ path: String) -> String {
+    String(format: t("cleanup.logs.title"), count, path)
+  }
+
+  static func cleanupLogsEffect(_ count: Int) -> String {
+    String(format: t("cleanup.logs.effect"), count)
+  }
+
+  /// Said when the runner picked up work between the confirmation and the
+  /// deletion. The one outcome that has to be reported, because the user asked
+  /// for something and did not get it.
+  static func cleanupRefused(_ runner: String) -> String {
+    String(format: t("cleanup.refused"), runner)
+  }
+
+  static func cleanupFailed(_ path: String) -> String {
+    String(format: t("cleanup.failed"), path)
+  }
+
   /// A runner's name and the GitHub scope it is registered against, for the
   /// rows where the name alone appears twice. Localised for the same reason as
   /// the row itself: the brackets are punctuation, and punctuation is written
@@ -175,8 +286,44 @@ enum L10n {
       + "Notifications",
     "menu.preventSleep": "Keep this Mac awake while a job runs",
     "menu.preventSleep.lid": "Closing the lid still sends it to sleep",
+    "menu.maintenance": "Maintenance",
+    "menu.maintenance.measure": "Measure disk use",
+    "menu.maintenance.freeToolCache": "Free up the tool cache (%@)…",
+    "menu.maintenance.freeActionCache": "Free up downloaded actions (%@)…",
+    "menu.maintenance.trimLogs": "Delete old logs (%@)…",
+    "menu.maintenance.onlyWhenIdle":
+      "Deleting is offered while this runner is idle or stopped",
+    "menu.runnerVersion": "Runner %@",
+    "menu.runnerVersion.update": "Runner %@ — %@ is available",
     "menu.runnerRow": "%@ — %@",
     "menu.runnerInScope": "%@ (%@)",
+    "disk.toolCache": "Tool cache — %@",
+    "disk.actionCache": "Downloaded actions — %@",
+    "disk.checkout": "Repository checkouts — %@",
+    "disk.temporary": "Job scratch space — %@",
+    "disk.other": "Other runner files — %@",
+    "disk.logs": "Logs — %@",
+    "disk.working": "Working…",
+    "disk.notMeasured": "Disk use not measured yet",
+    "disk.measuredJustNow": "Measured just now",
+    "disk.measuredAgo": "Measured %@ ago",
+    "disk.unavailable": "Disk use could not be measured",
+    "cleanup.confirm.title": "Delete %@?",
+    "cleanup.confirm.body": "This frees %@ on %@.",
+    "cleanup.confirm.delete": "Delete",
+    "cleanup.confirm.cancel": "Cancel",
+    "cleanup.toolCache.effect":
+      "The tool cache holds the toolchains that setup steps downloaded. "
+      + "The next job that needs one downloads it again.",
+    "cleanup.actionCache.effect":
+      "These are the actions your workflows use, checked out here. "
+      + "The runner fetches back any it cannot find.",
+    "cleanup.logs.title": "Delete %d old log files from %@?",
+    "cleanup.logs.effect":
+      "%d files nothing has written to in over a week. The log the runner is "
+      + "writing now is never deleted, and neither is the history this menu shows.",
+    "cleanup.refused": "Nothing was deleted: %@ picked up work",
+    "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
     "state.noRunners": "No runners installed on this Mac",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",

@@ -49,6 +49,18 @@ public struct JobLogReader: Sendable {
   /// cleared out. The budget above is the real limit.
   static let maxFiles = 24
 
+  /// How many listener logs anything that clears out `_diag` has to leave
+  /// behind.
+  ///
+  /// Named here because this is the type that decides it. After a rotation the
+  /// history in the menu is rebuilt by walking back through these files, and
+  /// `maxFiles` is as far back as that walk will ever look — so a sweep that
+  /// left fewer would shorten the history the next time the listener rotates,
+  /// silently, and the sweep is the last place anybody would go looking for the
+  /// reason. It costs about a megabyte: a listener log is tens of kilobytes,
+  /// where the worker logs a sweep is actually after are half a megabyte each.
+  public static var retainedListenerLogs: Int { maxFiles }
+
   /// Every listener log is `Runner_<utc>.log`. The worker logs beside them are
   /// `Worker_…`, are ten times the size, and hold nothing this needs.
   static let logPrefix = "Runner_"

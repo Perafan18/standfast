@@ -62,6 +62,17 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.jobRow("a", "b", "c"), L10n.jobRowNoDuration("a", "b"), L10n.checkedAgo("a"),
     L10n.durationHoursMinutes(1, 2), L10n.durationMinutesSeconds(1, 2),
     L10n.durationHours(1), L10n.durationMinutes(1), L10n.durationSeconds(1),
+    L10n.maintenance, L10n.measureDiskUse, L10n.deletingOnlyWhenIdle,
+    L10n.diskWorking, L10n.diskNotMeasured, L10n.diskMeasuredJustNow,
+    L10n.diskUnavailable, L10n.cleanupDelete, L10n.cleanupCancel,
+    L10n.cleanupToolCacheEffect, L10n.cleanupActionCacheEffect,
+    L10n.diskToolCache("a"), L10n.diskActionCache("a"), L10n.diskCheckouts("a"),
+    L10n.diskTemporary("a"), L10n.diskOther("a"), L10n.diskLogs("a"),
+    L10n.diskMeasuredAgo("a"), L10n.freeToolCache("a"), L10n.freeActionCache("a"),
+    L10n.deleteOldLogs("a"), L10n.runnerVersion("a"),
+    L10n.runnerVersionOutdated("a", "b"), L10n.cleanupConfirmTitle("a"),
+    L10n.cleanupConfirmBody("a", "b"), L10n.cleanupLogsTitle(1, "a"),
+    L10n.cleanupLogsEffect(1), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -99,6 +110,17 @@ private func speaking(_ localization: String) throws -> Bundle {
       "job.result.succeeded", "job.result.failed", "job.result.canceled",
       "job.result.interrupted", "duration.hoursMinutes", "duration.minutesSeconds",
       "duration.hours", "duration.minutes", "duration.seconds",
+      "menu.maintenance", "menu.maintenance.measure",
+      "menu.maintenance.freeToolCache", "menu.maintenance.freeActionCache",
+      "menu.maintenance.trimLogs", "menu.maintenance.onlyWhenIdle",
+      "menu.runnerVersion", "menu.runnerVersion.update",
+      "disk.toolCache", "disk.actionCache", "disk.checkout", "disk.temporary",
+      "disk.other", "disk.logs", "disk.working", "disk.notMeasured",
+      "disk.measuredJustNow", "disk.measuredAgo", "disk.unavailable",
+      "cleanup.confirm.title", "cleanup.confirm.body", "cleanup.confirm.delete",
+      "cleanup.confirm.cancel", "cleanup.toolCache.effect",
+      "cleanup.actionCache.effect", "cleanup.logs.title", "cleanup.logs.effect",
+      "cleanup.refused", "cleanup.failed",
     ])
   #expect(everyKey == reached)
 }
@@ -175,6 +197,18 @@ private func speaking(_ localization: String) throws -> Bundle {
     // a notification that costs a trip to GitHub to act on.
     "notification.jobFailed.body": 2, "notification.disconnected.body": 1,
     "notification.stopped.body": 1,
+    // The confirmation is the last thing between a click and four gigabytes
+    // going away, and both of its facts are placeholders: a translation that
+    // dropped one leaves a dialogue that does not say what is about to be
+    // deleted, or does not say how much.
+    "cleanup.confirm.title": 1, "cleanup.confirm.body": 2, "cleanup.failed": 1,
+    "cleanup.refused": 1, "cleanup.logs.title": 1,
+    // The size is the reason to press the button.
+    "menu.maintenance.freeToolCache": 1, "menu.maintenance.freeActionCache": 1,
+    "menu.maintenance.trimLogs": 1, "disk.toolCache": 1, "disk.actionCache": 1,
+    "disk.checkout": 1, "disk.temporary": 1, "disk.other": 1, "disk.logs": 1,
+    "disk.measuredAgo": 1,
+    "menu.runnerVersion": 1, "menu.runnerVersion.update": 2,
   ]
   for language in ["en", "es"] {
     let catalogue = try catalogue(language)
