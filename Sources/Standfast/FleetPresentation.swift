@@ -132,7 +132,7 @@ extension RunnerSnapshot {
   /// The name this row leads with: the runner's own, plus where it is
   /// registered when that is what tells it apart from another runner here.
   ///
-  /// Only when it is needed. `Perafan18/nest-rules-app` is most of a menu bar
+  /// Only when it is needed. `acme/widget-factory` is most of a menu bar
   /// row's width, and a Mac with one runner gains nothing from carrying it —
   /// there is nothing to disambiguate it from. GitHub will not accept two
   /// runners with the same name in the same scope, so the scope is always
