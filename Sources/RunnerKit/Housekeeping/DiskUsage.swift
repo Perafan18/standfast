@@ -85,9 +85,10 @@ public struct DiskUsage: Sendable {
   public func blockingReport(
     for runner: DiscoveredRunner, retention: DiagnosticsRetention, now: Date
   ) -> DiskReport? {
-    guard let workDirectory = runner.containedWorkDirectory else { return nil }
+    guard let workDirectory = runner.containedWorkDirectory,
+      let diagnostics = runner.containedDiagnosticsDirectory
+    else { return nil }
     let children = Self.children(of: workDirectory)
-    let diagnostics = runner.diagnosticsDirectory
     let logs = DiagnosticsFile.listing(in: diagnostics)
     var paths = children
     if FileManager.default.fileExists(atPath: diagnostics.path) {

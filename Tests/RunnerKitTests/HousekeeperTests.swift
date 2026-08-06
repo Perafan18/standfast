@@ -54,6 +54,41 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(sandbox.names(in: sandbox.work).isEmpty)
 }
 
+@Test func anOutsideTrashSymlinkIsRefusedBeforeItsContentsAreSwept() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 1)
+  let foreign = try sandbox.makeOutsideFolder("keep", kilobytes: 4)
+  let trash = sandbox.work.appendingPathComponent(Housekeeper.trashFolder)
+  try FileManager.default.createSymbolicLink(at: trash, withDestinationURL: sandbox.outside)
+
+  #expect(throws: HousekeepingFailure(directory: trash)) {
+    try Housekeeper().blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+
+  #expect(sandbox.exists(foreign.appendingPathComponent("payload")))
+  #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
+}
+
+@Test func anInternalTrashSymlinkDoesNotMakeAnotherRunnerFolderOurs() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 1)
+  let foreign = try sandbox.makeWorkFolder("foreign/keep", kilobytes: 4)
+  let trash = sandbox.work.appendingPathComponent(Housekeeper.trashFolder)
+  try FileManager.default.createSymbolicLink(
+    at: trash, withDestinationURL: sandbox.work.appendingPathComponent("foreign"))
+
+  #expect(throws: HousekeepingFailure(directory: trash)) {
+    try Housekeeper().blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+
+  #expect(sandbox.exists(foreign.appendingPathComponent("payload")))
+  #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
+}
+
 @Test func aGraveIsSweptEvenWhenThereIsNothingLeftToClean() throws {
   // The state the test above cannot reach, and the one that does not heal
   // itself. Being killed between the rename and the delete leaves no `_tool`
@@ -295,6 +330,40 @@ private func blamedDirectory(
 }
 
 // MARK: - Rotation
+
+@Test func anOutsideDiagnosticsSymlinkIsRefusedBeforeAFileIsRemoved() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let foreignLog = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600), in: sandbox.outside)
+  try FileManager.default.createSymbolicLink(
+    at: sandbox.diagnostics, withDestinationURL: sandbox.outside)
+
+  #expect(throws: HousekeepingFailure(directory: sandbox.diagnostics)) {
+    try Housekeeper().blockingRotateDiagnostics(
+      in: sandbox.runner, now: now, isStillSafe: { true })
+  }
+
+  #expect(sandbox.exists(foreignLog))
+}
+
+@Test func diagnosticsSymlinkedWithinTheRunnerCanStillBeRotated() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let internalDiagnostics = sandbox.root.appendingPathComponent("diagnostics-store")
+  let old = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600), in: internalDiagnostics)
+  try FileManager.default.createSymbolicLink(
+    at: sandbox.diagnostics, withDestinationURL: internalDiagnostics)
+
+  let outcome = try Housekeeper().blockingRotateDiagnostics(
+    in: sandbox.runner, now: now, isStillSafe: { true })
+
+  #expect(outcome == .done)
+  #expect(!sandbox.exists(old))
+}
 
 @Test func rotationLeavesTheActiveLogAndTakesTheRest() throws {
   let sandbox = try RunnerDirectorySandbox()

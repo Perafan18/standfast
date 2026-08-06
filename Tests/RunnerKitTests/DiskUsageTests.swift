@@ -17,6 +17,7 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   try sandbox.makeWorkFolder("_tool")
   try sandbox.makeWorkFolder("_actions")
   try sandbox.makeLog("Runner_20260805-000000-utc.log", modified: Date())
+  let diagnostics = sandbox.diagnostics.resolvingSymlinksInPath()
 
   let runner = FakeCommandRunner()
   _ = DiskUsage(commandRunner: runner).blockingReport(
@@ -36,7 +37,7 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
     Set(invocation.arguments.dropFirst()) == [
       sandbox.work.appendingPathComponent("_actions").path,
       sandbox.work.appendingPathComponent("_tool").path,
-      sandbox.diagnostics.path,
+      diagnostics.path,
     ])
 }
 
@@ -71,6 +72,24 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   #expect(runner.invocations.isEmpty)
 }
 
+@Test func anOutsideDiagnosticsSymlinkIsNotMeasuredOrPlanned() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let foreignLog = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: Date().addingTimeInterval(-30 * 24 * 3600), in: sandbox.outside)
+  try FileManager.default.createSymbolicLink(
+    at: sandbox.diagnostics, withDestinationURL: sandbox.outside)
+  let runner = FakeCommandRunner()
+
+  let report = DiskUsage(commandRunner: runner).blockingReport(
+    for: sandbox.runner, retention: .standard, now: Date())
+
+  #expect(report == nil)
+  #expect(runner.invocations.isEmpty)
+  #expect(sandbox.exists(foreignLog))
+}
+
 // MARK: - What comes back
 
 @Test func theBreakdownSaysWhatEachDirectoryIsFor() throws {
@@ -82,6 +101,7 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   try sandbox.makeLog("Runner_20260805-000000-utc.log", modified: Date())
 
   let work = sandbox.work
+  let diagnostics = sandbox.diagnostics.resolvingSymlinksInPath()
   let runner = FakeCommandRunner([
     [
       "/usr/bin/du", "-sk", work.appendingPathComponent("_PipelineMapping").path,
@@ -89,14 +109,14 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
       work.appendingPathComponent("_temp").path,
       work.appendingPathComponent("_tool").path,
       work.appendingPathComponent("nest-rules-app").path,
-      sandbox.diagnostics.path,
+      diagnostics.path,
     ]:
       duLine(4, work.appendingPathComponent("_PipelineMapping"))
       + duLine(16_200, work.appendingPathComponent("_actions"))
       + duLine(0, work.appendingPathComponent("_temp"))
       + duLine(4_229_008, work.appendingPathComponent("_tool"))
       + duLine(420_724, work.appendingPathComponent("nest-rules-app"))
-      + duLine(9_048, sandbox.diagnostics)
+      + duLine(9_048, diagnostics)
   ])
   let report = try #require(
     DiskUsage(commandRunner: runner).blockingReport(

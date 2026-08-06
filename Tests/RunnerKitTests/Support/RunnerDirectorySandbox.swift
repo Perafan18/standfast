@@ -99,11 +99,13 @@ final class RunnerDirectorySandbox {
   ///   modification date records.
   @discardableResult
   func makeLog(
-    _ name: String, bytes: Int = 16, lines: [String] = [], modified: Date
+    _ name: String, bytes: Int = 16, lines: [String] = [], modified: Date,
+    in directory: URL? = nil
   ) throws -> URL {
+    let directory = directory ?? diagnostics
     try FileManager.default.createDirectory(
-      at: diagnostics, withIntermediateDirectories: true)
-    let url = diagnostics.appendingPathComponent(name)
+      at: directory, withIntermediateDirectories: true)
+    let url = directory.appendingPathComponent(name)
     let data =
       lines.isEmpty
       ? Data(repeating: UInt8(ascii: "x"), count: bytes)

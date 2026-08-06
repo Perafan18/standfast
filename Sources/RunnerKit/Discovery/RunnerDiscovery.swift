@@ -56,20 +56,38 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
 
 extension DiscoveredRunner {
   /// Resolves the part of a work path that exists and proves the result stays
-  /// under the runner. Returning the resolved spelling also means a later
-  /// replacement of the configured symlink cannot redirect an operation that
-  /// already crossed this boundary.
+  /// under the runner.
   var containedWorkDirectory: URL? {
-    guard let resolvedRunner = Self.resolvingExistingPathComponents(in: directory),
-      let resolvedWork = Self.resolvingExistingPathComponents(in: workDirectory)
+    Self.resolvedPath(workDirectory, containedIn: directory, allowingRoot: true)
+  }
+
+  /// `_diag` is fixed by the runner rather than configured, but it is still a
+  /// path on a filesystem and can be replaced by a symlink. An internal target
+  /// remains a runner directory; an external or unresolvable one does not.
+  var containedDiagnosticsDirectory: URL? {
+    Self.resolvedPath(diagnosticsDirectory, containedIn: directory)
+  }
+
+  /// Resolves a path and the root it must stay under. The resolved spelling is
+  /// used by the immediate operation, so replacing the configured leaf symlink
+  /// afterwards does not redirect that operation through the old spelling.
+  ///
+  /// This narrows rather than eliminates the race: `FileManager` and `du` still
+  /// accept pathnames, so the same user can replace a resolved component after
+  /// this check and before the syscall. Closing that remaining window requires
+  /// descriptor-relative operations such as `openat`/`renameat`/`unlinkat`.
+  static func resolvedPath(
+    _ path: URL, containedIn root: URL, allowingRoot: Bool = false
+  ) -> URL? {
+    guard let resolvedRoot = Self.resolvingExistingPathComponents(in: root),
+      let resolvedPath = Self.resolvingExistingPathComponents(in: path)
     else { return nil }
 
-    let runnerPath = resolvedRunner.path
-    let workPath = resolvedWork.path
-    guard workPath == runnerPath || workPath.hasPrefix(runnerPath + "/") else {
-      return nil
-    }
-    return resolvedWork
+    let rootPath = resolvedRoot.path
+    let path = resolvedPath.path
+    if path == rootPath { return allowingRoot ? resolvedPath : nil }
+    let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+    return path.hasPrefix(prefix) ? resolvedPath : nil
   }
 
   /// `resolvingSymlinksInPath` leaves a wholly missing suffix unresolved. Walk

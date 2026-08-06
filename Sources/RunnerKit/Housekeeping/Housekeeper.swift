@@ -114,8 +114,13 @@ public struct Housekeeper: Sendable {
       throw HousekeepingFailure(directory: runner.workDirectory)
     }
     let configuredWorkDirectory = runner.workDirectory
-    let trash = workDirectory.appendingPathComponent(Self.trashFolder)
     let configuredTrash = configuredWorkDirectory.appendingPathComponent(Self.trashFolder)
+    // This directory is Standfast's only when it is a directory at the name we
+    // own. Even an internal symlink could point at another runner-owned folder;
+    // sweeping that target would turn containment into permission to delete it.
+    guard !Self.isSymbolicLink(at: configuredTrash),
+      let trash = DiscoveredRunner.resolvedPath(configuredTrash, containedIn: workDirectory)
+    else { throw HousekeepingFailure(directory: configuredTrash) }
     // Anything still in there is from an earlier run that did not finish
     // emptying it — quit, killed, or stopped by a file it could not unlink.
     // Nobody else writes here, so it is ours to clear, and clearing it is the
@@ -177,8 +182,11 @@ public struct Housekeeper: Sendable {
     now: Date, agreedTo agreed: DiagnosticsRotationPlan? = nil,
     isStillSafe: () -> Bool
   ) throws -> HousekeepingOutcome {
+    guard let diagnostics = runner.containedDiagnosticsDirectory else {
+      throw HousekeepingFailure(directory: runner.diagnosticsDirectory)
+    }
     let plan = Self.rotationPlan(
-      for: runner, retention: retention, now: now,
+      in: diagnostics, retention: retention, now: now,
       limitedTo: agreed.map { Set($0.doomed) })
     guard !plan.isEmpty else { return .nothingToDo }
     guard isStillSafe() else { return .refused }
@@ -208,9 +216,23 @@ public struct Housekeeper: Sendable {
     for runner: DiscoveredRunner, retention: DiagnosticsRetention = .standard,
     now: Date, limitedTo allowed: Set<URL>? = nil
   ) -> DiagnosticsRotationPlan {
+    guard let diagnostics = runner.containedDiagnosticsDirectory else { return .empty }
+    return rotationPlan(
+      in: diagnostics, retention: retention, now: now, limitedTo: allowed)
+  }
+
+  private static func rotationPlan(
+    in diagnostics: URL, retention: DiagnosticsRetention,
+    now: Date, limitedTo allowed: Set<URL>?
+  ) -> DiagnosticsRotationPlan {
     DiagnosticsRotation.plan(
-      DiagnosticsFile.listing(in: runner.diagnosticsDirectory),
+      DiagnosticsFile.listing(in: diagnostics),
       retention: retention, now: now, limitedTo: allowed)
+  }
+
+  private static func isSymbolicLink(at url: URL) -> Bool {
+    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+    return attributes?[.type] as? FileAttributeType == .typeSymbolicLink
   }
 
   private func sweepLeftovers(in trash: URL) {
