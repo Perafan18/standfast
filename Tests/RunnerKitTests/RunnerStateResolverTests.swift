@@ -237,7 +237,7 @@ private struct BrokenGitHub: GitHubClient {
 /// the main thread and onto the cooperative pool, which is precisely the pool
 /// that must not be blocked.
 private func currentQueueLabel() -> String {
-  String(cString: __dispatch_queue_get_label(nil))
+  String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
 }
 
 @Test @MainActor func theAsyncFacadeKeepsItsBlockingOffTheCooperativePool() async {

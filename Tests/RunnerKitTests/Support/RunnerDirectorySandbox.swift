@@ -29,7 +29,13 @@ final class RunnerDirectorySandbox {
   private static func canonical(_ url: URL) -> URL {
     var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
     guard realpath(url.path, &buffer) != nil else { return url }
-    return URL(fileURLWithPath: String(cString: buffer))
+    guard
+      let path = buffer.withUnsafeBufferPointer({ pointer -> String? in
+        guard let baseAddress = pointer.baseAddress else { return nil }
+        return String(validatingCString: baseAddress)
+      })
+    else { return url }
+    return URL(fileURLWithPath: path)
   }
 
   func cleanUp() { try? FileManager.default.removeItem(at: root) }

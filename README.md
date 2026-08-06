@@ -190,24 +190,21 @@ These are real and deliberate, not oversights:
 
 ## Privacy
 
-Nothing leaves your machine. Standfast talks to launchd, to your runner's own `svc.sh`,
-and to the GitHub API through `gh`. It reads files you can already read — including the
-runner's own `_diag` logs, which never leave the machine either — stores no credentials,
-and has no telemetry and no analytics.
+Standfast has no telemetry or analytics, and never checks for updates to *itself*. Its
+functional GitHub API calls go through `gh`: it asks for each configured runner's status
+and, at most once a day, asks the public endpoint for the latest `actions/runner` release
+so the menu can say when an installed runner is out of date.
 
-It makes one request that is not about your runners: at most once a day it asks GitHub for
-the latest `actions/runner` release, so the menu can say when the runner you have installed
-is out of date. That is a public endpoint, it sends nothing about you, and it is the only
-version check in the app — Standfast never checks for updates to *itself*.
-
-See [SECURITY.md](SECURITY.md).
+The app reads files you can already read, including the runner's own `_diag` logs. It uses
+those logs only for local job history and never uploads their contents. Standfast stores
+no credentials of its own; see [SECURITY.md](SECURITY.md) for the complete boundary.
 
 ## Building from source
 
 ```sh
 git clone https://github.com/Perafan18/standfast
 cd standfast
-make test      # 438 tests, none of which needs a runner installed
+make test      # 506 tests, none of which needs a runner installed
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 make check     # the packaging check: assembles, deletes .build, launches

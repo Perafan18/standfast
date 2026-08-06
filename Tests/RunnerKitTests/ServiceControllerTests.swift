@@ -181,7 +181,9 @@ private enum TestWaitFailure: Error { case timedOut }
   defer { box.cleanUp() }
   let queues = Queues()
   let fake = FakeCommandRunner()
-  fake.onRun = { queues.record(String(cString: __dispatch_queue_get_label(nil))) }
+  fake.onRun = {
+    queues.record(String(validatingCString: __dispatch_queue_get_label(nil)) ?? "")
+  }
   let controller = ServiceController(commandRunner: fake, settleDelay: 0)
 
   try await controller.start(in: box.directory)

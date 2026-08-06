@@ -5,19 +5,29 @@
 Standfast runs as your user, with your permissions, and does not ask for more. It:
 
 - reads `~/Library/LaunchAgents/actions.runner.*.plist` and the `.runner` file inside each
-  runner directory — files you can already read;
+  runner directory, plus the runner's `_work` and `_diag` directories for disk usage and
+  local job history — files you can already read;
 - runs `/bin/launchctl list` to ask launchd whether a service is alive;
 - runs `/bin/bash` on your runner's own `svc.sh` to start and stop it, in that runner's
   own directory;
-- runs the GitHub CLI to ask the API about a runner's status — `/usr/bin/env gh` first,
-  then `/opt/homebrew/bin/gh` and `/usr/local/bin/gh`. The first of those resolves
+- runs `/usr/bin/du` to measure the runner directories shown by housekeeping;
+- runs the GitHub CLI to ask the API about runner status and the public latest
+  `actions/runner` release — `/usr/bin/env gh` first, then `/opt/homebrew/bin/gh` and
+  `/usr/local/bin/gh`. The first of those resolves
   through your `PATH`, on purpose: a `gh` from mise, nix or asdf is a deliberate choice
-  and the only one holding the credentials you meant to use.
+  and the only one holding the credentials you meant to use;
+- opens the configured runner's GitHub settings URL in your default browser when you ask;
+- stores notification and sleep-prevention switches in `UserDefaults`, asks macOS to
+  register or unregister its login item when you change that switch, and posts the
+  notifications you enable; and
+- after an explicit housekeeping confirmation, creates a temporary directory inside the
+  runner's `_work`, moves and deletes the selected caches, or deletes the eligible old
+  diagnostic logs in `_diag` while preserving the active and retained listener logs.
 
-That is the complete list — four executables, all of them absolute paths. It opens no
-ports, writes no file and no preference of its own, and has no telemetry, no analytics
-and no update check. Nothing about your machine, your
-repositories or your jobs is sent anywhere.
+Standfast opens no listening ports, has no telemetry or analytics, and never checks for
+updates to Standfast itself. Its outgoing GitHub requests are functional: runner-status
+requests identify the configured scope and runner, while the latest-runner-release request
+uses a public endpoint. Standfast does not upload `_diag` contents or other job data.
 
 ## No sudo, ever
 
