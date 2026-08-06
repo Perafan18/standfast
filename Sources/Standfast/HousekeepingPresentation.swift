@@ -27,7 +27,7 @@ enum ByteText {
 
 /// Paths as the menu writes them.
 enum PathText {
-  /// `~/actions-runner/_work/_tool`, the same shortening the unreadable-runner
+  /// `~/<runner directory>/_work/_tool`, the same shortening the unreadable-runner
   /// notice uses. A menu row is not wide enough for a home directory twice.
   static func abbreviated(_ url: URL) -> String {
     (url.path as NSString).abbreviatingWithTildeInPath

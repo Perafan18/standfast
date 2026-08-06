@@ -144,7 +144,7 @@ public struct DiskUsage: Sendable {
     return sizes.isEmpty ? nil : sizes
   }
 
-  /// `4229008\t/Users/x/actions-runner/_work/_tool`, one line per argument.
+  /// `4229008\t<runner directory>/_work/_tool`, one line per argument.
   ///
   /// Matched against the paths that were asked for rather than parsed as a
   /// path, because a path is the one field that can contain anything at all.
