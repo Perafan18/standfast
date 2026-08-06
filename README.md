@@ -192,12 +192,16 @@ These are real and deliberate, not oversights:
 
 Standfast has no telemetry or analytics, and never checks for updates to *itself*. Its
 functional GitHub API calls go through `gh`: it asks for each configured runner's status
-and, at most once a day, asks the public endpoint for the latest `actions/runner` release
-so the menu can say when an installed runner is out of date.
+and asks the public endpoint for the latest `actions/runner` release so the menu can say
+when an installed runner is out of date. That release request runs once when Standfast
+launches and then no more often than every 24 hours while that same instance stays open;
+relaunching starts a new instance and a new first check.
 
-The app reads files you can already read, including the runner's own `_diag` logs. It uses
-those logs only for local job history and never uploads their contents. Standfast stores
-no credentials of its own; see [SECURITY.md](SECURITY.md) for the complete boundary.
+The app reads the runner's own `_diag` locally: listener-log contents provide job history
+and the installed runner version, while file metadata and disk usage support maintenance.
+After explicit confirmation, maintenance can delete eligible old logs. Standfast never
+uploads `_diag` contents and stores no credentials of its own; see
+[SECURITY.md](SECURITY.md) for the complete boundary.
 
 ## Building from source
 

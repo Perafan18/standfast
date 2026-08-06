@@ -2,11 +2,14 @@
 
 ## What Standfast can reach
 
-Standfast runs as your user, with your permissions, and does not ask for more. It:
+Standfast runs as your user and never elevates privileges. Features normally use the
+permissions that user already has; the opt-in notification switches ask macOS for
+notification authorization when you enable one. Standfast:
 
 - reads `~/Library/LaunchAgents/actions.runner.*.plist` and the `.runner` file inside each
-  runner directory, plus the runner's `_work` and `_diag` directories for disk usage and
-  local job history — files you can already read;
+  runner directory, plus the runner's `_work` and `_diag` directories. Listener-log
+  contents in `_diag` provide local job history and the installed runner version; file
+  metadata and disk usage support maintenance;
 - runs `/bin/launchctl list` to ask launchd whether a service is alive;
 - runs `/bin/bash` on your runner's own `svc.sh` to start and stop it, in that runner's
   own directory;
@@ -19,7 +22,10 @@ Standfast runs as your user, with your permissions, and does not ask for more. I
 - opens the configured runner's GitHub settings URL in your default browser when you ask;
 - stores notification and sleep-prevention switches in `UserDefaults`, asks macOS to
   register or unregister its login item when you change that switch, and posts the
-  notifications you enable; and
+  notifications you enable;
+- while sleep prevention is enabled and at least one runner has work, holds a macOS
+  `.idleSystemSleepDisabled` activity assertion; it releases the assertion as soon as the
+  switch is disabled or the last job ends, and process exit releases it as well; and
 - after an explicit housekeeping confirmation, creates a temporary directory inside the
   runner's `_work`, moves and deletes the selected caches, or deletes the eligible old
   diagnostic logs in `_diag` while preserving the active and retained listener logs.
@@ -29,6 +35,13 @@ updates to Standfast itself. Its outgoing GitHub requests are functional: runner
 requests identify the configured scope and runner, while the latest-runner-release request
 uses a public endpoint. Standfast does not upload `_diag` contents or other job data.
 
+Standfast launches `gh` with the environment it inherited; it neither injects nor removes
+GitHub authentication or update-notifier variables. Depending on the installed `gh`
+version and configuration, `gh` may perform its own update check or related traffic when
+invoked. Standfast does not request or observe that delegated traffic: the only API calls
+it explicitly asks `gh` to make are runner status and the public latest `actions/runner`
+release.
+
 ## No sudo, ever
 
 On macOS a self-hosted runner is a per-user LaunchAgent. `sudo` is the Linux instruction
@@ -37,13 +50,15 @@ elevates privileges, and a change that introduces `sudo` will not be merged.
 
 ## Credentials
 
-Standfast **stores no token of its own**. It calls `gh`, which uses the credentials you
-authenticated once with `gh auth login` and which live in `gh`'s own storage — its config
-directory and the system Keychain. Standfast never reads, copies or logs them.
+Standfast **stores no token of its own**. It calls `gh` with the inherited environment and
+leaves credential selection to that CLI. For `github.com`, `gh` documents `GH_TOKEN` and
+then `GITHUB_TOKEN` as taking precedence over credentials previously stored by `gh auth
+login`; when neither is set, `gh` can use its own stored authentication. Standfast never
+inspects, reads, copies or logs any of those tokens or credentials.
 
-A consequence worth stating plainly: Standfast can do anything to your runners that your
-`gh` credentials permit. It only ever reads runner status and starts or stops the local
-service, but the authority it borrows is yours.
+A consequence worth stating plainly: the `gh` process has the authority of whichever
+credential it selects. Standfast's explicit `gh` requests only read runner status and the
+public latest runner release; starting and stopping the local service does not use GitHub.
 
 ## Command execution
 
