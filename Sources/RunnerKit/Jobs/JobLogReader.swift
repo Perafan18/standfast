@@ -92,6 +92,16 @@ public struct JobLogReader: Sendable {
 
   public init() {}
 
+  /// The log the listener had open at the last read, and nil until something
+  /// has been read.
+  ///
+  /// Exposed so that the one other thing which needs this file — the runner's
+  /// version, which is written in its header — does not list `_diag` a second
+  /// time to find the file this type has just found. That listing is the work
+  /// the cache above exists to avoid, and doing it twice per runner per refresh
+  /// grows with exactly the number of files the sweep is there to bound.
+  public var activeLog: URL? { cache?.activeLog }
+
   /// Blocks the calling thread on file I/O.
   ///
   /// The same rule as `RunnerDiscovery.discover()`: safe only from a thread

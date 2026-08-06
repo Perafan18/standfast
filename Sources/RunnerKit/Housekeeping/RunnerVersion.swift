@@ -48,7 +48,21 @@ public struct RunnerVersion: Equatable, Comparable, Sendable, CustomStringConver
 /// The log wins on both counts: it is four kilobytes into a file this app
 /// already knows how to find, and it says which runner *ran*, where the
 /// dependency file only says which one is unpacked.
-public struct RunnerVersionReader: Sendable {
+///
+/// A protocol as well as a type, because *where* this runs is as much a part of
+/// its contract as what it reads — it opens a file off a home directory that may
+/// be on a network volume — and only a seam a test can wrap makes that
+/// checkable.
+public protocol RunnerVersionReading: Sendable {
+  /// Blocks the calling thread on one short read. Safe only from a thread that
+  /// is yours to block; see `offCooperativePool`.
+  ///
+  /// - Parameter log: a listener log, which the caller already has: see
+  ///   `JobLogReader.activeLog`.
+  func blockingVersion(inLog log: URL) -> RunnerVersion?
+}
+
+public struct RunnerVersionReader: RunnerVersionReading {
   /// How much of a log is read looking for it. The listener writes the version
   /// in its first half-dozen lines, before it has done anything at all; this is
   /// a ceiling on a mistake, not a target.
@@ -67,17 +81,18 @@ public struct RunnerVersionReader: Sendable {
 
   public init() {}
 
-  /// Blocks the calling thread on a directory listing and one short read. Safe
-  /// only from a thread that is yours to block; see `offCooperativePool`.
+  /// Blocks the calling thread on one short read. Safe only from a thread that
+  /// is yours to block; see `offCooperativePool`.
   ///
-  /// - Returns: nil for a runner that has never written a log, and for one
-  ///   whose logs say something this does not recognise. Neither is an error
+  /// - Parameter log: which listener log to read it out of. Passed in rather
+  ///   than looked up, because the caller has just listed `_diag` to find this
+  ///   very file and listing it again is the work `JobLogReader`'s cache exists
+  ///   to avoid.
+  /// - Returns: nil for a log that says nothing this recognises. Not an error
   ///   worth a row in a menu — the version is a nice-to-know beside a runner
   ///   that is working.
-  public func blockingInstalledVersion(in runner: DiscoveredRunner) -> RunnerVersion? {
-    guard let log = JobLogReader.listenerLogs(in: runner.diagnosticsDirectory).last,
-      let handle = try? FileHandle(forReadingFrom: log)
-    else { return nil }
+  public func blockingVersion(inLog log: URL) -> RunnerVersion? {
+    guard let handle = try? FileHandle(forReadingFrom: log) else { return nil }
     defer { try? handle.close() }
     guard let data = try? handle.read(upToCount: Self.headWindow) else { return nil }
     for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {

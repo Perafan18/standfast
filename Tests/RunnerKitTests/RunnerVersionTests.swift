@@ -35,6 +35,18 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
 
 // MARK: - Reading it off the machine
 
+/// The version as the app reads it: out of the log the job reader already has
+/// open, rather than off a second listing of `_diag`.
+///
+/// Through that reader rather than around it, because which file is current is
+/// its decision and the two disagreeing is exactly what would leave last
+/// month's version in the menu after a self-update.
+private func installedVersion(in sandbox: RunnerDirectorySandbox) -> RunnerVersion? {
+  var reader = JobLogReader()
+  _ = reader.read(diagnosticsIn: sandbox.diagnostics)
+  return reader.activeLog.flatMap(RunnerVersionReader().blockingVersion)
+}
+
 @Test func theVersionComesOutOfTheListenerLog() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
@@ -43,7 +55,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
     lines: listenerChatter(at: "2026-08-05 20:36:14Z"), modified: now)
 
   #expect(
-    RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner)
+    installedVersion(in: sandbox)
       == RunnerVersion(2, 336, 0))
 }
 
@@ -61,7 +73,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
     lines: ["[2026-08-05 00:00:00Z INFO Listener] Version: 2.336.0"], modified: now)
 
   #expect(
-    RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner)
+    installedVersion(in: sandbox)
       == RunnerVersion(2, 336, 0))
 }
 
@@ -83,7 +95,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
     modified: now)
 
   #expect(
-    RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner)
+    installedVersion(in: sandbox)
       == RunnerVersion(2, 336, 0))
 }
 
@@ -98,7 +110,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
     lines: ["[2026-08-05 00:00:00Z INFO CommandSettings] Flag 'version': 'False'"],
     modified: now)
 
-  #expect(RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner) == nil)
+  #expect(installedVersion(in: sandbox) == nil)
 }
 
 @Test func theHeadReadIsWideEnoughForWhatAListenerActuallyWritesFirst() throws {
@@ -125,7 +137,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
     lines: chatter + ["[\(stamp) INFO Listener] Version: 2.336.0"], modified: now)
 
   #expect(
-    RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner)
+    installedVersion(in: sandbox)
       == RunnerVersion(2, 336, 0))
 }
 
@@ -134,7 +146,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   defer { sandbox.cleanUp() }
   // Nil rather than a guess. The version is a nice-to-know beside a runner that
   // works, and inventing one would put a wrong number in the menu for ever.
-  #expect(RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner) == nil)
+  #expect(installedVersion(in: sandbox) == nil)
 }
 
 @Test func aWorkerLogIsNotWhereTheListenerVersionIsRead() throws {
@@ -151,6 +163,6 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
     lines: ["[2026-08-05 00:00:00Z INFO Listener] Version: 2.336.0"], modified: now)
 
   #expect(
-    RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner)
+    installedVersion(in: sandbox)
       == RunnerVersion(2, 336, 0))
 }

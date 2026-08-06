@@ -31,12 +31,45 @@ private func model(
         delivery: FakeNotificationDelivery(), defaults: scratchDefaults()),
     sleep: sleep
       ?? SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults()),
+    // Nor this one. Left at its default it is a real `NSAlert` — a modal window
+    // on whatever machine runs the suite — a real `Housekeeper`, which is the
+    // only thing in this app that deletes anything, and a real probe spawning
+    // `launchctl` and `gh`. Only the read path is reached from here today, and
+    // "today" is not a guarantee worth resting a delete on.
+    housekeeping: unattendedHousekeeping(),
     // Never the real one, which would spawn `gh` and make a network call from
     // every test in this file.
+    versions: sandbox.versions,
     releases: sandbox.releases,
     opener: opener,
     clock: clock, probeDelay: probeDelay, refreshInterval: refreshInterval,
     releaseInterval: releaseInterval)
+}
+
+/// A housekeeping model that can neither open a window nor delete a file.
+@MainActor
+private func unattendedHousekeeping() -> HousekeepingModel {
+  HousekeepingModel(
+    housekeeper: Housekeeper(files: UntouchableFileOperations()),
+    confirmation: RefusingConfirmation(),
+    // And a probe that answers without asking the machine, so nothing here can
+    // reach `launchctl` or the network by accident.
+    probe: { _ in .busy })
+}
+
+/// Says no to everything. Nothing in this file is about the delete path, and a
+/// dialogue nobody is there to dismiss is a suite that hangs.
+@MainActor
+private struct RefusingConfirmation: CleanupConfirming {
+  func confirm(_ prompt: CleanupPrompt) -> Bool { false }
+}
+
+/// A filesystem that does nothing at all, so nothing in this file can remove a
+/// directory even if every guard above it were wrong at once.
+private struct UntouchableFileOperations: DestructiveFileOperations {
+  func createDirectory(at url: URL) throws {}
+  func move(_ url: URL, to destination: URL) throws {}
+  func remove(_ url: URL) throws {}
 }
 
 /// A model whose notifications are all switched on, with the delivery it posts
@@ -899,7 +932,12 @@ private func listening(
   // doing that on the main actor freezes the menu bar.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
-  try box.addRunner()
+  let directory = try box.addRunner()
+  // With a log beside it, so the version read below actually happens: it is
+  // only reached for a runner whose listener has written something.
+  try box.writeListenerLog(
+    in: directory, job: "build", startedAt: "2026-08-05 20:36:14Z", finished: nil,
+    version: "2.336.0")
   let fleet = model(box)
 
   await fleet.quiesce()
@@ -918,6 +956,15 @@ private func listening(
   #expect(!box.discoveryQueuesUsed.isEmpty)
   #expect(box.discoveryQueuesUsed.allSatisfy { $0 != "com.apple.main-thread" })
   #expect(!box.discoveryQueuesUsed.contains { $0.contains("cooperative") })
+  // And the two reads v0.4 added, which had no assertion of their own. Both
+  // block: one opens a file off a home directory that may be on a network
+  // volume, and the other spawns `gh` and waits on the network.
+  #expect(!box.versionQueuesUsed.isEmpty)
+  #expect(!box.versionQueuesUsed.contains { $0.contains("cooperative") })
+  #expect(box.versionQueuesUsed.allSatisfy { $0 != "com.apple.main-thread" })
+  #expect(!box.releaseQueuesUsed.isEmpty)
+  #expect(!box.releaseQueuesUsed.contains { $0.contains("cooperative") })
+  #expect(box.releaseQueuesUsed.allSatisfy { $0 != "com.apple.main-thread" })
 }
 
 @Test @MainActor func actionsDoNotBlockTheMainThreadEither() async throws {
@@ -1100,6 +1147,30 @@ private func listening(
   fleet.refresh()
   await fleet.quiesce()
   #expect(box.releaseCheckCount == 2)
+}
+
+@Test @MainActor func aSlowReleaseCheckDoesNotHoldUpTheMenu() async throws {
+  // It used to be inside the scan, and the scan is what paints the menu. The
+  // very first one of every launch asks — `lastReleaseCheck` is process memory
+  // that starts at nil — so a `gh` hanging on its 30s timeout meant half a
+  // minute of empty menu at every start of the app, over the one question here
+  // that nobody is waiting for. Being hours late with "there is a newer runner"
+  // costs nothing; being seconds late with the runner rows is the whole app.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(releaseDelay: 0.4)
+
+  let fleet = model(box)
+  // Long enough for a scan that waited on the release check to still be inside
+  // it, and short enough to be well under the delay.
+  try await Task.sleep(for: .milliseconds(150))
+  #expect(!fleet.snapshots.isEmpty)
+  #expect(fleet.latestRelease == nil)
+
+  // And the answer still lands, once it comes.
+  await fleet.quiesce()
+  #expect(fleet.latestRelease == RunnerVersion(2, 336, 0))
 }
 
 @Test @MainActor func aReleaseCheckThatGotNoAnswerStillCountsAsHavingAsked() async throws {

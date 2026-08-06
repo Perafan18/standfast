@@ -22,6 +22,12 @@ final class FleetSandbox: @unchecked Sendable {
   private var latest: Result<RunnerVersion, GitHubError> = .success(
     RunnerVersion(2, 336, 0))
   private var releaseChecks = 0
+  private var releaseQueues: [String] = []
+  private var versionQueues: [String] = []
+  /// Held for the duration of every release check, the way `delay` is for the
+  /// status call — so a test can make the answer slow enough to tell whether
+  /// anything is waiting on it.
+  private var releaseDelay: TimeInterval = 0
 
   init(
     serviceRunning: Bool = false,
@@ -33,6 +39,14 @@ final class FleetSandbox: @unchecked Sendable {
       .appendingPathComponent("fleet-\(UUID().uuidString)")
     try FileManager.default.createDirectory(
       at: launchAgents, withIntermediateDirectories: true)
+  }
+
+  /// Which dispatch queue the caller is on. The label is what tells the two
+  /// pools apart: `Thread.isMainThread` cannot, because a nonisolated `async`
+  /// function called from the main actor has already left the main thread — for
+  /// the cooperative pool, which is the one place a blocking call must not go.
+  static func queueLabel() -> String {
+    String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
   }
 
   var launchAgents: URL { root.appendingPathComponent("LaunchAgents") }
@@ -57,6 +71,28 @@ final class FleetSandbox: @unchecked Sendable {
   /// status one, about something that changes every few weeks.
   var releaseCheckCount: Int { withLock { releaseChecks } }
 
+  /// The dispatch queue each release check arrived on, to the same standard as
+  /// `queuesUsed`. It spawns `gh` and makes a network call, so it belongs off
+  /// the cooperative pool for exactly the reasons the status call does.
+  var releaseQueuesUsed: [String] { withLock { releaseQueues } }
+
+  /// And where the runner's own version was read from — file I/O off a home
+  /// directory that may be on a network volume.
+  var versionQueuesUsed: [String] { withLock { versionQueues } }
+
+  /// Never the real reader. This one answers what a test told it to and notes
+  /// where it ran, which is the only way that second fact is observable.
+  var versions: any RunnerVersionReading { Versions(sandbox: self) }
+
+  private struct Versions: RunnerVersionReading {
+    let sandbox: FleetSandbox
+
+    func blockingVersion(inLog log: URL) -> RunnerVersion? {
+      sandbox.withLock { sandbox.versionQueues.append(FleetSandbox.queueLabel()) }
+      return RunnerVersionReader().blockingVersion(inLog: log)
+    }
+  }
+
   func set(latest answer: Result<RunnerVersion, GitHubError>) {
     withLock { latest = answer }
   }
@@ -69,12 +105,20 @@ final class FleetSandbox: @unchecked Sendable {
     let sandbox: FleetSandbox
 
     func blockingLatestRunnerRelease() throws -> RunnerVersion {
-      try sandbox.withLock {
+      typealias Answer = (Result<RunnerVersion, GitHubError>, TimeInterval)
+      let answer = sandbox.withLock { () -> Answer in
         sandbox.releaseChecks += 1
-        return sandbox.latest
-      }.get()
+        sandbox.releaseQueues.append(FleetSandbox.queueLabel())
+        return (sandbox.latest, sandbox.releaseDelay)
+      }
+      // Outside the lock, like the status call's own delay: holding it would
+      // stop the very scan a test is trying to run alongside this.
+      if answer.1 > 0 { Thread.sleep(forTimeInterval: answer.1) }
+      return try answer.0.get()
     }
   }
+
+  func set(releaseDelay seconds: TimeInterval) { withLock { releaseDelay = seconds } }
 
   func set(serviceRunning: Bool) { withLock { running = serviceRunning } }
   func set(remote answer: Result<RemoteStatus, GitHubError>) {
