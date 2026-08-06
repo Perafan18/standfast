@@ -970,6 +970,40 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(delivery.posted.isEmpty)
 }
 
+@Test @MainActor func aPostCompletionDisconnectionWaitsForTheOrderedStop()
+  async throws
+{
+  // svc.sh has returned, but launchd has not settled yet. Its first local
+  // post-completion answer still says running and GitHub says disconnected;
+  // neither that transient answer nor the stopped answer behind it belongs in
+  // notifications.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = RecordingCommandRunner()
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let postCompletionProbe = box.blockNextProbe()
+  defer { postCompletionProbe.release() }
+  fleet.stop(runner)
+  try await postCompletionProbe.waitUntilEntered()
+  postCompletionProbe.release()
+  try await waitUntil {
+    fleet.snapshots.map(\.display) == [.resolved(.disconnected)]
+  }
+  #expect(delivery.posted.isEmpty)
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
 @Test @MainActor func aRemoteAnswerDeferredDuringStopReappearsWhenStopFails()
   async throws
 {
@@ -1086,10 +1120,11 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(delivery.posted.isEmpty)
 }
 
-@Test @MainActor func absenceReadBeforeAnActionCannotReleaseThatAction() async throws {
+@Test @MainActor func absenceAtTheCompletionClockCannotReleaseThatAction() async throws {
   // Discovery has already enumerated build-mac as absent, but a slow candidate
-  // keeps the call from returning until after Start completes. Applying that
-  // old absence must not release Start's reservation; the listing failure that
+  // keeps the call from returning until Start completes. A coarse clock gives
+  // both facts the same timestamp, so their ordering is ambiguous: applying
+  // the absence must not release Start's reservation. The listing failure that
   // follows is inconclusive too, so neither scan permits a second mutation.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
@@ -1109,7 +1144,6 @@ private enum TestWaitFailure: Error { case timedOut }
   fleet.refresh()
   try await staleDiscovery.waitUntilEntered()
 
-  clock.advance(1)
   fleet.start(runner)
   try await waitUntil { commands.invocations.count == 1 }
   // Let the action resume from its off-pool command and record completedAt;

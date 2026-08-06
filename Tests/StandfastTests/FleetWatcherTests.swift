@@ -261,6 +261,124 @@ import Testing
   #expect(events == [.runnerDisconnected(runner: "build-mac")])
 }
 
+@Test func nonStoppedReadingsInsideTheCompletionGracePreserveTheOrderedStop() {
+  // launchd can lag behind svc.sh returning. Every conclusive running state
+  // reached through a post-click observation is therefore provisional for a
+  // bounded grace; the stopped reading behind it must still spend the token.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  for display in [
+    DisplayState.resolved(.idle),
+    .resolved(.busy),
+    .resolved(.disconnected),
+    .resolved(.unknown(.noAnswer)),
+  ] {
+    var watcher = FleetWatcher(expectedStopLifetime: 30)
+    let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+    _ = watcher.events(in: [runner])
+    watcher.expectStop(for: runner.runner.label, at: requestedAt)
+    watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+
+    let provisional = watcher.events(in: [
+      snapshot(
+        display: display, readAt: completedAt.addingTimeInterval(1),
+        stateReadAt: completedAt.addingTimeInterval(2))
+    ])
+    let stopped = watcher.events(in: [
+      snapshot(
+        display: .resolved(.stopped),
+        readAt: completedAt.addingTimeInterval(3))
+    ])
+
+    #expect(provisional.isEmpty)
+    #expect(stopped.isEmpty)
+  }
+}
+
+@Test func nonStoppedReadingsAtTheCompletionGraceDeadlineSpendTheOrderedStop() {
+  // The grace is bounded. Once its horizon is reached, a conclusive running
+  // state resolves the old intent so a later crash cannot inherit silence.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  for display in [
+    DisplayState.resolved(.idle),
+    .resolved(.busy),
+    .resolved(.disconnected),
+    .resolved(.unknown(.noAnswer)),
+  ] {
+    var watcher = FleetWatcher(expectedStopLifetime: 30)
+    let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+    _ = watcher.events(in: [runner])
+    watcher.expectStop(for: runner.runner.label, at: requestedAt)
+    watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+
+    _ = watcher.events(in: [
+      snapshot(
+        display: display, readAt: completedAt.addingTimeInterval(30),
+        stateReadAt: completedAt.addingTimeInterval(30))
+    ])
+    let crash = watcher.events(in: [
+      snapshot(
+        display: .resolved(.stopped),
+        readAt: completedAt.addingTimeInterval(31))
+    ])
+
+    #expect(crash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+  }
+}
+
+@Test func cancellingDuringTheCompletionGraceReplaysItsDisconnection() {
+  // Definite failure revokes the only reason to defer this transition. The
+  // provisional reading must not have advanced the baseline while intent was
+  // present, or the same disconnection cannot be recovered after cancellation.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 30)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+
+  let provisional = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(1),
+      stateReadAt: completedAt.addingTimeInterval(2))
+  ])
+  watcher.cancelExpectedStop(for: runner.runner.label)
+  let recovered = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(3),
+      stateReadAt: completedAt.addingTimeInterval(4))
+  ])
+
+  #expect(provisional.isEmpty)
+  #expect(recovered == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func aRemoteDisconnectionReadBeforeTheClickIsVisibleDuringTheGrace() {
+  // A late apply does not make an old remote answer part of Stop. Suppressing
+  // solely because its timestamp precedes the grace deadline would hide a real
+  // transition that GitHub had already reported before the click.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 30)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-2))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
+
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(-1),
+      stateReadAt: requestedAt.addingTimeInterval(-0.5))
+  ])
+
+  #expect(events == [.runnerDisconnected(runner: "build-mac")])
+}
+
 @Test func aRunnerMidHandshakeIsNotCalledDisconnected() {
   // `.starting` is the settling window covering for a runner that GitHub has
   // not acknowledged yet. Underneath it the resolver is saying `.disconnected`,
@@ -371,47 +489,25 @@ import Testing
   #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
-@Test func aRestartThatNeverLooksStoppedDoesNotLeaveItsTokenBehind() {
-  // A restart takes the service down for 1.5s, which a fifteen-second scan
-  // misses more often than not. The token taken out for a gap nobody observed
-  // has to be spent by the runner coming back up, or the next real crash is
-  // swallowed by a restart from an hour ago.
+@Test func aRestartStartingPresentationSettlesACompletedStopIntent() {
+  // Restart's settling window turns its post-start disconnection into
+  // `.starting`. That presentation means the stop half has already been and
+  // gone, so it must keep spending its token immediately rather than granting
+  // the next real crash the Stop grace.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
   var watcher = FleetWatcher()
-  let runner = snapshot()
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
   _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
 
-  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
-  watcher.completeExpectedStop(for: runner.runner.label, at: runner.readAt)
-  #expect(watcher.events(in: [snapshot(display: .resolved(.busy))]).isEmpty)
-  let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
+  _ = watcher.events(in: [snapshot(display: .starting, readAt: completedAt)])
+  let crash = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(1))
+  ])
 
-  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
-}
-
-@Test func everyConclusiveRunningProbeSettlesACompletedStopIntent() {
-  // These presentations differ only in GitHub's answer. Each proves launchd
-  // said the service is running, so none may leave an old Stop intent behind
-  // to silence a later crash.
-  for display in [
-    DisplayState.resolved(.disconnected),
-    .resolved(.unknown(.noAnswer)),
-    .starting,
-  ] {
-    let requestedAt = Date(timeIntervalSince1970: 100)
-    let completedAt = Date(timeIntervalSince1970: 101)
-    var watcher = FleetWatcher()
-    let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
-    _ = watcher.events(in: [runner])
-    watcher.expectStop(for: runner.runner.label, at: requestedAt)
-    watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
-
-    _ = watcher.events(in: [snapshot(display: display, readAt: completedAt)])
-    let crash = watcher.events(in: [
-      snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(1))
-    ])
-
-    #expect(crash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
-  }
+  #expect(crash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
 @Test func stoppingARunnerThatWasAlreadyStoppedStillSpendsTheToken() {

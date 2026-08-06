@@ -430,12 +430,14 @@ final class RunnerFleetModel: ObservableObject {
   private func apply(_ scan: Scan, startedAt: Date) {
     let resolvedLabels = Set(scan.found.runners.map(\.label))
     // An action is direct evidence that its label still belongs to this
-    // lifecycle. Absence discovered before the action completed cannot revoke
-    // that evidence merely because another runner delayed the scan's arrival.
+    // lifecycle. Absence whose conservative stamp is no later than completion
+    // cannot revoke that evidence merely because another runner delayed the
+    // scan's arrival. Equality stays protected because a coarse clock cannot
+    // order the two facts.
     let labelsProtectedFromAbsence = Set(
       serviceActionsInFlight.filter { label in
         guard let completedAt = serviceActionCompletions[label] else { return true }
-        return scan.discoveryStartedAt < completedAt
+        return scan.discoveryStartedAt <= completedAt
       })
     let retainedLabels: Set<String>
     if let possiblyInstalledLabels = scan.found.possiblyInstalledLabels {

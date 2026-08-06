@@ -116,6 +116,7 @@ func snapshot(
   _ name: String = "build-mac", scope: String = "widget",
   display: DisplayState = .resolved(.idle), qualifier: String? = nil,
   jobs: JobHistory = .empty, readAt: Date = Date(timeIntervalSince1970: 1_785_962_174),
+  stateReadAt: Date? = nil,
   version: RunnerVersion? = nil
 ) -> RunnerSnapshot {
   RunnerSnapshot(
@@ -124,6 +125,7 @@ func snapshot(
       directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: 7, agentName: name,
       scope: .repository(owner: "acme", name: scope)),
     display: display, qualifier: qualifier, jobs: jobs, readAt: readAt,
+    stateReadAt: stateReadAt,
     version: version)
 }
 

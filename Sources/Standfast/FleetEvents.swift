@@ -59,14 +59,24 @@ struct FleetWatcher {
 
   private enum Completion {
     /// svc.sh Stop returned, including the successful first half of Restart.
-    case confirmed(Date)
+    case confirmed(completedAt: Date, graceDeadline: Date)
     /// The command was killed at its deadline, so its effects are unknowable.
-    case uncertain(Date)
+    case uncertain(completedAt: Date, graceDeadline: Date)
 
     var completedAt: Date {
       switch self {
-      case .confirmed(let date), .uncertain(let date): date
+      case .confirmed(let date, _), .uncertain(let date, _): date
       }
+    }
+
+    var graceDeadline: Date {
+      switch self {
+      case .confirmed(_, let deadline), .uncertain(_, let deadline): deadline
+      }
+    }
+
+    var isUncertain: Bool {
+      if case .uncertain = self { true } else { false }
     }
   }
 
@@ -98,13 +108,17 @@ struct FleetWatcher {
   /// Until then an idle reading means merely that Stop has not reached
   /// launchd yet; it says nothing about the stop that is still in flight.
   mutating func completeExpectedStop(for label: String, at completedAt: Date) {
-    expectedStops[label]?.completion = .confirmed(completedAt)
+    expectedStops[label]?.completion = .confirmed(
+      completedAt: completedAt,
+      graceDeadline: completedAt.addingTimeInterval(expectedStopLifetime))
   }
 
   /// Records the only bounded form of intent: a timed-out Stop may or may not
   /// have taken effect, so it cannot suppress an unrelated crash forever.
   mutating func markExpectedStopUncertain(for label: String, at completedAt: Date) {
-    expectedStops[label]?.completion = .uncertain(completedAt)
+    expectedStops[label]?.completion = .uncertain(
+      completedAt: completedAt,
+      graceDeadline: completedAt.addingTimeInterval(expectedStopLifetime))
   }
 
   /// Revokes an intent whose command definitely failed before completing.
@@ -170,8 +184,8 @@ struct FleetWatcher {
   ) -> (events: [FleetEvent], advancesBaseline: Bool) {
     let changed = snapshot.display != before
     var expectedStop = expectedStops[snapshot.runner.label]
-    if case .uncertain(let completedAt)? = expectedStop?.completion,
-      snapshot.readAt >= completedAt.addingTimeInterval(expectedStopLifetime)
+    if let completion = expectedStop?.completion, completion.isUncertain,
+      snapshot.readAt >= completion.graceDeadline
     {
       // An uncertain timeout cannot grant permanent silence. Expiration is
       // evaluated against probe time, so the first later observation is never
@@ -186,6 +200,11 @@ struct FleetWatcher {
       expectedStop?.completion.map {
         snapshot.readAt >= $0.completedAt
       } ?? false
+    let withinCompletionGrace =
+      expectedStop?.completion.map {
+        snapshot.stateReadAt < $0.graceDeadline
+      } ?? false
+    let preservesExpectedStop = maySuppressRemoteState && withinCompletionGrace
     switch snapshot.display.resolvedState {
     case .stopped:
       // Spent on the first stop observed rather than on the first stop
@@ -203,20 +222,22 @@ struct FleetWatcher {
       return ([.runnerStoppedUnexpectedly(runner: snapshot.name)], true)
     case .idle, .busy:
       // Up and taking work, so whatever stop was expected has been and gone —
-      // which is what a restart looks like when the scan misses the gap.
-      if maySpendExpectedStop {
+      // which is what a restart looks like when the scan misses the gap. A
+      // post-click answer inside the completion grace can still precede the
+      // ordered stop settling in launchd, so it cannot spend intent yet.
+      if maySpendExpectedStop, !preservesExpectedStop {
         expectedStops.removeValue(forKey: snapshot.runner.label)
       }
       return ([], true)
     case .disconnected:
       // GitHub is offline, but the resolver only reaches this state after
-      // launchd answered that the service is running. That local evidence is
-      // enough to settle an expected stop whose command already completed.
-      // Before completion, though, GitHub can observe the runner disappearing
-      // before launchd observes Stop. Defer both the banner and the baseline:
-      // success will settle the intent, while cancellation must expose this
-      // same transition on the next scan.
-      if maySuppressRemoteState, !maySpendExpectedStop {
+      // launchd answered that the service is running. That answer can lag a
+      // completed Stop, so defer both the banner and baseline until either the
+      // stopped observation arrives or the bounded completion grace expires.
+      // Cancellation must expose this same transition on the next scan.
+      if maySuppressRemoteState,
+        !maySpendExpectedStop || withinCompletionGrace
+      {
         return ([], false)
       }
       if maySpendExpectedStop {
@@ -232,7 +253,9 @@ struct FleetWatcher {
     case .unknown(let reason):
       // Every GitHub-side unknown also follows a successful local "running"
       // probe. Only launchd's own unreadable result leaves the stop uncertain.
-      if reason != .serviceStateUnreadable, maySpendExpectedStop {
+      if reason != .serviceStateUnreadable, maySpendExpectedStop,
+        !preservesExpectedStop
+      {
         expectedStops.removeValue(forKey: snapshot.runner.label)
       }
       return ([], true)
