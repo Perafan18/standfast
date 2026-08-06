@@ -321,10 +321,12 @@ final class HousekeepingModel: ObservableObject {
       self.reports[label] = Self.notice(
         for: answer.outcome, runner: name, path: answer.path,
         didModify: answer.didModify)
-      // The numbers on screen now describe a directory that is not there any
-      // more, and the next thing the user does is look at them.
-      if answer.outcome == .done || answer.outcome == .refusedAfterChange
-        || answer.didModify
+      // A success changed the disk. `nothingToDo` proves the measurement that
+      // justified the confirmation was stale: the named bytes disappeared
+      // before this reached them. Either way the next thing the user does is
+      // look at numbers that need to be read again.
+      if answer.outcome == .done || answer.outcome == .nothingToDo
+        || answer.outcome == .refusedAfterChange || answer.didModify
       {
         self.measure(runner)
       }

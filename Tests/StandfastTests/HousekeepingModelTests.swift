@@ -9,10 +9,13 @@ import Testing
 private final class FakeConfirmation: CleanupConfirming {
   private(set) var prompts: [CleanupPrompt] = []
   var answer = true
+  var onAccept: (() -> Void)?
 
   func confirm(_ prompt: CleanupPrompt) -> Bool {
     prompts.append(prompt)
-    return answer
+    guard answer else { return false }
+    onAccept?()
+    return true
   }
 }
 
@@ -252,6 +255,67 @@ private struct QueueNotingCommands: CommandRunning {
   #expect(subject.notice(for: sandbox.runner) == nil)
   // The numbers on screen described a directory that is no longer there.
   #expect(subject.measurement(for: sandbox.runner)?.report?.bytes(of: .toolCache) == 0)
+}
+
+@MainActor
+@Test func aCacheGoneAfterConfirmationRefreshesItsStaleOffer() async throws {
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let clock = TestClock()
+  let confirmation = FakeConfirmation()
+  let cache = sandbox.root.appendingPathComponent("_work/_tool")
+  let subject = model(
+    sandbox, confirmation: confirmation, clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  #expect(before.report?.bytes(of: .toolCache) ?? 0 > 0)
+  confirmation.onAccept = { try? FileManager.default.removeItem(at: cache) }
+
+  clock.advance(60)
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  #expect(after.readAt > before.readAt)
+  #expect(after.report?.bytes(of: .toolCache) == 0)
+  let section = MaintenanceSection.building(
+    snapshot(display: .resolved(.idle), of: sandbox), measurement: after,
+    latest: nil, isWorking: false, notice: nil, now: clock.read())
+  #expect(section.offer(.cleanToolCache) == nil)
+}
+
+@MainActor
+@Test func aLegacyGraveGoneAfterConfirmationRefreshesItsStaleOffer() async throws {
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let grave = sandbox.root.appendingPathComponent(
+    "_work/\(Housekeeper.trashFolder)/EEEEEEEE-0000-0000-0000-000000000001")
+  try FileManager.default.createDirectory(at: grave, withIntermediateDirectories: true)
+  try Data(repeating: UInt8(ascii: "x"), count: 4096)
+    .write(to: grave.appendingPathComponent("payload"))
+  let clock = TestClock()
+  let confirmation = FakeConfirmation()
+  let subject = model(
+    sandbox, confirmation: confirmation, clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  #expect(before.report?.legacyTrashBytes ?? 0 > 0)
+  confirmation.onAccept = { try? FileManager.default.removeItem(at: grave) }
+
+  clock.advance(60)
+  subject.perform(
+    .cleanStandfastTrash, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  #expect(after.readAt > before.readAt)
+  #expect(after.report?.legacyTrashBytes == 0)
+  let section = MaintenanceSection.building(
+    snapshot(display: .resolved(.idle), of: sandbox), measurement: after,
+    latest: nil, isWorking: false, notice: nil, now: clock.read())
+  #expect(section.offer(.cleanStandfastTrash) == nil)
 }
 
 @MainActor
@@ -696,6 +760,35 @@ private final class FailingFirstGraveDeleteOperations:
 
   #expect(!FileManager.default.fileExists(atPath: old.path))
   #expect(FileManager.default.fileExists(atPath: active.path))
+}
+
+@MainActor
+@Test func logsGoneAfterConfirmationRefreshTheirStaleOffer() async throws {
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let old = try sandbox.writeLog(
+    "Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 30)
+  let clock = TestClock()
+  let confirmation = FakeConfirmation()
+  let subject = model(
+    sandbox, confirmation: confirmation, clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  #expect(before.report?.rotation.bytes ?? 0 > 0)
+  confirmation.onAccept = { try? FileManager.default.removeItem(at: old) }
+
+  clock.advance(60)
+  subject.perform(.trimLogs, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  #expect(after.readAt > before.readAt)
+  #expect(after.report?.rotation.bytes == 0)
+  let section = MaintenanceSection.building(
+    snapshot(display: .resolved(.idle), of: sandbox), measurement: after,
+    latest: nil, isWorking: false, notice: nil, now: clock.read())
+  #expect(section.offer(.trimLogs) == nil)
 }
 
 @MainActor
