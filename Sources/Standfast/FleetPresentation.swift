@@ -164,13 +164,22 @@ extension RunnerSnapshot {
     return L10n.runnerInScope(runner.displayName, qualifier)
   }
 
+  /// What this runner is building, and nil when it is not building anything.
+  ///
+  /// A property rather than a call at the one place it is rendered, because it
+  /// is read twice now: the row prints it, and the thermal line asks whether it
+  /// has overrun.
+  var jobProgress: JobProgress? {
+    JobProgress.reading(jobs, display: display, at: readAt)
+  }
+
   var row: RunnerRow {
     RunnerRow(
       // `displayName`, not `agentName`: the `.runner` file does not always
       // carry a name, and that runner would render as a blank row followed by
       // four buttons belonging to nobody.
       title: L10n.runnerRow(name, display.summary),
-      progress: JobProgress.reading(jobs, display: display, at: readAt)?.line,
+      progress: jobProgress?.line,
       // Every action reads this runner's own state. Nothing here consults the
       // fleet summary, which is for the icon and only the icon.
       actions: [

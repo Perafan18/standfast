@@ -122,6 +122,82 @@ final class FleetSandbox: @unchecked Sendable {
       .write(to: diagnostics.appendingPathComponent("Runner_20260805-000000-utc.log"))
   }
 
+  /// Adds one more job to the log the listener is already writing to, the way a
+  /// real one does — appended, so the reader's cached offset still means
+  /// something and the delta is the only thing read.
+  func appendJob(
+    in directory: URL, job name: String, startedAt: String, finished: String?,
+    result: String = "Succeeded"
+  ) throws {
+    let log = directory.appendingPathComponent(
+      "_diag/Runner_20260805-000000-utc.log")
+    var lines = [
+      "[\(startedAt) INFO Terminal] WRITE LINE: \(startedAt): Running job: \(name)"
+    ]
+    if let finished {
+      lines.append(
+        "[\(finished) INFO Terminal] WRITE LINE: \(finished): "
+          + "Job \(name) completed with result: \(result)")
+    }
+    let handle = try FileHandle(forWritingTo: log)
+    defer { try? handle.close() }
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data((lines.map { $0 + "\n" }.joined()).utf8))
+  }
+
+  /// A log holding several successful runs of one job and one still going, all
+  /// placed against the real clock.
+  ///
+  /// Relative to now on purpose: elapsed time is measured from when the machine
+  /// was read, and the model under test reads the real clock. A fixed timestamp
+  /// would make "twenty minutes in" mean something different every day.
+  ///
+  /// - Parameters:
+  ///   - each: how long every finished run took, which is what the estimate is
+  ///     built from.
+  ///   - runningFor: how long the unfinished one has been going.
+  func writeSlowRun(
+    in directory: URL, job name: String, finishedRuns: Int, each duration: TimeInterval,
+    runningFor: TimeInterval
+  ) throws {
+    let diagnostics = directory.appendingPathComponent("_diag")
+    try FileManager.default.createDirectory(
+      at: diagnostics, withIntermediateDirectories: true)
+    let now = Date()
+    var lines: [String] = []
+    for run in 0..<finishedRuns {
+      // Oldest first, an hour apart, all of them well before the running one.
+      let started = now.addingTimeInterval(
+        -runningFor - Double(finishedRuns - run) * 3600)
+      let finished = started.addingTimeInterval(duration)
+      lines.append(
+        "[\(Self.stamp(started)) INFO Terminal] WRITE LINE: "
+          + "\(Self.stamp(started)): Running job: \(name)")
+      lines.append(
+        "[\(Self.stamp(finished)) INFO Terminal] WRITE LINE: \(Self.stamp(finished)): "
+          + "Job \(name) completed with result: Succeeded")
+    }
+    let started = now.addingTimeInterval(-runningFor)
+    lines.append(
+      "[\(Self.stamp(started)) INFO Terminal] WRITE LINE: "
+        + "\(Self.stamp(started)): Running job: \(name)")
+    try Data((lines.map { $0 + "\n" }.joined()).utf8)
+      .write(to: diagnostics.appendingPathComponent("Runner_20260805-000000-utc.log"))
+  }
+
+  /// `2026-08-05 20:36:14Z`, which is what the runner writes and what the parser
+  /// reads. Built by hand rather than with a `DateFormatter`, so the host's
+  /// locale and calendar stay out of it.
+  private static func stamp(_ date: Date) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .gmt
+    let parts = calendar.dateComponents(
+      [.year, .month, .day, .hour, .minute, .second], from: date)
+    return String(
+      format: "%04d-%02d-%02d %02d:%02d:%02dZ", parts.year ?? 0, parts.month ?? 0,
+      parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0, parts.second ?? 0)
+  }
+
   /// Replaces the listener log's contents with noise of exactly the same
   /// length.
   ///

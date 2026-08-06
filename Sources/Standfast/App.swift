@@ -5,10 +5,18 @@ import SwiftUI
 struct StandfastApp: App {
   @StateObject private var fleet = RunnerFleetModel()
   @StateObject private var loginItem = LoginItem()
+  /// Not handed to the model: how hot the Mac is has nothing to do with
+  /// runners, and the one place the two meet is the menu line below.
+  @StateObject private var thermal = ThermalMonitor()
 
   var body: some Scene {
     MenuBarExtra {
-      FleetMenu(fleet: fleet, loginItem: loginItem)
+      FleetMenu(
+        fleet: fleet, loginItem: loginItem, thermal: thermal,
+        // Owned by the model, which is what makes "a scan produced an event"
+        // testable. Observed separately because a nested `ObservableObject`
+        // does not tell the view anything by itself.
+        notifications: fleet.notifications, sleep: fleet.sleep)
     } label: {
       Image(systemName: FleetSummary.symbolName(for: fleet.snapshots.map(\.display)))
     }
@@ -22,6 +30,9 @@ struct StandfastApp: App {
 private struct FleetMenu: View {
   @ObservedObject var fleet: RunnerFleetModel
   @ObservedObject var loginItem: LoginItem
+  @ObservedObject var thermal: ThermalMonitor
+  @ObservedObject var notifications: NotificationSettings
+  @ObservedObject var sleep: SleepGuard
 
   var body: some View {
     // One section per runner. One runner reads as a flat menu; several read as
@@ -34,12 +45,40 @@ private struct FleetMenu: View {
       ForEach(notice.lines, id: \.self) { Text($0) }
       Divider()
     }
+    // Empty unless macOS is actually throttling, which is the only time the
+    // temperature explains anything the user can see.
+    let heat = ThermalNotice.lines(
+      pressure: thermal.pressure, overrunning: fleet.isOverrunning)
+    if !heat.isEmpty {
+      ForEach(heat, id: \.self) { Text($0) }
+      Divider()
+    }
     // `Date()` here rather than a stored value: this is the one line whose
     // whole job is to age, and the menu's body is re-evaluated when it opens,
     // which is the only moment anybody reads it.
     Text(FleetStatus.lastCheckedLine(readAt: fleet.lastReadAt, now: Date()))
     Button(L10n.refreshNow) { fleet.refresh() }
     Divider()
+    // A submenu, so three switches nobody has turned on cost one row. The
+    // permission prompt is not here: it belongs to the moment a switch goes on,
+    // which is the first time this app has earned the right to ask.
+    Menu(L10n.notifyMe) {
+      ForEach(NotificationKind.allCases, id: \.self) { kind in
+        Toggle(
+          kind.menuLabel,
+          isOn: Binding(
+            get: { notifications.isEnabled(kind) },
+            set: { notifications.setEnabled(kind, $0) }))
+      }
+      if let notice = notifications.notice { Text(notice) }
+    }
+    Toggle(
+      L10n.preventSleep,
+      isOn: Binding(get: { sleep.isEnabled }, set: { sleep.setEnabled($0) }))
+    // Said only to somebody who has switched it on: `beginActivity` holds off
+    // idle sleep and nothing else, and a MacBook whose lid is closed sleeps
+    // anyway. Better here than discovered by a build that died overnight.
+    if sleep.isEnabled { Text(L10n.preventSleepLidNotice) }
     Toggle(
       L10n.openAtLogin,
       isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.setEnabled($0) }))

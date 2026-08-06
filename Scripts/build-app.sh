@@ -52,6 +52,23 @@ cp -R "$RESOURCES"/*.lproj "$DEST/Contents/Resources/"
 
 # LaunchServices caches bundle metadata by mtime; without this a rebuilt app
 # can keep being launched with the previous Info.plist.
+# Ad-hoc, and this is not the signing that release needs — it is the signing
+# that makes the app work at all.
+#
+# SwiftPM leaves the executable linker-signed with the identifier `Standfast`,
+# and copying it into a bundle does not bind Info.plist to it. `codesign -dv`
+# on the result says `Identifier=Standfast`, `Info.plist=not bound`,
+# `Sealed Resources=none` — so as far as the system is concerned this process
+# has no bundle identity. Measured consequence: `requestAuthorization` reaches
+# `usernoted` and the app is never registered, `dev.standfast.app` never
+# appears in its database, and every notification is dropped in silence. There
+# is nothing to see and nothing to debug. One `codesign --sign -` over the
+# whole bundle binds Info.plist and the identifier becomes
+# `dev.standfast.app`, after which banners arrive.
+#
+# Developer ID and notarisation are a separate job. This is the floor.
+codesign --force --sign - "$DEST"
+
 touch "$DEST"
 
 echo "Built $DEST"

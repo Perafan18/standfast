@@ -156,7 +156,7 @@ See [SECURITY.md](SECURITY.md).
 ```sh
 git clone https://github.com/Perafan18/standfast
 cd standfast
-make test      # 269 tests, none of which needs a runner installed
+make test      # 342 tests, none of which needs a runner installed
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 make check     # the packaging check: assembles, deletes .build, launches

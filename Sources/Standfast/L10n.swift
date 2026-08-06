@@ -17,6 +17,14 @@ enum L10n {
   static let openAtLoginNeedsApproval = t("menu.openAtLogin.needsApproval")
   static let openAtLoginUnavailable = t("menu.openAtLogin.unavailable")
 
+  static let notifyMe = t("menu.notify")
+  static let notifyJobFailed = t("menu.notify.jobFailed")
+  static let notifyDisconnected = t("menu.notify.disconnected")
+  static let notifyStopped = t("menu.notify.stopped")
+  static let notificationsBlocked = t("menu.notify.blocked")
+  static let preventSleep = t("menu.preventSleep")
+  static let preventSleepLidNotice = t("menu.preventSleep.lid")
+
   static let noRunnersFound = t("state.noRunners")
   static let someRunnersUnreadable = t("state.unreadable")
   static let moreUnreadable = t("state.unreadable.more")
@@ -37,6 +45,21 @@ enum L10n {
 
   static let checkedJustNow = t("state.checkedJustNow")
   static let checkedNever = t("state.checkedNever")
+
+  // Only the two states where macOS is actually holding the machine back.
+  // There is no line for a cool Mac, because a row that is true every day is a
+  // row nobody reads.
+  static let thermalSerious = t("thermal.serious")
+  static let thermalCritical = t("thermal.critical")
+  static let thermalSlowingJobs = t("thermal.slowingJobs")
+
+  // What a banner says. The title names the kind of trouble and the body names
+  // which runner, because a notification is read out of the corner of an eye
+  // and on a Mac with two runners the name is the only part that decides what
+  // to do next.
+  static let notificationJobFailedTitle = t("notification.jobFailed.title")
+  static let notificationDisconnectedTitle = t("notification.disconnected.title")
+  static let notificationStoppedTitle = t("notification.stopped.title")
 
   // The runner's own word for how a job ended, translated. `.other` is not
   // here on purpose: an outcome this version has never met is shown as GitHub
@@ -72,6 +95,19 @@ enum L10n {
   /// The same for a job with no duration, which is a job that never finished.
   static func jobRowNoDuration(_ name: String, _ result: String) -> String {
     String(format: t("job.rowNoDuration"), name, result)
+  }
+
+  /// Which job broke, and on which runner.
+  static func notificationJobFailedBody(_ job: String, _ runner: String) -> String {
+    String(format: t("notification.jobFailed.body"), job, runner)
+  }
+
+  static func notificationDisconnectedBody(_ runner: String) -> String {
+    String(format: t("notification.disconnected.body"), runner)
+  }
+
+  static func notificationStoppedBody(_ runner: String) -> String {
+    String(format: t("notification.stopped.body"), runner)
   }
 
   /// How long ago the machine was last read.
@@ -130,6 +166,15 @@ enum L10n {
       "Allow Standfast in System Settings › General › Login Items",
     "menu.openAtLogin.unavailable":
       "Login item state unknown; check System Settings › General › Login Items",
+    "menu.notify": "Notify me",
+    "menu.notify.jobFailed": "When a job fails",
+    "menu.notify.disconnected": "When a runner disconnects",
+    "menu.notify.stopped": "When a runner stops on its own",
+    "menu.notify.blocked":
+      "Notifications are switched off for Standfast in System Settings › "
+      + "Notifications",
+    "menu.preventSleep": "Keep this Mac awake while a job runs",
+    "menu.preventSleep.lid": "Closing the lid still sends it to sleep",
     "menu.runnerRow": "%@ — %@",
     "menu.runnerInScope": "%@ (%@)",
     "state.noRunners": "No runners installed on this Mac",
@@ -155,6 +200,15 @@ enum L10n {
     "job.result.failed": "Failed",
     "job.result.canceled": "Canceled",
     "job.result.interrupted": "Interrupted",
+    "thermal.serious": "This Mac is hot and macOS is slowing it down",
+    "thermal.critical": "This Mac is very hot and macOS is slowing it right down",
+    "thermal.slowingJobs": "That is why the job is taking longer than usual",
+    "notification.jobFailed.title": "Job failed",
+    "notification.jobFailed.body": "%@ failed on %@",
+    "notification.disconnected.title": "Runner disconnected",
+    "notification.disconnected.body": "%@ is running here, but GitHub cannot see it",
+    "notification.stopped.title": "Runner stopped",
+    "notification.stopped.body": "%@ stopped on its own and is taking no jobs",
     "duration.hoursMinutes": "%dh %02dm",
     "duration.minutesSeconds": "%dm %02ds",
     "duration.hours": "%dh",

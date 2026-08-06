@@ -9,6 +9,10 @@ private func model(
   _ sandbox: FleetSandbox, commands: any CommandRunning = RecordingCommandRunner(),
   settling: SettlingWindow = SettlingWindow(), settleDelay: TimeInterval = 0,
   probeDelay: TimeInterval = 0, clock: @escaping @Sendable () -> Date = Date.init,
+  // Never the real ones. `UNUserNotificationCenter` needs an application bundle
+  // and a permission CI cannot grant, and a power assertion would be taken out
+  // on whatever machine runs the suite.
+  notifications: NotificationSettings? = nil, sleep: SleepGuard? = nil,
   // No ticker by default: these tests drive every refresh themselves. A test
   // that wants the freshness rule passes an interval long enough that the real
   // ticker cannot fire inside it, and calls `tick()` by hand.
@@ -17,8 +21,35 @@ private func model(
   RunnerFleetModel(
     discover: sandbox.discover, resolver: sandbox.resolver,
     controller: ServiceController(commandRunner: commands, settleDelay: settleDelay),
-    settling: settling, clock: clock, probeDelay: probeDelay,
-    refreshInterval: refreshInterval)
+    settling: settling,
+    notifications: notifications
+      ?? NotificationSettings(
+        delivery: FakeNotificationDelivery(), defaults: scratchDefaults()),
+    sleep: sleep
+      ?? SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults()),
+    clock: clock, probeDelay: probeDelay, refreshInterval: refreshInterval)
+}
+
+/// A model whose notifications are all switched on, with the delivery it posts
+/// to. Every switch is off on a real install; a test that wants to see anything
+/// arrive has to turn them on, which is the behaviour under test everywhere
+/// else.
+@MainActor
+private func listening(
+  _ sandbox: FleetSandbox, commands: any CommandRunning = RecordingCommandRunner(),
+  settleDelay: TimeInterval = 0, probeDelay: TimeInterval = 0
+) async -> (RunnerFleetModel, FakeNotificationDelivery) {
+  let delivery = FakeNotificationDelivery()
+  let notifications = NotificationSettings(
+    delivery: delivery, defaults: scratchDefaults())
+  for kind in NotificationKind.allCases { notifications.setEnabled(kind, true) }
+  await notifications.quiesce()
+  return (
+    model(
+      sandbox, commands: commands, settleDelay: settleDelay, probeDelay: probeDelay,
+      notifications: notifications),
+    delivery
+  )
 }
 
 // MARK: - Reading the machine
@@ -617,6 +648,239 @@ private func model(
   await fleet.quiesce()
 
   #expect(box.probeCount > before)
+}
+
+// MARK: - Telling somebody who is not looking at the menu
+
+@Test @MainActor func openingTheAppAnnouncesNoneOfWhatItFindsOnDisk() async throws {
+  // The rule, end to end and through the real log reader: a runner that is
+  // already disconnected, with a failed build sitting in `_diag`, produces
+  // nothing. `_diag` reaches back two days — announcing what is in it at launch
+  // would fire at every login for as long as the log survives.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z", result: "Failed")
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let (fleet, delivery) = await listening(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aRunnerThatFallsOffGitHubWhileTheAppRunsIsAnnounced()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let (fleet, delivery) = await listening(box)
+  await fleet.quiesce()
+  #expect(delivery.posted.isEmpty)
+
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.count == 1)
+  #expect(delivery.posted[0].title == L10n.notificationDisconnectedTitle)
+  #expect(delivery.posted[0].body.contains("build-mac"))
+}
+
+@Test @MainActor func aJobThatFailsWhileTheAppRunsIsAnnounced() async throws {
+  // Through the whole path this time: the listener log on disk, the reader, the
+  // snapshot, the watcher and the banner. Nothing stubbed but GitHub and the
+  // notification centre.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z")
+  let (fleet, delivery) = await listening(box)
+  await fleet.quiesce()
+
+  try box.appendJob(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: "2026-08-05 21:02:00Z", result: "Failed")
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.count == 1)
+  #expect(delivery.posted[0].title == L10n.notificationJobFailedTitle)
+  #expect(delivery.posted[0].body.contains("deploy"))
+}
+
+@Test @MainActor func stoppingARunnerFromThisMenuAnnouncesNothing() async throws {
+  // The one distinction there is between "you stopped it" and "it stopped":
+  // this app saw the click. A banner telling somebody that the runner they just
+  // stopped has stopped is the fastest way to have every switch turned off.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let (fleet, delivery) = await listening(box, commands: box.svcDrivingCommandRunner)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aRunnerThatGoesDownByItselfIsAnnounced() async throws {
+  // The same reading as the test above, reached without a click. Everything the
+  // resolver can see is identical; only the click is missing.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let (fleet, delivery) = await listening(box)
+  await fleet.quiesce()
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+}
+
+@Test @MainActor func aRestartAnnouncesNeitherHalfOfItself() async throws {
+  // A restart takes the service down and brings it back, which looks like a
+  // stop to `launchctl` and like a disconnection to GitHub. Both are this app's
+  // own doing, and the settling window already covers the second.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let (fleet, delivery) = await listening(
+    box, commands: box.svcDrivingCommandRunner)
+  await fleet.quiesce()
+
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aScanLandingInsideARestartAnnouncesNoStop() async throws {
+  // The gap a restart leaves is launchd's 1.5s, and a refresh can land right
+  // inside it — the same sequence the settling window was built for, measured
+  // on a real runner. What that scan finds is a perfectly real `.stopped`, and
+  // nothing about it says this app is the one that caused it.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let (fleet, delivery) = await listening(
+    box, commands: box.svcDrivingCommandRunner, settleDelay: 0.2)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  try await Task.sleep(for: .milliseconds(50))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.isEmpty)
+}
+
+// MARK: - Keeping the Mac awake
+
+@Test @MainActor func theMacIsHeldAwakeForAsLongAsARunnerIsBuilding() async throws {
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  box.set(remote: .success(RemoteStatus(online: true, busy: false)))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(!activity.isHeld)
+  #expect(activity.ended == 1)
+}
+
+@Test @MainActor func aMacWithNoRunnersLeftIsNotHeldAwakeForever() async throws {
+  // Uninstall the runner mid-build and the snapshots go empty, which is a fleet
+  // that is not busy — but only if the answer is read from the scan rather than
+  // from the last thing that happened to be true.
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  try box.removeRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(!activity.isHeld)
+}
+
+// MARK: - Why the build is slow
+
+@Test @MainActor func aJobPastItsUsualTimeIsWhatMakesTheHeatWorthMentioning()
+  async throws
+{
+  // The cross with v0.2's estimate. Five successful runs of `testflight` at two
+  // minutes each, and a sixth that has been going twenty — which is the only
+  // situation where "this Mac is throttled" answers a question somebody has.
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeSlowRun(
+    in: directory, job: "testflight", finishedRuns: 5, each: 120,
+    runningFor: 20 * 60)
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.isOverrunning)
+  #expect(
+    ThermalNotice.lines(pressure: .serious, overrunning: fleet.isOverrunning).count == 2)
+}
+
+@Test @MainActor func aJobWellInsideItsUsualTimeExplainsNothing() async throws {
+  // The other half: with no overrun the temperature is a fact about the
+  // hardware and not an answer to anything, and the extra line would be noise
+  // on top of a line that is already borderline.
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeSlowRun(
+    in: directory, job: "testflight", finishedRuns: 5, each: 120, runningFor: 30)
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(!fleet.isOverrunning)
+  #expect(
+    ThermalNotice.lines(pressure: .serious, overrunning: fleet.isOverrunning).count == 1)
+}
+
+@Test @MainActor func aRunnerDoingNothingIsNotOverrunningAnything() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(!fleet.isOverrunning)
 }
 
 // MARK: - Off the main thread

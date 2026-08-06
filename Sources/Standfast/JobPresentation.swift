@@ -39,6 +39,14 @@ struct JobProgress: Equatable {
   /// the same job to say. See `JobHistory.typicalDuration(ofJobNamed:)`.
   let typical: TimeInterval?
 
+  /// Whether this job has already taken longer than it usually does, and false
+  /// when there is no estimate to be longer than. What makes a thermal warning
+  /// worth showing: without an overrun the temperature explains nothing.
+  var isOverTypical: Bool {
+    guard let typical else { return false }
+    return elapsed > typical
+  }
+
   /// Elapsed time and a reference, never a countdown.
   ///
   /// "1m20s, usually 2m50s" stays true and stays useful at 4m20s, where "1m30s

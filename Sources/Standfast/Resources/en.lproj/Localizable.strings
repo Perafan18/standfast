@@ -9,6 +9,14 @@
 "menu.openAtLogin.failed" = "Open at login could not be turned on";
 "menu.openAtLogin.needsApproval" = "Allow Standfast in System Settings › General › Login Items";
 "menu.openAtLogin.unavailable" = "Login item state unknown; check System Settings › General › Login Items";
+"menu.notify" = "Notify me";
+"menu.notify.jobFailed" = "When a job fails";
+"menu.notify.disconnected" = "When a runner disconnects";
+"menu.notify.stopped" = "When a runner stops on its own";
+"menu.notify.blocked" = "Notifications are switched off for Standfast in System Settings › Notifications";
+"menu.preventSleep" = "Keep this Mac awake while a job runs";
+"menu.preventSleep.lid" = "Closing the lid still sends it to sleep";
+
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
 
@@ -40,6 +48,17 @@
 "job.result.failed" = "Failed";
 "job.result.canceled" = "Canceled";
 "job.result.interrupted" = "Interrupted";
+
+"thermal.serious" = "This Mac is hot and macOS is slowing it down";
+"thermal.critical" = "This Mac is very hot and macOS is slowing it right down";
+"thermal.slowingJobs" = "That is why the job is taking longer than usual";
+
+"notification.jobFailed.title" = "Job failed";
+"notification.jobFailed.body" = "%@ failed on %@";
+"notification.disconnected.title" = "Runner disconnected";
+"notification.disconnected.body" = "%@ is running here, but GitHub cannot see it";
+"notification.stopped.title" = "Runner stopped";
+"notification.stopped.body" = "%@ stopped on its own and is taking no jobs";
 
 "duration.hoursMinutes" = "%dh %02dm";
 "duration.minutesSeconds" = "%dm %02ds";

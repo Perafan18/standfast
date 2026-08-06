@@ -9,6 +9,14 @@
 "menu.openAtLogin.failed" = "No se pudo activar Abrir al iniciar sesión";
 "menu.openAtLogin.needsApproval" = "Permite Standfast en Ajustes del Sistema › General › Ítems de inicio";
 "menu.openAtLogin.unavailable" = "Estado del ítem de inicio desconocido; revisa Ajustes del Sistema › General › Ítems de inicio";
+"menu.notify" = "Avisarme";
+"menu.notify.jobFailed" = "Cuando falle un job";
+"menu.notify.disconnected" = "Cuando un runner se desconecte";
+"menu.notify.stopped" = "Cuando un runner se pare solo";
+"menu.notify.blocked" = "Las notificaciones de Standfast están desactivadas en Ajustes del Sistema › Notificaciones";
+"menu.preventSleep" = "Mantener esta Mac despierta mientras corre un job";
+"menu.preventSleep.lid" = "Cerrar la tapa la sigue durmiendo";
+
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
 
@@ -40,6 +48,17 @@
 "job.result.failed" = "Fallido";
 "job.result.canceled" = "Cancelado";
 "job.result.interrupted" = "Interrumpido";
+
+"thermal.serious" = "Esta Mac está caliente y macOS la está ralentizando";
+"thermal.critical" = "Esta Mac está muy caliente y macOS la está ralentizando al máximo";
+"thermal.slowingJobs" = "Por eso el job está tardando más de lo normal";
+
+"notification.jobFailed.title" = "Job fallido";
+"notification.jobFailed.body" = "%@ falló en %@";
+"notification.disconnected.title" = "Runner desconectado";
+"notification.disconnected.body" = "%@ está corriendo aquí, pero GitHub no lo ve";
+"notification.stopped.title" = "Runner parado";
+"notification.stopped.body" = "%@ se paró solo y no está tomando jobs";
 
 "duration.hoursMinutes" = "%dh %02dm";
 "duration.minutesSeconds" = "%dm %02ds";

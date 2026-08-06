@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 269 tests, ~1s
+make test      # 342 tests, ~1s
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
@@ -19,6 +19,13 @@ The test suite runs on a machine with **no runner installed** — that is delibe
 CI has none. Every external command goes through the `CommandRunning` protocol so it can be
 faked. If you find yourself needing a real runner to test something, the seam is in the
 wrong place.
+
+The same rule covers everything else the system owns. `UNUserNotificationCenter`,
+`ProcessInfo.beginActivity` and `ProcessInfo.thermalState` each sit behind a protocol —
+`NotificationDelivering`, `SleepPreventing`, `ThermalReporting` — and every persisted
+switch takes its `UserDefaults` as an argument. The suite must never post a banner on the
+machine running it, hold a power assertion on it, wait for it to get hot, or depend on a
+permission CI cannot grant.
 
 ## Conventions
 
@@ -91,6 +98,15 @@ inside `waitUntilExit()`, twice per call, up to the command timeout. Do not call
 from the UI: use the `async` facades, which hop to `DispatchQueue.global()`. `Task {}` and
 `Task.detached {}` both land on the cooperative pool, whose width is the core count, so
 "off the main actor" is not enough.
+
+**Do not drop the `codesign` line at the end of `Scripts/build-app.sh`.** It is ad-hoc
+and it looks like something only a release needs. It is not: SwiftPM leaves the executable
+linker-signed with the identifier `Standfast` and `Info.plist` unbound, so an unsigned
+bundle has no bundle identity as far as the system is concerned. `usernoted` then declines
+to register `dev.standfast.app` and drops every notification the app posts — no banner, no
+error, nothing in any log. `check-app.sh` compares the identifier `codesign` reports
+against the one `Info.plist` claims, which is the only way this failure is visible from
+outside.
 
 **The `.runner` file starts with a UTF-8 BOM.** `JSONDecoder` rejects it. The fixture
 carries real BOM bytes so a regression fails the test rather than only failing on somebody's

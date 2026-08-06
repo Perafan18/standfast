@@ -49,6 +49,13 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist does not 
 [ "$(plist LSUIElement)" = "true" ] || fail "LSUIElement is not set: this app would take a Dock tile"
 [ -d "$APP/Contents/Resources/Standfast_Standfast.bundle" ] \
   || fail "the SwiftPM resource bundle did not make it into the app"
+# The identifier `codesign` reports, not the one Info.plist claims. Until the
+# bundle is signed the two differ — SwiftPM leaves the executable linker-signed
+# as `Standfast` with Info.plist unbound — and an app with no bundle identity
+# is one whose notifications `usernoted` drops without registering it or
+# saying anything. Nothing on screen, nothing in a log.
+codesign -dv "$APP" 2>&1 | grep -qx "Identifier=dev.standfast.app" \
+  || fail "the bundle is not signed as dev.standfast.app: notifications will be dropped"
 for language in en es; do
   [ -d "$APP/Contents/Resources/$language.lproj" ] || fail "$language.lproj is missing"
   plist "CFBundleLocalizations" | grep -qx "    $language" \
@@ -107,7 +114,7 @@ else
   case "$menu" in
     # One pattern per family of keys in L10n. A new family that is not added
     # here is a family this check silently stops covering.
-    *menu.*|*state.*|*job.*|*duration.*)
+    *menu.*|*state.*|*job.*|*duration.*|*thermal.*|*notification.*)
       fail "the menu is showing raw localisation keys" ;;
   esac
 fi

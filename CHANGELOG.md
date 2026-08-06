@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — unreleased
+
+Makes the app worth having when nobody is looking at it. Everything here is off until
+switched on, and the whole design question was not how to notify but what is worth
+notifying about: measured over two days on one real runner, 17 jobs produced 14
+`Succeeded`, 2 `Canceled` and 1 `Failed`, so a banner per job would be eight interruptions
+a day of which one in six carries information.
+
+### Added
+
+- **Notifications for the three things you cannot find out by looking**: a job that
+  failed, a runner GitHub can no longer see, and a runner that stopped without being
+  asked to. Each has its own switch, all of them off on a fresh install. Successful and
+  cancelled jobs are deliberately silent.
+- **A stop you ordered is never reported back to you.** Stop and Restart tell the watcher
+  a stop is coming, which is the only evidence there is: `launchctl` cannot say who
+  brought a service down.
+- **Nothing is announced from history.** `_diag` reaches back about two days, so a runner
+  is baselined the first time it is seen and only what changes afterwards is reported —
+  otherwise every login would replay a build that broke on Tuesday.
+- **The permission prompt is deferred to the moment a switch goes on**, never asked for at
+  launch. macOS offers it once, and a no given before the app has shown why is a no that
+  applies forever after.
+- **Keeping the Mac awake while a job runs**, off by default, held through
+  `ProcessInfo.beginActivity` rather than a `caffeinate` subprocess — an assertion this
+  process holds dies with it, where a child outlives a crash and leaves a Mac that will
+  not sleep. One assertion for the whole machine, so one runner finishing does not let the
+  Mac sleep out from under another. The menu says what it cannot do: closing the lid still
+  sleeps the Mac.
+- **A thermal line, and only when macOS is actually throttling.** `.serious` and
+  `.critical` get a row; nothing else does. When a job has also overrun the estimate v0.2
+  computes, a second line says so — which is the only situation where the temperature
+  answers a question somebody has.
+
+### Fixed
+
+- **The assembled app had no bundle identity**, so every notification it posted was
+  dropped without a trace. SwiftPM leaves the executable linker-signed as `Standfast` with
+  `Info.plist` unbound, and `usernoted` never registered `dev.standfast.app` at all. The
+  bundle is now ad-hoc signed at the end of `build-app.sh`, and the packaging check fails
+  if the signed identifier is not the one `Info.plist` claims.
+
 ## [0.2.0] — unreleased
 
 Turns a status light into a progress indicator. Everything new here is read from logs the

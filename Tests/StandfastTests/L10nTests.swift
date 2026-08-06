@@ -45,6 +45,12 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.start, L10n.stop, L10n.restart, L10n.openOnGitHub, L10n.refreshNow,
     L10n.quit, L10n.recentJobs, L10n.openAtLogin, L10n.openAtLoginFailed,
     L10n.openAtLoginNeedsApproval, L10n.openAtLoginUnavailable,
+    L10n.notifyMe, L10n.notifyJobFailed, L10n.notifyDisconnected, L10n.notifyStopped,
+    L10n.notificationsBlocked, L10n.preventSleep, L10n.preventSleepLidNotice,
+    L10n.thermalSerious, L10n.thermalCritical, L10n.thermalSlowingJobs,
+    L10n.notificationJobFailedTitle, L10n.notificationDisconnectedTitle,
+    L10n.notificationStoppedTitle, L10n.notificationJobFailedBody("a", "b"),
+    L10n.notificationDisconnectedBody("a"), L10n.notificationStoppedBody("a"),
     L10n.noRunnersFound, L10n.someRunnersUnreadable, L10n.moreUnreadable,
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
@@ -77,6 +83,13 @@ private func speaking(_ localization: String) throws -> Bundle {
       "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
       "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
       "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
+      "menu.notify", "menu.notify.jobFailed", "menu.notify.disconnected",
+      "menu.notify.stopped", "menu.notify.blocked", "menu.preventSleep",
+      "menu.preventSleep.lid", "thermal.serious", "thermal.critical",
+      "thermal.slowingJobs", "notification.jobFailed.title",
+      "notification.jobFailed.body", "notification.disconnected.title",
+      "notification.disconnected.body", "notification.stopped.title",
+      "notification.stopped.body",
       "state.noRunners", "state.unreadable", "state.unreadable.more", "state.idle",
       "state.busy", "state.disconnected", "state.stopped", "state.starting",
       "state.unknown.noCLI", "state.unknown.notAuthenticated",
@@ -157,6 +170,11 @@ private func speaking(_ localization: String) throws -> Bundle {
   let expected = [
     "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
     "job.rowNoDuration": 2, "state.checkedAgo": 1,
+    // A banner is read out of the corner of an eye. A translation that dropped
+    // the runner's name leaves "failed on" and a Mac with two runners, which is
+    // a notification that costs a trip to GitHub to act on.
+    "notification.jobFailed.body": 2, "notification.disconnected.body": 1,
+    "notification.stopped.body": 1,
   ]
   for language in ["en", "es"] {
     let catalogue = try catalogue(language)

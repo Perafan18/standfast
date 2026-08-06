@@ -66,6 +66,13 @@ final class RunnerFleetModel: ObservableObject {
   /// the answer landed would describe it as fresh.
   @Published private(set) var lastReadAt: Date?
 
+  /// Which events reach the user, held here rather than beside this model so
+  /// that the one place a scan turns into a notification is testable. Every bug
+  /// this app has shipped was a wiring bug, and `App.swift` is the one file no
+  /// test can read.
+  let notifications: NotificationSettings
+  let sleep: SleepGuard
+
   private let discover: @Sendable () -> DiscoveryResult
   private let resolver: RunnerStateResolver
   private let controller: ServiceController
@@ -73,6 +80,9 @@ final class RunnerFleetModel: ObservableObject {
   private let probeDelay: TimeInterval
   private let refreshInterval: TimeInterval?
   private var settling: SettlingWindow
+  /// What the last scan said, so this one can report what changed. Held here
+  /// for the same reason `settling` is: no single scan can own it.
+  private var watcher = FleetWatcher()
   /// One per runner, carrying how much of its listener log has already been
   /// read. Held here for the same reason `settling` is: it is state about a
   /// runner that no single scan can own.
@@ -100,6 +110,8 @@ final class RunnerFleetModel: ObservableObject {
     resolver: RunnerStateResolver = RunnerStateResolver(),
     controller: ServiceController = ServiceController(),
     settling: SettlingWindow = SettlingWindow(),
+    notifications: NotificationSettings = NotificationSettings(),
+    sleep: SleepGuard = SleepGuard(),
     clock: @escaping @Sendable () -> Date = Date.init,
     probeDelay: TimeInterval = 2,
     // 15s: fast enough that "did my build start?" is answered by looking up,
@@ -110,6 +122,8 @@ final class RunnerFleetModel: ObservableObject {
     self.resolver = resolver
     self.controller = controller
     self.settling = settling
+    self.notifications = notifications
+    self.sleep = sleep
     self.clock = clock
     self.probeDelay = probeDelay
     self.refreshInterval = refreshInterval
@@ -263,6 +277,7 @@ final class RunnerFleetModel: ObservableObject {
     // And its log reader would hold a few hundred parsed jobs for a runner
     // that no longer exists, for as long as the app runs.
     jobLogs = scan.readers.filter { installed.contains($0.key) }
+    watcher.keepOnly(installed)
     let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
     snapshots = zip(scan.found.runners, zip(scan.states, scan.jobs)).map {
       runner, rest in
@@ -278,6 +293,18 @@ final class RunnerFleetModel: ObservableObject {
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable)
     lastReadAt = readAt
+    // Read from what the menu is about to show rather than from the scan, so a
+    // runner the settling window is covering for cannot be announced as
+    // disconnected while the menu says it is starting.
+    notifications.deliver(watcher.events(in: snapshots))
+    sleep.update(busy: snapshots.contains { $0.display.resolvedState == .busy })
+  }
+
+  /// Whether some runner's job has already taken longer than that job usually
+  /// takes here. What turns the thermal line from a fact about the hardware
+  /// into an explanation of what the user is looking at.
+  var isOverrunning: Bool {
+    snapshots.contains { $0.jobProgress?.isOverTypical == true }
   }
 
   // MARK: - Acting
@@ -305,12 +332,20 @@ final class RunnerFleetModel: ObservableObject {
 
   func stop(_ runner: DiscoveredRunner) {
     settling.close(for: runner.label)
+    // Told before the command runs rather than after it returns: `svc.sh stop`
+    // takes a moment and a scan can land inside it, and a stop this app ordered
+    // must never be reported back to the person who ordered it — not even when
+    // the reading arrives early.
+    watcher.expectStop(for: runner.label)
     perform(on: runner, thenSettles: false) { controller, directory in
       try await controller.stop(in: directory)
     }
   }
 
   func restart(_ runner: DiscoveredRunner) {
+    // A restart takes the service down first, so it looks exactly like a stop
+    // to anything reading `launchctl` in the 1.5s gap.
+    watcher.expectStop(for: runner.label)
     perform(on: runner, thenSettles: true) { controller, directory in
       try await controller.restart(in: directory)
     }
