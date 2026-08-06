@@ -579,8 +579,8 @@ final class RunnerFleetModel: ObservableObject {
     // takes a moment and a scan can land inside it, and a stop this app ordered
     // must never be reported back to the person who ordered it — not even when
     // the reading arrives early.
-    watcher.expectStop(for: runner.label, action: .stop, at: clock())
-    perform(on: runner, thenSettles: false, expectedStopAction: .stop) {
+    let expectedStop = watcher.expectStop(for: runner.label, action: .stop, at: clock())
+    perform(on: runner, thenSettles: false, expectedStop: expectedStop) {
       controller, directory in
       try await controller.stop(in: directory)
     }
@@ -590,8 +590,9 @@ final class RunnerFleetModel: ObservableObject {
     guard acquireServiceAction(for: runner.label) else { return }
     // A restart takes the service down first, so it looks exactly like a stop
     // to anything reading `launchctl` in the 1.5s gap.
-    watcher.expectStop(for: runner.label, action: .restart, at: clock())
-    perform(on: runner, thenSettles: true, expectedStopAction: .restart) {
+    let expectedStop = watcher.expectStop(
+      for: runner.label, action: .restart, at: clock())
+    perform(on: runner, thenSettles: true, expectedStop: expectedStop) {
       controller, directory in
       try await controller.restart(in: directory)
     }
@@ -604,7 +605,7 @@ final class RunnerFleetModel: ObservableObject {
   private func perform(
     on runner: DiscoveredRunner,
     thenSettles: Bool,
-    expectedStopAction: ExpectedStopAction? = nil,
+    expectedStop: ExpectedStopHandle? = nil,
     _ work: @escaping @Sendable (ServiceController, URL) async throws -> Void
   ) {
     let controller = controller
@@ -616,12 +617,12 @@ final class RunnerFleetModel: ObservableObject {
       var stopResult = ExpectedStopResult.none
       do {
         try await work(controller, directory)
-        if expectedStopAction != nil { stopResult = .completed(.actionCompleted) }
+        if expectedStop != nil { stopResult = .completed(.actionCompleted) }
       } catch let failure as RestartStartFailure {
         // Stop completed before ServiceController attempted Start. Whatever
         // happened in the second half, a stopped re-probe belongs to this
         // restart and must retain its expected-stop intent.
-        if expectedStopAction != nil {
+        if expectedStop != nil {
           stopResult = .completed(
             failure.timedOut ? .restartStartUncertain : .restartStartFailed)
         }
@@ -639,21 +640,23 @@ final class RunnerFleetModel: ObservableObject {
         // of "Starting…" and then the truth, because the window only ever
         // holds back `.disconnected` and a failed start reports `.stopped`.
         // That is the cheaper of the two mistakes by a wide margin.
-        if expectedStopAction != nil { stopResult = .completed(.stopUncertain) }
+        if expectedStop != nil { stopResult = .completed(.stopUncertain) }
       } catch {
         // This is a definite failure rather than a timeout. A missing `svc.sh`
         // throws before a process is launched, and opening a window here would
         // dress a half-uninstalled runner up as "Starting…" for thirty seconds
         // over an action that never happened.
         ranSomething = false
-        if expectedStopAction != nil { stopResult = .cancelled }
+        if expectedStop != nil { stopResult = .cancelled }
       }
       let completedAt = clock()
       switch stopResult {
       case .completed(let outcome):
-        watcher.completeExpectedStop(for: label, outcome: outcome, at: completedAt)
+        if let expectedStop {
+          watcher.completeExpectedStop(expectedStop, outcome: outcome, at: completedAt)
+        }
       case .cancelled:
-        watcher.cancelExpectedStop(for: label)
+        if let expectedStop { watcher.cancelExpectedStop(expectedStop) }
       case .none:
         break
       }

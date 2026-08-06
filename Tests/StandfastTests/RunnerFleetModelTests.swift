@@ -1350,6 +1350,99 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(delivery.posted.isEmpty)
 }
 
+@Test @MainActor func aLaterFailedMutationCannotCancelAnEarlierExpectedStop()
+  async throws
+{
+  // Stop1 completed, but launchd's unreadable re-probe released only action
+  // ownership and left its stop evidence alive. Stop2 or Restart2 can now be
+  // clicked; a definite failure belongs only to that second lifecycle and must
+  // reveal Stop1 again rather than erase it.
+  for action in [RunnerRow.Action.Kind.stop, .restart] {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let clock = TestClock()
+    let commands = SecondCommandOutcomeRunner(.definiteFailure)
+    let (fleet, delivery) = await listening(
+      box, commands: commands, clock: clock.read)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    box.set(serviceRunning: nil)
+    fleet.stop(runner)
+    await fleet.quiesce()
+    #expect(
+      fleet.snapshots.map(\.display)
+        == [.resolved(.unknown(.serviceStateUnreadable))])
+    #expect(fleet.snapshots[0].row.action(action)?.isEnabled == true)
+
+    clock.advance(1)
+    fleet.perform(action, on: runner)
+    await fleet.quiesce()
+    #expect(commands.invocations.count == 2)
+
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+    #expect(delivery.posted.isEmpty)
+
+    box.set(serviceRunning: true)
+    fleet.refresh()
+    await fleet.quiesce()
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+  }
+}
+
+@Test @MainActor func aLaterTimedOutMutationCannotReplaceAnEarlierExpectedStop()
+  async throws
+{
+  // A timeout creates bounded evidence of its own. Once that second evidence
+  // expires, Stop1's confirmed lifecycle must still own the delayed stopped
+  // transition; consuming it must then leave the following crash visible.
+  for action in [RunnerRow.Action.Kind.stop, .restart] {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let clock = TestClock()
+    let commands = SecondCommandOutcomeRunner(.timeout)
+    let (fleet, delivery) = await listening(
+      box, commands: commands, clock: clock.read)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    box.set(serviceRunning: nil)
+    fleet.stop(runner)
+    await fleet.quiesce()
+    #expect(
+      fleet.snapshots.map(\.display)
+        == [.resolved(.unknown(.serviceStateUnreadable))])
+
+    clock.advance(1)
+    fleet.perform(action, on: runner)
+    await fleet.quiesce()
+    #expect(commands.invocations.count == 2)
+
+    clock.advance(30)
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+    #expect(delivery.posted.isEmpty)
+
+    box.set(serviceRunning: true)
+    fleet.refresh()
+    await fleet.quiesce()
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+  }
+}
+
 @Test @MainActor func aFailedStopDoesNotSilenceTheNextRealCrash() async throws {
   // A definite command failure revokes the intent immediately. The runner can
   // go down independently before the re-probe, and that crash still belongs

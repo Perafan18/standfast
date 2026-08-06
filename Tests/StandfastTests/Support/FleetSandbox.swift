@@ -482,6 +482,46 @@ final class TimingOutVerbCommandRunner: CommandRunning, @unchecked Sendable {
   }
 }
 
+enum SecondCommandOutcome {
+  case definiteFailure
+  case timeout
+}
+
+/// Lets one Stop complete, then fails the next service command so a test can
+/// start a second lifecycle only after the first action released ownership.
+final class SecondCommandOutcomeRunner: CommandRunning, @unchecked Sendable {
+  private let outcome: SecondCommandOutcome
+  private let lock = NSLock()
+  private var seen: [String] = []
+
+  init(_ outcome: SecondCommandOutcome) { self.outcome = outcome }
+
+  var invocations: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return seen
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    let verb = arguments.last ?? ""
+    let invocation = lock.withLock {
+      seen.append(verb)
+      return seen.count
+    }
+    guard invocation == 2 else {
+      return CommandResult(standardOutput: "", exitCode: 0)
+    }
+    switch outcome {
+    case .definiteFailure: throw SecondCommandFailure.failed
+    case .timeout: throw CommandError.timedOut(executable: executable)
+    }
+  }
+
+  private enum SecondCommandFailure: Error { case failed }
+}
+
 /// Holds every command at a gate after recording it, so tests can act while a
 /// service mutation is definitely still in flight without racing a sleep.
 final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
