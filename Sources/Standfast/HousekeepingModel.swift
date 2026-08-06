@@ -40,6 +40,12 @@ struct AlertConfirmation: CleanupConfirming {
   }
 }
 
+/// What the last action had to say, and which runner it was about.
+struct HousekeepingReport: Equatable {
+  let label: String
+  let text: String
+}
+
 /// Measures what a runner is costing this Mac, and deletes the parts of that
 /// which can be deleted.
 ///
@@ -48,21 +54,16 @@ struct AlertConfirmation: CleanupConfirming {
 /// somebody asks, and writes to it only after they have said so twice.
 @MainActor
 final class HousekeepingModel: ObservableObject {
-  /// How long a measurement is treated as still true.
-  ///
-  /// Only ever used to swallow a repeat — two runners' submenus asking at once,
-  /// or a second press. Nothing here refreshes on its own, so this is not a
-  /// staleness policy: the "measured 40m ago" line is, and it says so out loud
-  /// rather than quietly re-walking four gigabytes behind an open menu.
-  static let measurementInterval: TimeInterval = 60
-
   @Published private(set) var measurements: [String: DiskMeasurement] = [:]
   /// Runners with a measurement or a deletion in flight, by label.
   @Published private(set) var working: Set<String> = []
-  /// What the last action did, and nil when there is nothing to report. One
-  /// line for the whole model rather than one per runner: only one action runs
-  /// at a time, and it is about the one just pressed.
-  @Published private(set) var notice: String?
+  /// One report for the whole model rather than one per runner, because only
+  /// one action runs at a time — but it carries the label of the runner it is
+  /// about, and nothing reads it without one. The submenu is drawn once per
+  /// runner, so "nothing was deleted: build-mac picked up work" under
+  /// build-intel's Maintenance menu is a sentence about the wrong machine, on
+  /// exactly the two-runner Mac this app is built for.
+  @Published private var report: HousekeepingReport?
 
   private let usage: DiskUsage
   private let housekeeper: Housekeeper
@@ -111,6 +112,12 @@ final class HousekeepingModel: ObservableObject {
 
   func isWorking(on runner: DiscoveredRunner) -> Bool { working.contains(runner.label) }
 
+  /// Anything the last action has to say about *this* runner, and nil for every
+  /// other one. The only way the report is read.
+  func notice(for runner: DiscoveredRunner) -> String? {
+    report?.label == runner.label ? report?.text : nil
+  }
+
   /// The one way the menu acts, so the view has nothing to wire up wrongly.
   ///
   /// - Parameter snapshot: the whole snapshot rather than the runner, because
@@ -133,17 +140,20 @@ final class HousekeepingModel: ObservableObject {
 
   // MARK: - Measuring
 
-  /// - Parameter force: false for a measurement that may be skipped as too
-  ///   recent to be worth repeating.
-  func measure(_ runner: DiscoveredRunner, force: Bool = true) {
+  /// Taken when somebody asks for it and at no other time.
+  ///
+  /// No timer and no staleness rule. `du` is a full metadata walk of every file
+  /// the runner owns — 0.24 s warm on the 4.5 GB this was measured against, and
+  /// seconds on a Mac that has just woken or a home directory on a network
+  /// volume — where the refresh loop runs every fifteen seconds all day. What
+  /// makes reading on demand honest rather than lazy is the line underneath
+  /// saying how old the number is.
+  func measure(_ runner: DiscoveredRunner) {
     let label = runner.label
+    // A second `du` on top of the first would answer the same question twice
+    // and let the slower of the two overwrite the newer answer.
     guard !working.contains(label) else { return }
     let now = clock()
-    if !force, let last = measurements[label],
-      now.timeIntervalSince(last.readAt) < Self.measurementInterval
-    {
-      return
-    }
     working.insert(label)
     let usage = usage
     let retention = retention
@@ -217,13 +227,14 @@ final class HousekeepingModel: ObservableObject {
     _ work: @escaping @Sendable () -> HousekeepingOutcome?
   ) {
     let label = runner.label
-    notice = nil
+    report = nil
     working.insert(label)
     let name = runner.displayName
     run {
       let outcome = await offCooperativePool(work)
       self.working.remove(label)
-      self.notice = Self.notice(for: outcome, runner: name, path: failurePath)
+      self.report = Self.notice(for: outcome, runner: name, path: failurePath)
+        .map { HousekeepingReport(label: label, text: $0) }
       // The numbers on screen now describe a directory that is not there any
       // more, and the next thing the user does is look at them.
       if outcome == .done { self.measure(runner) }

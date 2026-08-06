@@ -53,13 +53,21 @@ public struct JobLogReader: Sendable {
   /// behind.
   ///
   /// Named here because this is the type that decides it. After a rotation the
-  /// history in the menu is rebuilt by walking back through these files, and
-  /// `maxFiles` is as far back as that walk will ever look — so a sweep that
-  /// left fewer would shorten the history the next time the listener rotates,
-  /// silently, and the sweep is the last place anybody would go looking for the
-  /// reason. It costs about a megabyte: a listener log is tens of kilobytes,
-  /// where the worker logs a sweep is actually after are half a megabyte each.
-  public static var retainedListenerLogs: Int { maxFiles }
+  /// history in the menu is rebuilt by walking back through these files, so a
+  /// sweep that left fewer would shorten the history the next time the listener
+  /// rotates — silently, and the sweep is the last place anybody would go
+  /// looking for the reason.
+  ///
+  /// `maxFiles` *plus one*, and the one is not a margin. `coldStart` reads the
+  /// active log and then walks `maxFiles` further files back, so the reach is
+  /// `maxFiles + 1` files and a floor of `maxFiles` is exactly one short: on a
+  /// `_diag` with that many rotations in it, the sweep takes the file the walk
+  /// would have ended on. That is not a corner case on a laptop, where every
+  /// sleep and wake rotates the log without running a single job.
+  ///
+  /// It costs about a megabyte: a listener log is tens of kilobytes, where the
+  /// worker logs a sweep is actually after are half a megabyte each.
+  public static var retainedListenerLogs: Int { maxFiles + 1 }
 
   /// Every listener log is `Runner_<utc>.log`. The worker logs beside them are
   /// `Worker_…`, are ten times the size, and hold nothing this needs.

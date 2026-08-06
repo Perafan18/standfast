@@ -180,7 +180,7 @@ private struct QueueNotingCommands: CommandRunning {
   await subject.quiesce()
 
   #expect(sandbox.names(in: "_work") == ["_actions", "nest-rules-app"])
-  #expect(subject.notice == nil)
+  #expect(subject.notice(for: sandbox.runner) == nil)
   // The numbers on screen described a directory that is no longer there.
   #expect(subject.measurement(for: sandbox.runner)?.report?.bytes(of: .toolCache) == 0)
 }
@@ -201,11 +201,39 @@ private struct QueueNotingCommands: CommandRunning {
   await subject.quiesce()
 
   #expect(sandbox.names(in: "_work").contains("_tool"))
-  #expect(subject.notice == L10n.cleanupRefused("build-mac"))
   // Said out loud rather than swallowed: the user asked for something, agreed
   // to it, and did not get it.
-  #expect(subject.notice != nil)
+  #expect(subject.notice(for: sandbox.runner) == L10n.cleanupRefused("build-mac"))
 }
+
+@MainActor
+@Test func whatWentWrongIsSaidUnderTheRunnerItWentWrongOn() async throws {
+  // The submenu is drawn once per runner, and the model has one report for the
+  // whole fleet because only one action runs at a time. Handing that report to
+  // every submenu puts "nothing was deleted: build-mac picked up work" under
+  // the other runner's Maintenance menu — a sentence about the wrong machine,
+  // on exactly the two-runner Mac this app is built for.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let subject = model(sandbox, confirmation: FakeConfirmation())
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  sandbox.set(.busy)
+
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  #expect(subject.notice(for: sandbox.runner) != nil)
+  #expect(subject.notice(for: otherRunner) == nil)
+}
+
+/// A second runner on the same Mac, which is what this app is for. It owns no
+/// directory: nothing here reads one, and giving it a real one would be a
+/// second tree for a test about a string.
+private let otherRunner = DiscoveredRunner(
+  label: "actions.runner.acme-widget.build-intel", directory: URL(fileURLWithPath: "/"),
+  agentId: 8, agentName: "build-intel",
+  scope: .repository(owner: "acme", name: "widget"))
 
 @MainActor
 @Test func aRunnerTheMenuAlreadyKnowsIsBusyIsNotEvenAskedAbout() async throws {
@@ -258,6 +286,80 @@ private struct QueueNotingCommands: CommandRunning {
   #expect(sandbox.names(in: "_work").contains("_tool"))
 }
 
+@MainActor
+@Test func anEmptyCacheOpensNoDialogueAboutFreeingNothing() async throws {
+  // The menu already declines to draw the button; this is the gate behind it.
+  // `_work/_actions` exists here and is empty, which is what a runner that has
+  // only ever run a workflow of `run:` steps looks like — so the size in the
+  // confirmation would be zero, and agreeing to it would free zero.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let confirmation = FakeConfirmation()
+  let subject = model(sandbox, confirmation: confirmation)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  #expect(subject.measurement(for: sandbox.runner)?.report?.bytes(of: .actionCache) == 0)
+
+  subject.perform(.cleanActionCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  #expect(confirmation.prompts.isEmpty)
+  #expect(sandbox.probeCount == 0)
+}
+
+@MainActor
+@Test func aSecondMeasurementIsNotStartedOnTopOfTheFirst() async throws {
+  // Both would walk the same couple of hundred thousand files, and whichever
+  // finished last would be the one on screen — so a slow first press could
+  // overwrite the answer a later one had already produced.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let queues = QueueLog()
+  let subject = model(
+    sandbox, confirmation: FakeConfirmation(),
+    commands: QueueNotingCommands(log: queues))
+
+  subject.measure(sandbox.runner)
+  #expect(subject.isWorking(on: sandbox.runner))
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+
+  // One `du`, not two. Counted through the command seam rather than off the
+  // report, which looks identical either way.
+  #expect(queues.seen.count == 1)
+}
+
+@MainActor
+@Test func aDirectoryThatCouldNotBeDeletedIsNamedInTheComplaint() async throws {
+  // By the time anything can fail, what failed is the filesystem saying no —
+  // and the fix is a permission on one directory. Naming the runner's root
+  // instead would point the user at the wrong one of the several inside it.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let subject = HousekeepingModel(
+    usage: DiskUsage(), housekeeper: Housekeeper(files: RefusingFileOperations()),
+    confirmation: FakeConfirmation(), probe: sandbox.probe)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  #expect(
+    subject.notice(for: sandbox.runner)
+      == L10n.cleanupFailed(
+        PathText.abbreviated(sandbox.root.appendingPathComponent("_work/_tool"))))
+}
+
+/// A filesystem that says no to everything, which is what a directory this app
+/// cannot write to looks like from here.
+private struct RefusingFileOperations: DestructiveFileOperations {
+  struct Refusal: Error {}
+  func createDirectory(at url: URL) throws { throw Refusal() }
+  func move(_ url: URL, to destination: URL) throws { throw Refusal() }
+  func remove(_ url: URL) throws { throw Refusal() }
+}
+
 // MARK: - Sweeping the logs
 
 @MainActor
@@ -294,7 +396,7 @@ private struct QueueNotingCommands: CommandRunning {
   await subject.quiesce()
 
   #expect(FileManager.default.fileExists(atPath: old.path))
-  #expect(subject.notice == L10n.cleanupRefused("build-mac"))
+  #expect(subject.notice(for: sandbox.runner) == L10n.cleanupRefused("build-mac"))
 }
 
 @MainActor

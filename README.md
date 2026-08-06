@@ -62,6 +62,52 @@ elapsed time only. A number invented from two samples is worse than no number.
 The line shows elapsed time against a reference, never a countdown. A job that overruns
 keeps saying what it usually takes, which is exactly when you want to know.
 
+## What the runner is costing you
+
+A runner eats a disk quietly. On the machine this was built against, `_work` was 4.5 GB —
+of which **4.33 GB was the hosted tool cache** — and `_diag` was 9 MB growing by about ten
+a day, with no rotation of any kind. Nobody looks at either until the disk is full.
+
+Each runner's **Maintenance** submenu measures both, broken down by what each directory is
+*for* rather than as one total:
+
+```
+Tool cache — 4.33 GB
+Repository checkouts — 431 MB
+Downloaded actions — 16.6 MB
+Logs — 9.2 MB
+Measured 4m ago
+```
+
+The breakdown is the point. 4.5 GB is a number to be alarmed by; 4.33 GB of *cache* is a
+number to press a button about. It is measured with `du` when you ask, never on a timer,
+and the submenu says how old the numbers are.
+
+Standfast offers to delete exactly three things, and the shortness of that list is the
+feature:
+
+| Offered | Why |
+|---|---|
+| `_work/_tool` | The hosted tool cache. An `actions/setup-*` step downloads it back. |
+| `_work/_actions` | The actions your workflows use. The runner re-fetches any it cannot find. |
+| Old `_diag` logs | Nothing written to in over a week, worker logs above all. |
+
+**The repository checkouts are never offered.** Nothing in one is a cache: a workflow that
+wrote a file git does not track loses it, and the next run pays for a full clone where it
+would have paid for a fetch. `_work/_temp` is not offered either — it reads as the safest
+of the lot and is the most dangerous, because it is `$RUNNER_TEMP`, it holds the scripts of
+a job in flight, and it is empty whenever the runner is idle.
+
+Deleting is offered **only while that runner is idle or stopped**, read off that runner and
+never off the fleet, and the state is checked again immediately before anything goes — a
+job can arrive between the click and the delete. The deletion itself is a rename: the
+directory is moved aside in one atomic syscall and taken apart afterwards, so a job that
+lands a microsecond late finds *no* tool cache, which is a slower build, rather than half a
+tool cache, which is a failed one.
+
+The log the runner is writing right now is never deleted, and neither is the history this
+menu shows you.
+
 ## Open at login
 
 Off by default, and switched on from the menu. Standfast asks macOS to register it and
@@ -147,7 +193,12 @@ These are real and deliberate, not oversights:
 Nothing leaves your machine. Standfast talks to launchd, to your runner's own `svc.sh`,
 and to the GitHub API through `gh`. It reads files you can already read — including the
 runner's own `_diag` logs, which never leave the machine either — stores no credentials,
-and has no telemetry, no analytics and no update check.
+and has no telemetry and no analytics.
+
+It makes one request that is not about your runners: at most once a day it asks GitHub for
+the latest `actions/runner` release, so the menu can say when the runner you have installed
+is out of date. That is a public endpoint, it sends nothing about you, and it is the only
+version check in the app — Standfast never checks for updates to *itself*.
 
 See [SECURITY.md](SECURITY.md).
 
@@ -156,7 +207,7 @@ See [SECURITY.md](SECURITY.md).
 ```sh
 git clone https://github.com/Perafan18/standfast
 cd standfast
-make test      # 342 tests, none of which needs a runner installed
+make test      # 438 tests, none of which needs a runner installed
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 make check     # the packaging check: assembles, deletes .build, launches

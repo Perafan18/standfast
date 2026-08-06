@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 342 tests, ~1s
+make test      # 438 tests, ~1s
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
@@ -47,6 +47,13 @@ permission CI cannot grant.
 - **The build has zero warnings** and CI fails on any. Keep it that way.
 - User-facing strings go through `L10n`, never inline. Add the key to both catalogues and
   to the English fallback table in the same change.
+- **A format that mixes `%d` and `%@` must keep them in the same order in every
+  catalogue.** `String(format:)` matches specifiers to arguments by position and verifies
+  nothing, so a translation that reorders them reads an `Int` through `%@` and dereferences
+  it as a pointer — a crash, not a wrong line, and Spanish word order makes the reorder a
+  plausible edit. `everyTranslationTakesItsArgumentsInTheSameOrderAndTheSameTypes` compares
+  the specifier sequence of every key across catalogues, so this is checked for new keys
+  without anyone adding them to a list.
 
 ## Writing tests
 
@@ -111,6 +118,26 @@ outside.
 **The `.runner` file starts with a UTF-8 BOM.** `JSONDecoder` rejects it. The fixture
 carries real BOM bytes so a regression fails the test rather than only failing on somebody's
 machine.
+
+**Do not lower the `_diag` sweep's listener-log floor.** `DiagnosticsRetention.standard`
+keeps `JobLogReader.retainedListenerLogs` of them, and that is `maxFiles + 1`. The `+ 1`
+looks like an off-by-one somebody left in and it is the opposite: `coldStart` reads the
+active log *and then* walks `maxFiles` further files back, so the reach is `maxFiles + 1`
+files and a floor of `maxFiles` deletes the one the walk ends on. What that costs is the
+menu's job history going short the next time the listener rotates — no crash, no error, five
+rows quietly becoming two — and the sweep is the last place anybody would look for the
+reason. It is also not an exotic case: on a laptop every sleep and wake rotates a log
+without running a single job, so twenty-five rotations go by long before twenty jobs do.
+`aRotationTheReaderCanStillWalkBackThroughKeepsItsJobs` reads a real `_diag` on both sides
+of a sweep and is there to catch the revert.
+
+**Nothing destructive may be tested against a path a person owns.** Every test that deletes
+points at a `RunnerDirectorySandbox` or a `HousekeepingSandbox` under
+`NSTemporaryDirectory()`, and the deletion itself sits behind `DestructiveFileOperations` so
+that a *refusal* can be asserted as "nothing was called". "The directory is still there" is
+satisfied by a delete that failed as well as by one that never ran, and only one of those is
+the code working. The suite runs on machines with a real runner on them, and the difference
+between the two is one wrong string.
 
 ## Packaging changes
 

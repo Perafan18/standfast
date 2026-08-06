@@ -133,6 +133,26 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   #expect(report.entries.map(\.name) == ["_tool", "_actions"])
 }
 
+@Test func twoDirectoriesOfTheSameSizeAreOrderedByNameAndNotByLuck() {
+  // `_work` on an idle runner has two or three empty directories in it, so ties
+  // are the ordinary case rather than the exotic one. Without a tie-break the
+  // order of the tied entries is whatever `sorted` happens to do with them, and
+  // Swift does not promise that is stable — so `entries` would be a list that
+  // could reshuffle between two identical readings.
+  //
+  // The comparator directly, not through `blockingReport`: the listing it is
+  // given is already sorted by name, so through there the tie-break can never
+  // be observed changing anything and a test that went that way would pass
+  // whether it existed or not.
+  let temp = DiskEntry(name: "_temp", kind: .temporary, bytes: 8192)
+  let mapping = DiskEntry(name: "_PipelineMapping", kind: .other, bytes: 8192)
+  #expect(DiskUsage.biggestFirst(mapping, temp))
+  #expect(!DiskUsage.biggestFirst(temp, mapping))
+  // And size still wins over the name, which is the whole ordering.
+  let tool = DiskEntry(name: "_tool", kind: .toolCache, bytes: 4_331_016_192)
+  #expect(DiskUsage.biggestFirst(tool, mapping))
+}
+
 @Test func aDuThatSaidNothingIsNotADiskWithNothingOnIt() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }

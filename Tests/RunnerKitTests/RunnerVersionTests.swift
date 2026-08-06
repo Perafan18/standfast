@@ -101,6 +101,34 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner) == nil)
 }
 
+@Test func theHeadReadIsWideEnoughForWhatAListenerActuallyWritesFirst() throws {
+  // Every other fixture in this file puts the version in the first hundred
+  // bytes, so a read window shrunk to almost nothing would pass all of them and
+  // find nothing on a real machine. Measured on the runner this was built
+  // against, the line sits 1088 bytes in — behind the proxy notice, six
+  // well-known directories and the OS banner — and a Mac with a longer home
+  // directory pushes every one of those out further.
+  //
+  // Four kilobytes of preamble here: comfortably past what was measured, and
+  // still inside a window that has to stay a ceiling on a mistake rather than a
+  // target.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let stamp = "2026-08-05 00:00:00Z"
+  let chatter = (0..<40).map {
+    "[\(stamp) INFO HostContext] Well known directory 'Root\($0)': "
+      + "'/Users/somebody-with-a-long-name/actions-runner-\($0)'"
+  }
+  #expect(chatter.joined(separator: "\n").count > 4096)
+  try sandbox.makeLog(
+    "Runner_20260805-000000-utc.log",
+    lines: chatter + ["[\(stamp) INFO Listener] Version: 2.336.0"], modified: now)
+
+  #expect(
+    RunnerVersionReader().blockingInstalledVersion(in: sandbox.runner)
+      == RunnerVersion(2, 336, 0))
+}
+
 @Test func aRunnerThatHasNeverWrittenALogHasNoVersionToReport() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }

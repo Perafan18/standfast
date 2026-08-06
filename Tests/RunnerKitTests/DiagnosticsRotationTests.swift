@@ -34,30 +34,32 @@ private func log(
 }
 
 @Test func theHistoryTheMenuShowsSurvivesASweep() throws {
-  // Twenty-four as a literal, deliberately not read off
-  // `retainedListenerLogs`. A count built from the constant under test agrees
-  // with whatever that constant says, including one, and one is exactly the
-  // value that leaves the menu with a single log's worth of history after the
-  // next rotation. The check that the two numbers are the *same* number is the
-  // assertion below it, which is a different claim.
+  // Twenty-five as a literal, deliberately not read off `retainedListenerLogs`.
+  // A count built from the constant under test agrees with whatever that
+  // constant says, including one, and one is exactly the value that leaves the
+  // menu with a single log's worth of history after the next rotation.
+  //
+  // Each file a day older than the one before it, so "oldest first" below is a
+  // claim about the order and not about whichever way `sorted` happened to
+  // leave a run of equal dates.
   let files = (1...30).map {
-    log(String(format: "Runner_202601%02d-000000-utc.log", $0), daysOld: 400)
+    log(String(format: "Runner_202601%02d-000000-utc.log", $0), daysOld: Double(431 - $0))
   }
   let plan = DiagnosticsRotation.plan(files, retention: .standard, now: now)
-  #expect(plan.count == 6)
-  // The oldest six by name, which is the order the reader walks them in.
-  #expect(plan.doomed == files.prefix(6).map(\.url))
+  #expect(plan.count == 5)
+  // The oldest five by name, which is the order the reader walks them in.
+  #expect(plan.doomed == files.prefix(5).map(\.url))
 }
 
 @Test func theFloorIsAsFarBackAsTheJobHistoryCanReach() {
-  // The coupling itself, said once. The reader walks back through rotations
-  // until it has enough jobs and gives up after `maxFiles` of them, so a sweep
-  // that left fewer would quietly shorten the menu's history the next time the
-  // listener rotated — and the sweep is the last place anybody would look for
-  // the reason.
-  #expect(DiagnosticsRetention.standard.listenerLogsKept == 24)
-  #expect(JobLogReader.retainedListenerLogs == JobLogReader.maxFiles)
-  #expect(DiagnosticsRetention.standard.listenerLogsKept == JobLogReader.maxFiles)
+  // The literal, so that changing the reader's reach without changing the floor
+  // fails here rather than in the menu a fortnight later. What the number *is*
+  // is proved by `aRotationTheReaderCanStillWalkBackThroughKeepsItsJobs`, which
+  // reads a real `_diag` on both sides of a sweep instead of restating the
+  // arithmetic.
+  #expect(DiagnosticsRetention.standard.listenerLogsKept == 25)
+  #expect(
+    DiagnosticsRetention.standard.listenerLogsKept == JobLogReader.retainedListenerLogs)
 }
 
 @Test func aWorkerLogIsNotProtectedByTheListenerFloor() {
@@ -190,6 +192,50 @@ private func log(
   #expect(cold.read(diagnosticsIn: sandbox.diagnostics).records == before.records)
   #expect(!sandbox.exists(worker))
   for url in written { #expect(sandbox.exists(url)) }
+}
+
+@Test func aRotationTheReaderCanStillWalkBackThroughKeepsItsJobs() throws {
+  // The off-by-one this floor exists to avoid, written as the machine sees it
+  // rather than as arithmetic. `JobLogReader` reads the active log and then
+  // walks `maxFiles` further files back, so its reach is `maxFiles + 1` files —
+  // and a floor one short takes the file the walk would have ended on.
+  //
+  // A laptop is what makes that ordinary rather than exotic: the listener opens
+  // a new log every time it starts, so every sleep and wake rotates one without
+  // running a single job, and twenty-five rotations go by long before twenty
+  // jobs do. Here every job is in the oldest file and every file above it is a
+  // rotation that did nothing, which is exactly that machine.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let stamp = "2026-08-05 20:36:14Z"
+  let ancient = now.addingTimeInterval(-400 * day)
+  for index in 1...(JobLogReader.maxFiles + 1) {
+    let job =
+      index == 1
+      ? [startedJob("build", at: stamp), finishedJob("build", "Succeeded", at: stamp)]
+      : []
+    try sandbox.makeLog(
+      String(format: "Runner_2026%04d-000000-utc.log", index),
+      lines: listenerChatter(at: stamp) + job, modified: ancient)
+  }
+  // The megabytes a sweep is actually after, so that this one has something to
+  // do and the assertion below is about what it left rather than about it
+  // having declined to run.
+  let worker = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log", bytes: 500_000, modified: ancient)
+
+  var before = JobLogReader()
+  #expect(before.read(diagnosticsIn: sandbox.diagnostics).records.map(\.name) == ["build"])
+
+  let outcome = Housekeeper().blockingRotateDiagnostics(
+    in: sandbox.runner, now: now, isStillSafe: { true })
+  #expect(outcome == .done)
+  #expect(!sandbox.exists(worker))
+
+  var after = JobLogReader()
+  // Nothing older than a week survived except the listener logs, and the one
+  // job on this machine is still in the menu.
+  #expect(after.read(diagnosticsIn: sandbox.diagnostics).records.map(\.name) == ["build"])
 }
 
 @Test func aSweepThatReachesTheListenerLogsCostsOnlyTheOldestJobs() throws {

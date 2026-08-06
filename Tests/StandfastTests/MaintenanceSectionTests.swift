@@ -108,6 +108,22 @@ private func section(
     .offer(.trimLogs) != nil)
 }
 
+@Test func whatTheLastActionDidIsSaidUnderTheButtons() {
+  // The one outcome the user has to be told about is a refusal: they asked for
+  // something, agreed to it, and did not get it. Without this line the deletion
+  // that did not happen looks exactly like the deletion that did.
+  let rows = section(
+    snapshot(display: .resolved(.idle)), measurement: measured(toolCache: gigabyte),
+    notice: L10n.cleanupRefused("build-mac"))
+  #expect(rows.notes == [L10n.cleanupRefused("build-mac")])
+  // And under the greyed-out buttons it joins the reason rather than replacing
+  // it: why they are dead and what the last press did are different questions.
+  let busy = section(
+    snapshot(display: .resolved(.busy)), measurement: measured(toolCache: gigabyte),
+    notice: L10n.cleanupRefused("build-mac"))
+  #expect(busy.notes == [L10n.deletingOnlyWhenIdle, L10n.cleanupRefused("build-mac")])
+}
+
 @Test func everythingGoesDeadWhileSomethingIsAlreadyRunning() {
   // Measuring and deleting both rewrite the numbers the other is showing, and
   // `du` on four gigabytes is not instant.

@@ -219,6 +219,49 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
 }
 
+/// The conversion characters a format uses, in the order `String(format:)`
+/// consumes its arguments. `%%` is a literal percent and takes none.
+private func specifiers(in format: String) -> [Character] {
+  // Flags, width, precision, positional index and length modifiers — everything
+  // that may sit between the `%` and the letter saying what type is being read.
+  let modifiers = Set("0123456789.$-+ #'hlLqjzt")
+  var found: [Character] = []
+  var index = format.startIndex
+  while let percent = format[index...].firstIndex(of: "%") {
+    index = format.index(after: percent)
+    while index < format.endIndex, modifiers.contains(format[index]) {
+      index = format.index(after: index)
+    }
+    guard index < format.endIndex else { break }
+    if format[index] != "%" { found.append(format[index]) }
+    index = format.index(after: index)
+  }
+  return found
+}
+
+@Test func everyTranslationTakesItsArgumentsInTheSameOrderAndTheSameTypes() throws {
+  // `String(format:)` matches specifiers to arguments by position and checks
+  // nothing. Counting `%@` is not enough on its own: `cleanup.logs.title` is
+  // the first format in this app to mix a number with a string, and Spanish
+  // word order makes reordering the two a plausible edit rather than a
+  // hypothetical one. An Int read through `%@` is dereferenced as a pointer,
+  // which is a crash and not a wrong line.
+  //
+  // Derived from the catalogues rather than from a list kept by hand, so a new
+  // key is covered the day it is added.
+  let english = try catalogue("en")
+  let spanish = try catalogue("es")
+  for (key, format) in english {
+    let translated = try #require(spanish[key], "\(key)")
+    #expect(specifiers(in: translated) == specifiers(in: format), "\(key)")
+  }
+  // And the one the call site fixes: a count, and then a path.
+  #expect(specifiers(in: try #require(english["cleanup.logs.title"])) == ["d", "@"])
+  // The helper itself, against the two shapes this app writes.
+  #expect(specifiers(in: "%d%% of %@") == ["d", "@"])
+  #expect(specifiers(in: "%dm %02ds") == ["d", "d"])
+}
+
 @Test func everyDurationFormatKeepsItsNumbers() throws {
   let expected = [
     "duration.hoursMinutes": 2, "duration.minutesSeconds": 2, "duration.hours": 1,

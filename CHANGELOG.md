@@ -19,9 +19,11 @@ half gigabytes a year of text nobody will ever read.
   is something to be alarmed by, a cache is something to press a button about.
 - **Measured on demand and never on the refresh loop.** `du -sk` in a child process rather
   than a Foundation enumerator, because that is what the system optimises for a couple of
-  hundred thousand files; it took 0.54 s on the 4.5 GB above, which is far too long to
-  spend every fifteen seconds and nothing at all to spend when somebody asks. The submenu
-  says how old its numbers are.
+  hundred thousand files; 0.16 s warm on the 4.5 GB above (0.24 s for the whole reading,
+  plan included), and seconds on a Mac that has just woken. No timer and no staleness rule
+  either — the number is taken when somebody
+  asks for it, and the line under it says how old it is, which is what makes reading on
+  demand honest rather than lazy.
 - **Freeing the two caches, and only those two.** `_work/_tool` and `_work/_actions` are
   re-fetched on a miss, so losing either costs one slow build and nothing else. The
   repository checkouts are never offered: nothing in one is a cache, a workflow that wrote
@@ -42,12 +44,23 @@ half gigabytes a year of text nobody will ever read.
   losing it costs. Return cancels rather than confirms.
 - **Rotating `_diag`**, keeping everything written in the last week. Almost all of it is
   worker logs, which are half a megabyte each and which nothing in this app reads. The log
-  the listener has open is never deleted, and neither are the newest 24 listener logs —
-  that number is `JobLogReader`'s own reach, not a second opinion about it, so a sweep
-  cannot quietly shorten the job history the menu shows.
+  the listener has open is never deleted, and neither are the newest 25 listener logs —
+  that number is `JobLogReader`'s own reach and not a second opinion about it: the reader
+  walks the active log plus 24 rotations behind it, so a floor of 24 would take the file
+  its walk ends on. On a laptop that is ordinary rather than exotic, because every sleep
+  and wake rotates a log without running a single job. A sweep therefore cannot quietly
+  shorten the job history the menu shows.
 - **The runner's own version**, read out of the header its listener writes, with the newest
   published release beside it when there is a newer one. GitHub is asked at most once a
   day, and a check that got no answer still counts as having asked.
+
+### Fixed
+
+- **"Open on GitHub" reached `NSWorkspace` directly**, so every run of the test suite threw
+  a browser tab at a fixture repository on whoever's machine was running it. The test that
+  covered it asserted only that no command had been spawned — and opening a URL spawns
+  none, so nothing ever failed. The opener now goes behind a seam like the notification
+  centre and the power assertion, and the test pins the URL.
 
 ## [0.3.0] — unreleased
 

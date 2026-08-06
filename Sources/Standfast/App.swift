@@ -120,7 +120,7 @@ private struct RunnerSection: View {
     let section = MaintenanceSection.building(
       snapshot, measurement: housekeeping.measurement(for: snapshot.runner),
       latest: latestRelease, isWorking: housekeeping.isWorking(on: snapshot.runner),
-      notice: housekeeping.notice, now: Date())
+      notice: housekeeping.notice(for: snapshot.runner), now: Date())
     Menu(L10n.maintenance) {
       if let version = section.version { Text(version) }
       ForEach(section.usage, id: \.self) { Text($0) }

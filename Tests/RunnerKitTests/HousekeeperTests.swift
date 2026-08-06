@@ -54,6 +54,17 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(sandbox.names(in: sandbox.work).isEmpty)
 }
 
+@Test func aTrashLeftBehindIsNotMistakenForARepositoryCheckout() throws {
+  // The leading dot is load-bearing, not decoration. `_work` carries no
+  // manifest, so the breakdown reads each directory's purpose off its name:
+  // anything that starts with an underscore or a dot is the runner's own, and
+  // what is left is named after a repository. A trash folder without the dot
+  // would be reported to the user as gigabytes of *repository checkout* — the
+  // one line in that submenu that says "do not delete this".
+  #expect(Housekeeper.trashFolder.hasPrefix("."))
+  #expect(DiskEntryKind(folderName: Housekeeper.trashFolder) == .other)
+}
+
 @Test func aCacheThatIsAlreadyGoneIsNotAFailureAndCostsNoProbe() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }

@@ -34,8 +34,6 @@ public struct DiskReport: Equatable, Sendable {
 
   public static let empty = DiskReport(entries: [], logBytes: 0, rotation: .empty)
 
-  public var workBytes: Int64 { entries.reduce(0) { $0 + $1.bytes } }
-
   /// Everything of one kind added up. `_work` holds one checkout per repository
   /// this runner builds, and the menu has no room for a row each.
   public func bytes(of kind: DiskEntryKind) -> Int64 {
@@ -49,15 +47,17 @@ public struct DiskReport: Equatable, Sendable {
 /// 4.5 GB across a couple of hundred thousand files on the Mac this was built
 /// against, and walking that from Foundation is one `stat` per file through
 /// several layers of bridging. `du -sk` is what the system optimises for
-/// exactly this question and it answered in 0.14 s. It also goes through
-/// `CommandRunning` like every other external command here, which is what makes
-/// this testable on a machine with no runner on it.
+/// exactly this question and it answered in 0.16 s warm, with the whole of
+/// `blockingReport` — the listings, the child process and the rotation plan —
+/// taking 0.24 s. It also goes through `CommandRunning` like every other
+/// external command here, which is what makes this testable on a machine with
+/// no runner on it.
 ///
-/// Nothing calls this on a timer. Even at 0.14 s warm it is a full metadata
-/// walk of every file the runner owns, and the cold number on a Mac that has
-/// just woken — or a home directory on a network volume — is seconds, not
-/// milliseconds. The refresh loop runs every fifteen seconds all day; this runs
-/// when somebody asks.
+/// Nothing calls this on a timer. Even warm it is a full metadata walk of every
+/// file the runner owns, and the cold number on a Mac that has just woken — or
+/// a home directory on a network volume — is seconds, not milliseconds. The
+/// refresh loop runs every fifteen seconds all day; this runs when somebody
+/// asks.
 public struct DiskUsage: Sendable {
   /// The absolute path, not `/usr/bin/env du`. `du` is in the base system, so
   /// there is no PATH to search and nothing a user could have installed
