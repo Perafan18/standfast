@@ -330,6 +330,22 @@ private struct DirectoryListingFailure: Error {}
   #expect(found.failure == nil)
 }
 
+@Test func onlyANoSuchFileListingErrorIsACleanEmptyResult() {
+  let absentLooking = URL(
+    fileURLWithPath: "/nope/standfast-review/LaunchAgents")
+  let missing = RunnerDiscovery(
+    launchAgentsDirectory: absentLooking,
+    listDirectory: { _ in throw CocoaError(.fileNoSuchFile) }
+  ).discover()
+  let otherFailure = RunnerDiscovery(
+    launchAgentsDirectory: absentLooking,
+    listDirectory: { _ in throw DirectoryListingFailure() }
+  ).discover()
+
+  #expect(missing.failure == nil)
+  #expect(otherFailure.failure == .launchAgentsUnreadable(absentLooking))
+}
+
 @Test func reportsAnExistingLaunchAgentsDirectoryThatCannotBeListed() throws {
   let box = try Sandbox()
   defer { box.cleanUp() }

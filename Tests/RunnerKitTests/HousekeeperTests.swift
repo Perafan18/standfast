@@ -331,7 +331,9 @@ private struct RemovingThenMissingOperations: DestructiveFileOperations {
   func move(_ url: URL, to destination: URL) throws {}
   func remove(_ url: URL) throws {
     try FileManager.default.removeItem(at: url)
-    throw CocoaError(.fileNoSuchFile)
+    // The second real removal supplies Foundation's bridged NSError, rather
+    // than the Swift CocoaError value a test could manufacture directly.
+    try FileManager.default.removeItem(at: url)
   }
 }
 

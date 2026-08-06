@@ -129,7 +129,7 @@ public struct RunnerDiscovery: Sendable {
     do {
       entries = try listDirectory(launchAgentsDirectory)
     } catch {
-      guard FileManager.default.fileExists(atPath: launchAgentsDirectory.path) else {
+      if Self.isNoSuchFile(error) {
         return DiscoveryResult(runners: [])
       }
       return DiscoveryResult(
@@ -154,6 +154,13 @@ public struct RunnerDiscovery: Sendable {
     return DiscoveryResult(
       runners: deduplicatedByLabel(runners),
       unreadable: unreadable.sorted { $0.path < $1.path })
+  }
+
+  private static func isNoSuchFile(_ error: any Error) -> Bool {
+    let error = error as NSError
+    guard error.domain == NSCocoaErrorDomain else { return false }
+    return error.code == CocoaError.Code.fileNoSuchFile.rawValue
+      || error.code == CocoaError.Code.fileReadNoSuchFile.rawValue
   }
 
   /// One entry per label. Duplicating a plist in Finder yields "… copy.plist",
