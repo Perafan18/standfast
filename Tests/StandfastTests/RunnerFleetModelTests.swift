@@ -1434,6 +1434,91 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(delivery.posted.isEmpty)
 }
 
+@Test @MainActor func aConfirmedRestartReturningToRunningSpendsItsStopIntent()
+  async throws
+{
+  // Once both halves of Restart returned, any conclusive running answer proves
+  // its stop has been and gone. It must spend immediately rather than silence
+  // a real crash for the Stop grace that only an unsettled Stop needs.
+  let returning: [(Result<RemoteStatus, GitHubError>, DisplayState)] = [
+    (.success(RemoteStatus(online: true, busy: false)), .resolved(.idle)),
+    (.success(RemoteStatus(online: true, busy: true)), .resolved(.busy)),
+    (.failure(.noAnswer), .resolved(.unknown(.noAnswer))),
+  ]
+  for (remote, display) in returning {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let (fleet, delivery) = await listening(
+      box, commands: box.svcDrivingCommandRunner)
+    await fleet.quiesce()
+
+    box.set(remote: remote)
+    fleet.restart(fleet.snapshots[0].runner)
+    await fleet.quiesce()
+    #expect(fleet.snapshots.map(\.display) == [display])
+
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(delivery.posted.map(\.title).last == L10n.notificationStoppedTitle)
+  }
+}
+
+@Test @MainActor func aRestartWhoseStopTimesOutKeepsIntentThroughStarting()
+  async throws
+{
+  // Stop timed out before Restart could attempt Start. A locally-running,
+  // remotely-disconnected re-probe may only mean launchd has not settled Stop
+  // yet, so `.starting` cannot spend uncertain intent inside its grace.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let commands = TimingOutCommandRunner()
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aRestartWhoseStartTimesOutCanBeSettledByStarting()
+  async throws
+{
+  // Here Stop is known complete and Start was attempted before timing out.
+  // Seeing launchd running under `.starting` resolves that uncertainty, so a
+  // later independent stop must not inherit Restart's token.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let commands = TimingOutVerbCommandRunner(timingOutVerb: "start") { [box] verb in
+    box.set(serviceRunning: verb == "start")
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title).last == L10n.notificationStoppedTitle)
+}
+
 @Test @MainActor func aTimedOutStopKeepsItsExpectedStopIntent() async throws {
   // A timeout says only that the process was killed at its deadline. If the
   // stop already took effect, its resulting scan is still the ordered stop.

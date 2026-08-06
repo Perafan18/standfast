@@ -459,6 +459,29 @@ final class FailingVerbCommandRunner: CommandRunning, @unchecked Sendable {
   private enum DeliberateCommandFailure: Error { case failed }
 }
 
+/// Succeeds until one selected svc verb times out, so Restart tests can tell a
+/// timeout in Stop from a timeout after Stop completed and Start was attempted.
+final class TimingOutVerbCommandRunner: CommandRunning, @unchecked Sendable {
+  private let timingOutVerb: String
+  private let onVerb: @Sendable (String) -> Void
+
+  init(
+    timingOutVerb: String, onVerb: @escaping @Sendable (String) -> Void = { _ in }
+  ) {
+    self.timingOutVerb = timingOutVerb
+    self.onVerb = onVerb
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    let verb = arguments.last ?? ""
+    onVerb(verb)
+    if verb == timingOutVerb { throw CommandError.timedOut(executable: executable) }
+    return CommandResult(standardOutput: "", exitCode: 0)
+  }
+}
+
 /// Holds every command at a gate after recording it, so tests can act while a
 /// service mutation is definitely still in flight without racing a sleep.
 final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {

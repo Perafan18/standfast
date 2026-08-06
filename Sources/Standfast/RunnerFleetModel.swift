@@ -153,10 +153,9 @@ final class RunnerFleetModel: ObservableObject {
   /// previously observed on that label has ended.
   private var activityEvidence: [String: Bool] = [:]
 
-  private enum ExpectedStopOutcome {
+  private enum ExpectedStopResult {
     case none
-    case confirmed
-    case uncertain
+    case completed(ExpectedStopOutcome)
     case cancelled
   }
 
@@ -579,8 +578,8 @@ final class RunnerFleetModel: ObservableObject {
     // takes a moment and a scan can land inside it, and a stop this app ordered
     // must never be reported back to the person who ordered it — not even when
     // the reading arrives early.
-    watcher.expectStop(for: runner.label, at: clock())
-    perform(on: runner, thenSettles: false, expectsStop: true) {
+    watcher.expectStop(for: runner.label, action: .stop, at: clock())
+    perform(on: runner, thenSettles: false, expectedStopAction: .stop) {
       controller, directory in
       try await controller.stop(in: directory)
     }
@@ -590,8 +589,8 @@ final class RunnerFleetModel: ObservableObject {
     guard acquireServiceAction(for: runner.label) else { return }
     // A restart takes the service down first, so it looks exactly like a stop
     // to anything reading `launchctl` in the 1.5s gap.
-    watcher.expectStop(for: runner.label, at: clock())
-    perform(on: runner, thenSettles: true, expectsStop: true) {
+    watcher.expectStop(for: runner.label, action: .restart, at: clock())
+    perform(on: runner, thenSettles: true, expectedStopAction: .restart) {
       controller, directory in
       try await controller.restart(in: directory)
     }
@@ -604,7 +603,7 @@ final class RunnerFleetModel: ObservableObject {
   private func perform(
     on runner: DiscoveredRunner,
     thenSettles: Bool,
-    expectsStop: Bool = false,
+    expectedStopAction: ExpectedStopAction? = nil,
     _ work: @escaping @Sendable (ServiceController, URL) async throws -> Void
   ) {
     let controller = controller
@@ -613,15 +612,18 @@ final class RunnerFleetModel: ObservableObject {
     let id = UUID()
     actions[id] = Task {
       var ranSomething = true
-      var stopOutcome = ExpectedStopOutcome.none
+      var stopResult = ExpectedStopResult.none
       do {
         try await work(controller, directory)
-        if expectsStop { stopOutcome = .confirmed }
+        if expectedStopAction != nil { stopResult = .completed(.actionCompleted) }
       } catch let failure as RestartStartFailure {
         // Stop completed before ServiceController attempted Start. Whatever
         // happened in the second half, a stopped re-probe belongs to this
         // restart and must retain its expected-stop intent.
-        if expectsStop { stopOutcome = .confirmed }
+        if expectedStopAction != nil {
+          stopResult = .completed(
+            failure.timedOut ? .restartStartUncertain : .restartStartFailed)
+        }
         ranSomething = failure.timedOut
       } catch CommandError.timedOut {
         // The command was killed at the deadline, which says nothing at all
@@ -636,21 +638,19 @@ final class RunnerFleetModel: ObservableObject {
         // of "Starting…" and then the truth, because the window only ever
         // holds back `.disconnected` and a failed start reports `.stopped`.
         // That is the cheaper of the two mistakes by a wide margin.
-        if expectsStop { stopOutcome = .uncertain }
+        if expectedStopAction != nil { stopResult = .completed(.stopUncertain) }
       } catch {
         // This is a definite failure rather than a timeout. A missing `svc.sh`
         // throws before a process is launched, and opening a window here would
         // dress a half-uninstalled runner up as "Starting…" for thirty seconds
         // over an action that never happened.
         ranSomething = false
-        if expectsStop { stopOutcome = .cancelled }
+        if expectedStopAction != nil { stopResult = .cancelled }
       }
       let completedAt = clock()
-      switch stopOutcome {
-      case .confirmed:
-        watcher.completeExpectedStop(for: label, at: completedAt)
-      case .uncertain:
-        watcher.markExpectedStopUncertain(for: label, at: completedAt)
+      switch stopResult {
+      case .completed(let outcome):
+        watcher.completeExpectedStop(for: label, outcome: outcome, at: completedAt)
       case .cancelled:
         watcher.cancelExpectedStop(for: label)
       case .none:

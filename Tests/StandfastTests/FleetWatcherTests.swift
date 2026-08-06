@@ -262,9 +262,10 @@ import Testing
 }
 
 @Test func nonStoppedReadingsInsideTheCompletionGracePreserveTheOrderedStop() {
-  // launchd can lag behind svc.sh returning. Every conclusive running state
-  // reached through a post-click observation is therefore provisional for a
-  // bounded grace; the stopped reading behind it must still spend the token.
+  // launchd can lag behind svc.sh returning, and GitHub can answer only after
+  // that local grace has ended. The local observation still belongs inside the
+  // grace; remote latency must neither spend its token nor announce it, and the
+  // stopped reading behind it must remain silent.
   let requestedAt = Date(timeIntervalSince1970: 100)
   let completedAt = Date(timeIntervalSince1970: 101)
   for display in [
@@ -281,18 +282,47 @@ import Testing
 
     let provisional = watcher.events(in: [
       snapshot(
-        display: display, readAt: completedAt.addingTimeInterval(1),
-        stateReadAt: completedAt.addingTimeInterval(2))
+        display: display, readAt: completedAt.addingTimeInterval(29),
+        stateReadAt: completedAt.addingTimeInterval(31))
     ])
     let stopped = watcher.events(in: [
       snapshot(
         display: .resolved(.stopped),
-        readAt: completedAt.addingTimeInterval(3))
+        readAt: completedAt.addingTimeInterval(32))
     ])
 
     #expect(provisional.isEmpty)
     #expect(stopped.isEmpty)
   }
+}
+
+@Test func anUncertainStopUsesLocalProbeTimeForItsCompletionGrace() {
+  // A timed-out command has the same local grace boundary. The remote answer
+  // crossing that deadline cannot announce a disconnection; once a new local
+  // probe itself reaches the deadline, uncertain intent expires as before.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 30)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(
+    for: runner.runner.label, outcome: .stopUncertain, at: completedAt)
+
+  let provisional = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(29),
+      stateReadAt: completedAt.addingTimeInterval(31))
+  ])
+  let expired = watcher.events(in: [
+    snapshot(
+      display: .resolved(.stopped),
+      readAt: completedAt.addingTimeInterval(32))
+  ])
+
+  #expect(provisional.isEmpty)
+  #expect(expired == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
 @Test func nonStoppedReadingsAtTheCompletionGraceDeadlineSpendTheOrderedStop() {
@@ -499,7 +529,7 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.expectStop(for: runner.runner.label, action: .restart, at: requestedAt)
   watcher.completeExpectedStop(for: runner.runner.label, at: completedAt)
 
   _ = watcher.events(in: [snapshot(display: .starting, readAt: completedAt)])
@@ -578,7 +608,8 @@ import Testing
   let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
   _ = watcher.events(in: [runner])
   watcher.expectStop(for: runner.runner.label, at: requestedAt)
-  watcher.markExpectedStopUncertain(for: runner.runner.label, at: completedAt)
+  watcher.completeExpectedStop(
+    for: runner.runner.label, outcome: .stopUncertain, at: completedAt)
 
   _ = watcher.events(in: [
     snapshot(
