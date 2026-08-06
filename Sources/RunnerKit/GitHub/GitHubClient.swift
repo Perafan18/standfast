@@ -208,7 +208,11 @@ public struct GHCommandLineClient: GitHubClient {
     // surface — and treating it as offline raises the alarm about a healthy
     // one. "Could not tell" is the only honest answer, and this app already
     // has the vocabulary for it.
-    guard fields.count == 2, fields[0] == "online" || fields[0] == "offline" else {
+    guard
+      fields.count == 2,
+      fields[0] == "online" || fields[0] == "offline",
+      fields[1] == "true" || fields[1] == "false"
+    else {
       throw GitHubError.noAnswer
     }
     return RemoteStatus(online: fields[0] == "online", busy: fields[1] == "true")

@@ -117,6 +117,11 @@ public struct RunnerStateResolver: Sendable {
       return .unknown(.noAnswer)
     }
 
+    // A busy assignment means the runner may still be executing a job even if
+    // its connection has gone away. That alone refuses destructive work, so
+    // launchctl has no bearing on the verdict and must not be consulted.
+    if remote.busy { return .busy }
+
     guard remote.online else {
       // Offline on its own is the shape of a runner grinding through a build
       // behind a dead connection, so the local probe has to agree there is no
@@ -129,6 +134,6 @@ public struct RunnerStateResolver: Sendable {
       }
       return running ? .disconnected : .stopped
     }
-    return remote.busy ? .busy : .idle
+    return .idle
   }
 }

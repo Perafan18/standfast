@@ -28,6 +28,7 @@ public struct LaunchctlProbe: Sendable {
   /// is the async route that makes the hop for you; see `offCooperativePool`.
   public func blockingIsRunning(label: String) -> Bool? {
     guard let listing = try? commandRunner.run("/bin/launchctl", ["list"])
+      , listing.exitCode == 0
     else { return nil }
 
     for line in listing.standardOutput.split(separator: "\n") {

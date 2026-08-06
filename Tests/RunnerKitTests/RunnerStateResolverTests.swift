@@ -370,3 +370,25 @@ private func confirm(
   #expect(resolver.blockingConfirmedState(for: runner) == .idle)
   #expect(counter.probes == 0)
 }
+
+@Test func aBusyRunnerIsNotClearedForHousekeepingWhenItIsOffline() {
+  // A runner can lose its connection while it is still executing an assigned
+  // job. For destructive housekeeping, that busy assignment settles the
+  // answer before launchctl is consulted: asking the local service would turn
+  // an in-flight job into either `.disconnected` or `.stopped`.
+  final class Counter: @unchecked Sendable {
+    var probes = 0
+  }
+  let counter = Counter()
+  let resolver = RunnerStateResolver(
+    isServiceRunning: { _ in
+      counter.probes += 1
+      return false
+    },
+    github: StubGitHub(
+      result: .success(RemoteStatus(online: false, busy: true)),
+      asked: StubGitHub.Recorder()))
+
+  #expect(resolver.blockingConfirmedState(for: runner) == .busy)
+  #expect(counter.probes == 0)
+}
