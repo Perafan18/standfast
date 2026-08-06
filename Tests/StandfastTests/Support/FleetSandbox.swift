@@ -15,6 +15,7 @@ final class FleetSandbox: @unchecked Sendable {
   private var scans = 0
   private var probes = 0
   private var nextProbeBarrier: BlockingProbe?
+  private var discoveryFailure: DiscoveryFailure?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
   /// Held for the duration of every GitHub call, so a test can make a scan
@@ -126,6 +127,9 @@ final class FleetSandbox: @unchecked Sendable {
     withLock { remote = answer }
   }
   func set(delay seconds: TimeInterval) { withLock { delay = seconds } }
+  func set(discoveryFailure failure: DiscoveryFailure?) {
+    withLock { discoveryFailure = failure }
+  }
 
   /// Pauses the next local service probe before it reads `running`.
   func blockNextProbe() -> BlockingProbe {
@@ -309,7 +313,11 @@ final class FleetSandbox: @unchecked Sendable {
   var discover: @Sendable () -> DiscoveryResult {
     { [self] in
       let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
-      withLock { discoveryQueues.append(queue) }
+      let failure = withLock {
+        discoveryQueues.append(queue)
+        return discoveryFailure
+      }
+      if let failure { return DiscoveryResult(runners: [], failure: failure) }
       return RunnerDiscovery(launchAgentsDirectory: launchAgents).discover()
     }
   }

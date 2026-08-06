@@ -183,9 +183,15 @@ extension RunnerSnapshot {
       // Every action reads this runner's own state. Nothing here consults the
       // fleet summary, which is for the icon and only the icon.
       actions: [
-        .init(kind: .start, label: L10n.start, isEnabled: display.canStart),
-        .init(kind: .stop, label: L10n.stop, isEnabled: display.canStop),
-        .init(kind: .restart, label: L10n.restart, isEnabled: display.canRestart),
+        .init(
+          kind: .start, label: L10n.start,
+          isEnabled: display.canStart && !isServiceActionReserved),
+        .init(
+          kind: .stop, label: L10n.stop,
+          isEnabled: display.canStop && !isServiceActionReserved),
+        .init(
+          kind: .restart, label: L10n.restart,
+          isEnabled: display.canRestart && !isServiceActionReserved),
         // Always available: a runner GitHub cannot see is the one you most
         // want to go and look at.
         .init(kind: .openOnGitHub, label: L10n.openOnGitHub, isEnabled: true),

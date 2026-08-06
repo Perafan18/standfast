@@ -990,6 +990,119 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(commands.invocations.compactMap(\.last) == ["stop", "start"])
 }
 
+@Test @MainActor func aListingFailureCannotMasqueradeAsActionRemoval() async throws {
+  // Stop completes while LaunchAgents itself cannot be listed. That empty
+  // result says nothing about uninstall: ownership and the watcher baseline
+  // must survive until a later conclusive probe is applied.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  fleet.restart(runner)
+  commands.release(10)
+  await fleet.quiesce()
+
+  try box.writeListenerLog(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: "2026-08-05 21:02:00Z", result: "Failed")
+  box.set(discoveryFailure: nil)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+  #expect(delivery.posted.map(\.title) == [L10n.notificationJobFailedTitle])
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+}
+
+@Test @MainActor func anUnreadableCandidateCannotMasqueradeAsActionRemoval() async throws {
+  // Directory enumeration succeeds, but this runner's plist/config candidate
+  // cannot resolve. Its label is still potentially installed, so the result
+  // cannot erase ownership or the watcher baseline.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  try FileManager.default.removeItem(at: directory.appendingPathComponent(".runner"))
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  fleet.restart(runner)
+  commands.release(10)
+  await fleet.quiesce()
+
+  try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: "2026-08-05 21:02:00Z", result: "Failed")
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+  #expect(delivery.posted.map(\.title) == [L10n.notificationJobFailedTitle])
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+}
+
+@Test @MainActor func anUnknownRunnerWithReservedOwnershipDisablesMutations() async throws {
+  // Unknown normally keeps Stop/Restart available, but a command already owns
+  // this label. Offering buttons the model will silently ignore is false UI;
+  // they become available again after conclusive launchd evidence releases it.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  box.set(serviceRunning: nil)
+  fleet.refresh()
+  try await waitUntil {
+    fleet.snapshots.map(\.display)
+      == [.resolved(.unknown(.serviceStateUnreadable))]
+  }
+
+  #expect(fleet.snapshots[0].row.action(.stop)?.isEnabled == false)
+  #expect(fleet.snapshots[0].row.action(.restart)?.isEnabled == false)
+  #expect(fleet.snapshots[0].row.action(.openOnGitHub)?.isEnabled == true)
+
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].row.action(.stop)?.isEnabled == false)
+  #expect(fleet.snapshots[0].row.action(.restart)?.isEnabled == false)
+
+  box.set(serviceRunning: true)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].row.action(.stop)?.isEnabled == true)
+  #expect(fleet.snapshots[0].row.action(.restart)?.isEnabled == true)
+}
+
 @Test @MainActor func aFailedStopDoesNotSilenceTheNextRealCrash() async throws {
   // A definite command failure revokes the intent immediately. The runner can
   // go down independently before the re-probe, and that crash still belongs

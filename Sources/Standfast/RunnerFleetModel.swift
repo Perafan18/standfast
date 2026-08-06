@@ -26,12 +26,16 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// the head of the same log the job history is read from, and a runner that
   /// updated itself an hour ago must not still be reported as the old one.
   let version: RunnerVersion?
+  /// A service mutation owns this runner until a conclusive post-action probe
+  /// is applied. The row uses this to reject clicks before they can become
+  /// silent no-ops in the model.
+  let isServiceActionReserved: Bool
   var id: String { runner.label }
 
   init(
     runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
-    version: RunnerVersion? = nil
+    version: RunnerVersion? = nil, isServiceActionReserved: Bool = false
   ) {
     self.runner = runner
     self.display = display
@@ -39,6 +43,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     self.jobs = jobs
     self.readAt = readAt
     self.version = version
+    self.isServiceActionReserved = isServiceActionReserved
   }
 }
 
@@ -131,6 +136,10 @@ final class RunnerFleetModel: ObservableObject {
   /// The boundary a probe must reach before it can release the corresponding
   /// action. Absent while svc.sh itself is still running.
   private var serviceActionCompletions: [String: Date] = [:]
+  /// Labels the last conclusive discovery proved were still installed. An
+  /// inconclusive scan may add resolved labels, but never removes from this
+  /// set: absence is removal evidence only when discovery says it is.
+  private var knownInstalledLabels: Set<String> = []
 
   private enum ExpectedStopOutcome {
     case none
@@ -394,17 +403,26 @@ final class RunnerFleetModel: ObservableObject {
   ///   freshness stamp; each snapshot uses its corresponding per-runner probe
   ///   time from `Scan.readAt` for action ordering and elapsed job time.
   private func apply(_ scan: Scan, startedAt: Date) {
-    let installed = Set(scan.found.runners.map(\.label))
+    let resolvedLabels = Set(scan.found.runners.map(\.label))
+    let retainedLabels: Set<String>
+    if let possiblyInstalledLabels = scan.found.possiblyInstalledLabels {
+      retainedLabels = resolvedLabels.union(possiblyInstalledLabels)
+      knownInstalledLabels = retainedLabels
+    } else {
+      knownInstalledLabels.formUnion(resolvedLabels)
+      retainedLabels = knownInstalledLabels
+    }
     // A runner that has been uninstalled since it was started would otherwise
     // leave its deadline behind, with nothing left to ever read and clear it.
-    settling.keepOnly(installed)
+    settling.keepOnly(retainedLabels)
     // And its log reader would hold a few hundred parsed jobs for a runner
     // that no longer exists, for as long as the app runs.
-    jobLogs = scan.readers.filter { installed.contains($0.key) }
-    watcher.keepOnly(installed)
+    jobLogs = scan.readers.filter { retainedLabels.contains($0.key) }
+    watcher.keepOnly(retainedLabels)
     // And its measured four gigabytes would sit in memory for the life of the
     // app, describing a directory that may well have been deleted with it.
-    housekeeping.keepOnly(installed)
+    housekeeping.keepOnly(retainedLabels)
+    releaseServiceActionsObserved(in: scan, retainedLabels: retainedLabels)
     let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
     snapshots = scan.found.runners.indices.map { index in
       let runner = scan.found.runners[index]
@@ -417,7 +435,8 @@ final class RunnerFleetModel: ObservableObject {
           ? runner.scope.displayName : nil,
         jobs: scan.jobs[index],
         readAt: readAt,
-        version: scan.versions[index])
+        version: scan.versions[index],
+        isServiceActionReserved: serviceActionsInFlight.contains(runner.label))
     }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable,
@@ -432,25 +451,25 @@ final class RunnerFleetModel: ObservableObject {
         $0.display.resolvedState == .busy
           || ($0.display.resolvedState != .stopped && $0.jobs.running != nil)
       })
-    releaseServiceActionsObserved(in: snapshots, installed: installed)
   }
 
   /// Releases a runner only after apply has consumed local evidence newer than
   /// its action. A GitHub failure is still conclusive here because the resolver
   /// asks GitHub only after launchd answered "running"; only an unreadable
-  /// launchd probe remains inconclusive. Removal is terminal evidence too.
+  /// launchd probe remains inconclusive. Discovery removal is terminal evidence
+  /// only when every candidate label was accounted for.
   private func releaseServiceActionsObserved(
-    in snapshots: [RunnerSnapshot], installed: Set<String>
+    in scan: Scan, retainedLabels: Set<String>
   ) {
-    let byLabel = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.runner.label, $0) })
     for label in Array(serviceActionsInFlight) {
       guard let completedAt = serviceActionCompletions[label] else { continue }
-      guard installed.contains(label) else {
+      guard retainedLabels.contains(label) else {
         releaseServiceAction(for: label)
         continue
       }
-      guard let snapshot = byLabel[label], snapshot.readAt >= completedAt,
-        snapshot.hasConclusiveServiceEvidence
+      guard let index = scan.found.runners.firstIndex(where: { $0.label == label }),
+        scan.readAt[index] >= completedAt,
+        scan.states[index] != .unknown(.serviceStateUnreadable)
       else { continue }
       releaseServiceAction(for: label)
     }
@@ -470,6 +489,23 @@ final class RunnerFleetModel: ObservableObject {
 
   // MARK: - Acting
 
+  private func acquireServiceAction(for label: String) -> Bool {
+    guard serviceActionsInFlight.insert(label).inserted else { return false }
+    // The action itself is direct evidence that this label belongs to the
+    // lifecycle state below. An inconclusive discovery must retain it even if
+    // the action was invoked before a prior scan had recorded the label.
+    knownInstalledLabels.insert(label)
+    snapshots = snapshots.map { snapshot in
+      guard snapshot.runner.label == label else { return snapshot }
+      return RunnerSnapshot(
+        runner: snapshot.runner, display: snapshot.display,
+        qualifier: snapshot.qualifier, jobs: snapshot.jobs,
+        readAt: snapshot.readAt, version: snapshot.version,
+        isServiceActionReserved: true)
+    }
+    return true
+  }
+
   /// The one way the menu acts on a runner, so the view has nothing to wire
   /// up wrongly.
   func perform(_ kind: RunnerRow.Action.Kind, on runner: DiscoveredRunner) {
@@ -486,7 +522,7 @@ final class RunnerFleetModel: ObservableObject {
   /// blocking call needs is the callee's business, not something each caller
   /// has to remember.
   func start(_ runner: DiscoveredRunner) {
-    guard serviceActionsInFlight.insert(runner.label).inserted else { return }
+    guard acquireServiceAction(for: runner.label) else { return }
     perform(on: runner, thenSettles: true) { controller, directory in
       try await controller.start(in: directory)
     }
@@ -495,7 +531,7 @@ final class RunnerFleetModel: ObservableObject {
   func stop(_ runner: DiscoveredRunner) {
     // Acquired before either side effect: an ignored overlapping Stop must not
     // close another action's settling window or mint a stop intent of its own.
-    guard serviceActionsInFlight.insert(runner.label).inserted else { return }
+    guard acquireServiceAction(for: runner.label) else { return }
     settling.close(for: runner.label)
     // Told before the command runs rather than after it returns: `svc.sh stop`
     // takes a moment and a scan can land inside it, and a stop this app ordered
@@ -509,7 +545,7 @@ final class RunnerFleetModel: ObservableObject {
   }
 
   func restart(_ runner: DiscoveredRunner) {
-    guard serviceActionsInFlight.insert(runner.label).inserted else { return }
+    guard acquireServiceAction(for: runner.label) else { return }
     // A restart takes the service down first, so it looks exactly like a stop
     // to anything reading `launchctl` in the 1.5s gap.
     watcher.expectStop(for: runner.label, at: clock())
@@ -586,13 +622,5 @@ final class RunnerFleetModel: ObservableObject {
       refresh()
       actions[id] = nil
     }
-  }
-}
-
-extension RunnerSnapshot {
-  /// Every resolver answer except this one contains a definite launchd result.
-  /// `.starting` is a covered `.disconnected`, so launchd said running there.
-  fileprivate var hasConclusiveServiceEvidence: Bool {
-    display != .resolved(.unknown(.serviceStateUnreadable))
   }
 }

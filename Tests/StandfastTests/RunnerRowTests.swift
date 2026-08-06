@@ -165,6 +165,15 @@ private func snapshot(
   }
 }
 
+@Test func anUnownedUnreadableRunnerStillOffersStopAndRestart() {
+  // launchd gave no answer, so the menu deliberately preserves the recovery
+  // controls unless an already-running action owns this label.
+  let row = snapshot(.resolved(.unknown(.serviceStateUnreadable))).row
+
+  #expect(row.action(.stop)?.isEnabled == true)
+  #expect(row.action(.restart)?.isEnabled == true)
+}
+
 // MARK: - The notice's lines
 
 @Test func theNoRunnersNoticeIsOneLine() {

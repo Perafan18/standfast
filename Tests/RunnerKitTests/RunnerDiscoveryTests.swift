@@ -314,11 +314,29 @@ private struct DirectoryListingFailure: Error {}
 
   #expect(nothingInstalled.runners.isEmpty)
   #expect(nothingInstalled.unreadable.isEmpty)
+  #expect(nothingInstalled.possiblyInstalledLabels == [])
 
   #expect(nothingReadable.runners.isEmpty)
   #expect(
     nothingReadable.unreadable.map(\.lastPathComponent)
       == ["actions.runner.acme-widget.ghost.plist"])
+  #expect(
+    nothingReadable.possiblyInstalledLabels
+      == ["actions.runner.acme-widget.ghost"])
+}
+
+@Test func anUnreadablePlistMakesRunnerAbsenceInconclusive() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try Data("not a plist".utf8).write(
+    to: box.launchAgents.appendingPathComponent(
+      "actions.runner.acme-widget.unknown.plist"))
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(found.unreadable.count == 1)
+  #expect(found.possiblyInstalledLabels == nil)
 }
 
 @Test func returnsEmptyWhenThereIsNoLaunchAgentsDirectory() {
@@ -343,7 +361,9 @@ private struct DirectoryListingFailure: Error {}
   ).discover()
 
   #expect(missing.failure == nil)
+  #expect(missing.possiblyInstalledLabels == [])
   #expect(otherFailure.failure == .launchAgentsUnreadable(absentLooking))
+  #expect(otherFailure.possiblyInstalledLabels == nil)
 }
 
 @Test func reportsAnExistingLaunchAgentsDirectoryThatCannotBeListed() throws {
@@ -357,4 +377,5 @@ private struct DirectoryListingFailure: Error {}
   #expect(found.runners.isEmpty)
   #expect(found.unreadable.isEmpty)
   #expect(found.failure == .launchAgentsUnreadable(box.launchAgents))
+  #expect(found.possiblyInstalledLabels == nil)
 }

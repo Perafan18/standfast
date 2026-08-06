@@ -75,14 +75,29 @@ public struct DiscoveryResult: Equatable, Sendable {
   /// Why the scan itself could not start, rather than why one runner candidate
   /// could not be resolved.
   public let failure: DiscoveryFailure?
+  /// Labels that may still be installed even though their runner could not be
+  /// resolved, and nil when the scan could not identify every possible label.
+  ///
+  /// An empty set is meaningful: it says the directory was enumerated and no
+  /// unresolved candidate can own a label. Callers may use that as removal
+  /// evidence. Nil says absence from `runners` proves nothing.
+  public let possiblyInstalledLabels: Set<String>?
 
   public init(
     runners: [DiscoveredRunner], unreadable: [URL] = [],
-    failure: DiscoveryFailure? = nil
+    failure: DiscoveryFailure? = nil,
+    possiblyInstalledLabels: Set<String>? = nil
   ) {
     self.runners = runners
     self.unreadable = unreadable
     self.failure = failure
+    if failure != nil {
+      self.possiblyInstalledLabels = nil
+    } else if unreadable.isEmpty {
+      self.possiblyInstalledLabels = []
+    } else {
+      self.possiblyInstalledLabels = possiblyInstalledLabels
+    }
   }
 }
 
@@ -143,17 +158,26 @@ public struct RunnerDiscovery: Sendable {
 
     var runners: [DiscoveredRunner] = []
     var unreadable: [URL] = []
+    var possiblyInstalledLabels: Set<String> = []
+    var hasUnidentifiedCandidate = false
     for candidate in candidates {
-      if let runner = runner(fromPlistAt: candidate) {
+      let resolved = runner(fromPlistAt: candidate)
+      if let runner = resolved.runner {
         runners.append(runner)
       } else {
         unreadable.append(candidate)
+        if let label = resolved.label {
+          possiblyInstalledLabels.insert(label)
+        } else {
+          hasUnidentifiedCandidate = true
+        }
       }
     }
 
     return DiscoveryResult(
       runners: deduplicatedByLabel(runners),
-      unreadable: unreadable.sorted { $0.path < $1.path })
+      unreadable: unreadable.sorted { $0.path < $1.path },
+      possiblyInstalledLabels: hasUnidentifiedCandidate ? nil : possiblyInstalledLabels)
   }
 
   private static func isNoSuchFile(_ error: any Error) -> Bool {
@@ -179,21 +203,30 @@ public struct RunnerDiscovery: Sendable {
       }
   }
 
-  private func runner(fromPlistAt url: URL) -> DiscoveredRunner? {
-    guard let agent = try? LaunchAgentDescriptor(contentsOf: url) else { return nil }
+  private func runner(
+    fromPlistAt url: URL
+  ) -> (
+    runner: DiscoveredRunner?, label: String?
+  ) {
+    guard let agent = try? LaunchAgentDescriptor(contentsOf: url) else {
+      return (nil, nil)
+    }
     let runnerFile = agent.workingDirectory.appendingPathComponent(".runner")
     // A plist whose runner directory is gone is a half-finished uninstall.
     // Surfacing it would only add a permanently broken row to the menu.
     guard let config = try? RunnerConfig(contentsOf: runnerFile),
       let scope = RunnerScope(gitHubURL: config.gitHubUrl)
-    else { return nil }
+    else { return (nil, agent.label) }
 
-    return DiscoveredRunner(
-      label: agent.label,
-      directory: agent.workingDirectory,
-      agentId: config.agentId,
-      agentName: config.agentName,
-      scope: scope,
-      workFolder: config.workFolder)
+    return (
+      DiscoveredRunner(
+        label: agent.label,
+        directory: agent.workingDirectory,
+        agentId: config.agentId,
+        agentName: config.agentName,
+        scope: scope,
+        workFolder: config.workFolder),
+      agent.label
+    )
   }
 }
