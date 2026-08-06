@@ -210,6 +210,50 @@ private func model(
   #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
 }
 
+@Test @MainActor func aScanOlderThanTheClickDoesNotSpendTheWindowItNeverSaw()
+  async throws
+{
+  // Reproduces the sequence a reviewer measured on one real runner, via
+  // Restart:
+  //
+  //   1. the ticker starts a scan; `gh` is slow. What it reads is `.idle`.
+  //   2. the user presses Restart. It returns, and the window opens.
+  //   3. the old scan lands and applies the `.idle` it read *before the click*.
+  //      Not `.disconnected`, so it closes the window.
+  //   4. the real re-probe arrives — `.disconnected`, with nothing left to
+  //      cover for it — and the menu bar raises a warning triangle over a
+  //      restart that is going perfectly well.
+  //
+  // Every layer is right on its own. The gap is that `apply` used to believe
+  // readings older than the window they were closing.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.idle)])
+
+  // Step 1: a scan that will take longer than the click does, reading `.idle`.
+  box.set(delay: 0.3)
+  fleet.refresh()
+  // Long enough for that scan to have asked GitHub and be sitting in the pause,
+  // so what it carries is the answer from before the restart.
+  try await Task.sleep(for: .milliseconds(80))
+
+  // Step 2: the click. From here on the machine answers `.disconnected`, which
+  // is what a runner mid-registration looks like.
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  fleet.restart(fleet.snapshots[0].runner)
+
+  // Steps 3 and 4: the stale scan lands, then the re-probe it delayed.
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+  #expect(
+    FleetSummary.symbolName(for: fleet.snapshots.map(\.display))
+      == DisplayState.starting.symbolName)
+}
+
 // MARK: - Acting on one runner, not on the machine
 
 @Test @MainActor func anActionThatCouldNotRunOpensNoWindow() async throws {

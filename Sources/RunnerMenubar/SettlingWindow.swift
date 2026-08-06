@@ -25,7 +25,15 @@ struct SettlingWindow: Sendable {
   /// runner which is genuinely never coming back says so within half a minute.
   static let defaultDuration: TimeInterval = 30
 
-  private var deadlines: [String: Date] = [:]
+  /// When a window was opened and when it runs out. The opening time is kept
+  /// as well as the deadline because a reading has to be placed against it —
+  /// see `display(_:for:readAt:)`.
+  private struct Window {
+    let openedAt: Date
+    let deadline: Date
+  }
+
+  private var windows: [String: Window] = [:]
   private let duration: TimeInterval
 
   init(duration: TimeInterval = defaultDuration) { self.duration = duration }
@@ -35,21 +43,21 @@ struct SettlingWindow: Sendable {
   /// that gap would find a perfectly real `.stopped` and close a window that
   /// had not yet done anything.
   mutating func open(for label: String, at now: Date) {
-    deadlines[label] = now.addingTimeInterval(duration)
+    windows[label] = Window(openedAt: now, deadline: now.addingTimeInterval(duration))
   }
 
   /// Whatever this runner was settling towards, it is not that any more.
-  mutating func close(for label: String) { deadlines[label] = nil }
+  mutating func close(for label: String) { windows[label] = nil }
 
-  /// Forgets runners that are no longer installed. `display` clears a deadline
+  /// Forgets runners that are no longer installed. `display` clears a window
   /// as soon as it reads one, so the only entries that can outlive their
   /// runner belong to a runner that stopped being discovered.
   mutating func keepOnly(_ labels: Set<String>) {
-    deadlines = deadlines.filter { labels.contains($0.key) }
+    windows = windows.filter { labels.contains($0.key) }
   }
 
   /// The runners currently being given the benefit of the doubt.
-  var settlingLabels: Set<String> { Set(deadlines.keys) }
+  var settlingLabels: Set<String> { Set(windows.keys) }
 
   /// Reads one runner's state as the menu should show it.
   ///
@@ -59,14 +67,26 @@ struct SettlingWindow: Sendable {
   /// finding the service down is the only report a failed start will ever
   /// produce, and swallowing it would leave the user watching "Starting…"
   /// until the window ran out.
-  mutating func display(_ state: RunnerState, for label: String, at now: Date)
+  ///
+  /// - Parameter readAt: when the machine was read, which is not when the
+  ///   answer arrived. A scan takes up to thirty seconds per runner, so one
+  ///   started before the user pressed Restart routinely lands after the
+  ///   restart has finished and opened a window. That scan saw the machine as
+  ///   it was before the click; anything but `.disconnected` in it would close
+  ///   the window on the strength of a fact that predates it, and the real
+  ///   re-probe arriving seconds later would then raise the warning triangle
+  ///   over a restart that is going perfectly well. So a reading older than the
+  ///   window is not evidence about it, and is neither believed nor allowed to
+  ///   spend it.
+  mutating func display(_ state: RunnerState, for label: String, readAt: Date)
     -> DisplayState
   {
-    guard let deadline = deadlines[label] else { return .resolved(state) }
-    guard state == .disconnected, now < deadline else {
+    guard let window = windows[label] else { return .resolved(state) }
+    guard readAt >= window.openedAt else { return .starting }
+    guard state == .disconnected, readAt < window.deadline else {
       // Either the handshake finished, or it failed, or it has had long
       // enough. All three end the benefit of the doubt.
-      deadlines[label] = nil
+      windows[label] = nil
       return .resolved(state)
     }
     return .starting

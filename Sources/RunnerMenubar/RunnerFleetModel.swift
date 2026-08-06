@@ -104,9 +104,15 @@ final class RunnerFleetModel: ObservableObject {
       refreshRequested = true
       return
     }
+    // Stamped before anything is read, and carried all the way to `apply`. A
+    // scan can take tens of seconds, so the answer it hands back describes the
+    // machine as it was when it started, not as it is when it lands — and the
+    // settling window has to be able to tell, or a reading taken before the
+    // user pressed Restart gets to close the window that click opened.
+    let readAt = clock()
     inFlight = Task { [discover, resolver] in
       let scan = await Self.scan(discover: discover, resolver: resolver)
-      apply(scan)
+      apply(scan, readAt: readAt)
       inFlight = nil
       if refreshRequested {
         refreshRequested = false
@@ -151,15 +157,19 @@ final class RunnerFleetModel: ObservableObject {
     return (found, states)
   }
 
-  private func apply(_ scan: (found: DiscoveryResult, states: [RunnerState])) {
-    let now = clock()
+  /// - Parameter readAt: when this scan started reading the machine, which is
+  ///   not when it finished. Only the settling window cares, and it cares a
+  ///   lot: see `SettlingWindow.display(_:for:readAt:)`.
+  private func apply(
+    _ scan: (found: DiscoveryResult, states: [RunnerState]), readAt: Date
+  ) {
     // A runner that has been uninstalled since it was started would otherwise
     // leave its deadline behind, with nothing left to ever read and clear it.
     settling.keepOnly(Set(scan.found.runners.map(\.label)))
     snapshots = zip(scan.found.runners, scan.states).map { runner, state in
       RunnerSnapshot(
         runner: runner,
-        display: settling.display(state, for: runner.label, at: now))
+        display: settling.display(state, for: runner.label, readAt: readAt))
     }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable)
