@@ -15,6 +15,8 @@ final class FleetSandbox: @unchecked Sendable {
   private var scans = 0
   private var probes = 0
   private var nextProbeBarrier: BlockingProbe?
+  private var nextDiscoveryBarrier: BlockingProbe?
+  private var nextRemoteBarrier: BlockingProbe?
   private var discoveryFailure: DiscoveryFailure?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
@@ -135,6 +137,20 @@ final class FleetSandbox: @unchecked Sendable {
   func blockNextProbe() -> BlockingProbe {
     let barrier = BlockingProbe()
     withLock { nextProbeBarrier = barrier }
+    return barrier
+  }
+
+  /// Pauses the next discovery only after it has read the filesystem result.
+  func blockNextDiscoveryAfterReading() -> BlockingProbe {
+    let barrier = BlockingProbe()
+    withLock { nextDiscoveryBarrier = barrier }
+    return barrier
+  }
+
+  /// Pauses the next GitHub answer after launchd has already been read.
+  func blockNextRemoteAnswer() -> BlockingProbe {
+    let barrier = BlockingProbe()
+    withLock { nextRemoteBarrier = barrier }
     return barrier
   }
 
@@ -313,12 +329,19 @@ final class FleetSandbox: @unchecked Sendable {
   var discover: @Sendable () -> DiscoveryResult {
     { [self] in
       let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
-      let failure = withLock {
+      let (failure, barrier) = withLock {
         discoveryQueues.append(queue)
-        return discoveryFailure
+        defer { nextDiscoveryBarrier = nil }
+        return (discoveryFailure, nextDiscoveryBarrier)
       }
-      if let failure { return DiscoveryResult(runners: [], failure: failure) }
-      return RunnerDiscovery(launchAgentsDirectory: launchAgents).discover()
+      let found =
+        if let failure {
+          DiscoveryResult(runners: [], failure: failure)
+        } else {
+          RunnerDiscovery(launchAgentsDirectory: launchAgents).discover()
+        }
+      barrier?.block()
+      return found
     }
   }
 
@@ -344,12 +367,14 @@ final class FleetSandbox: @unchecked Sendable {
 
     func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
       let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
-      let (answer, pause) = sandbox.withLock {
+      let (answer, pause, barrier) = sandbox.withLock {
         sandbox.scans += 1
         sandbox.queues.append(queue)
-        return (sandbox.remote, sandbox.delay)
+        defer { sandbox.nextRemoteBarrier = nil }
+        return (sandbox.remote, sandbox.delay, sandbox.nextRemoteBarrier)
       }
       if pause > 0 { Thread.sleep(forTimeInterval: pause) }
+      barrier?.block()
       return try answer.get()
     }
   }

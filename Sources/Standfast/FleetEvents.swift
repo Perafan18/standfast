@@ -180,6 +180,8 @@ struct FleetWatcher {
       expectedStop = nil
     }
     let maySuppressStop = expectedStop.map { snapshot.readAt >= $0.requestedAt } ?? false
+    let maySuppressRemoteState =
+      expectedStop.map { snapshot.stateReadAt >= $0.requestedAt } ?? false
     let maySpendExpectedStop =
       expectedStop?.completion.map {
         snapshot.readAt >= $0.completedAt
@@ -214,7 +216,7 @@ struct FleetWatcher {
       // before launchd observes Stop. Defer both the banner and the baseline:
       // success will settle the intent, while cancellation must expose this
       // same transition on the next scan.
-      if maySuppressStop, !maySpendExpectedStop {
+      if maySuppressRemoteState, !maySpendExpectedStop {
         return ([], false)
       }
       if maySpendExpectedStop {

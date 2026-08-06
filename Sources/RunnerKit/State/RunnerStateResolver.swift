@@ -11,12 +11,15 @@ import Foundation
 ///
 /// Stateless and per-runner: one resolver serves every runner on the machine.
 public struct RunnerStateResolver: Sendable {
-  /// One resolved state, stamped immediately after launchd answered for this
-  /// runner. The stop lifecycle needs this per-probe ordering; a scan-level
-  /// timestamp cannot say which side of a click a later sequential probe read.
+  /// One resolved state with separate stamps for its two sequential sources.
+  /// `readAt` is immediately after launchd answered and remains the ordering
+  /// evidence for stopped state and service-action ownership. `stateReadAt` is
+  /// when the source that completed the verdict answered — the same instant for
+  /// a local unknown/stopped result, and immediately after GitHub otherwise.
   public struct Reading: Sendable {
     public let state: RunnerState
     public let readAt: Date
+    public let stateReadAt: Date
   }
 
   /// Nil for "could not tell", which is not the same answer as false. See
@@ -89,25 +92,38 @@ public struct RunnerStateResolver: Sendable {
     let running = isServiceRunning(runner)
     let readAt = clock()
     guard let running else {
-      return Reading(state: .unknown(.serviceStateUnreadable), readAt: readAt)
+      return Reading(
+        state: .unknown(.serviceStateUnreadable), readAt: readAt,
+        stateReadAt: readAt)
     }
-    guard running else { return Reading(state: .stopped, readAt: readAt) }
+    guard running else {
+      return Reading(state: .stopped, readAt: readAt, stateReadAt: readAt)
+    }
 
     do {
       let remote = try github.blockingRunnerStatus(
         id: runner.agentId, scope: runner.scope)
+      let stateReadAt = clock()
       // Connection before occupation, and the order is load-bearing: GitHub
       // describes a machine that died mid-job as offline with the job still
       // assigned to it. Calling that "busy" would suggest work is progressing
       // when nothing is; what needs fixing is the connection.
-      if !remote.online { return Reading(state: .disconnected, readAt: readAt) }
-      return Reading(state: remote.busy ? .busy : .idle, readAt: readAt)
+      if !remote.online {
+        return Reading(
+          state: .disconnected, readAt: readAt, stateReadAt: stateReadAt)
+      }
+      return Reading(
+        state: remote.busy ? .busy : .idle, readAt: readAt,
+        stateReadAt: stateReadAt)
     } catch let failure as GitHubError {
-      return Reading(state: .unknown(UnknownReason(failure)), readAt: readAt)
+      return Reading(
+        state: .unknown(UnknownReason(failure)), readAt: readAt,
+        stateReadAt: clock())
     } catch {
       // Another client behind the same protocol may throw something else; it
       // still has not answered.
-      return Reading(state: .unknown(.noAnswer), readAt: readAt)
+      return Reading(
+        state: .unknown(.noAnswer), readAt: readAt, stateReadAt: clock())
     }
   }
 

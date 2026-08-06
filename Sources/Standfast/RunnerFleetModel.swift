@@ -21,6 +21,10 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// half a minute ago, and the row would be quietly describing two different
   /// machines.
   let readAt: Date
+  /// When the source that completed `display` answered. Equal to `readAt` for
+  /// a local stopped/unknown result and later when GitHub completed the state.
+  /// Event ordering uses this without changing the local probe stamp above.
+  let stateReadAt: Date
   /// Which runner is installed here, and nil when nothing on disk says. Read
   /// with the rest of the scan rather than on its own schedule: it comes out of
   /// the head of the same log the job history is read from, and a runner that
@@ -35,13 +39,15 @@ struct RunnerSnapshot: Identifiable, Equatable {
   init(
     runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
-    version: RunnerVersion? = nil, isServiceActionReserved: Bool = false
+    stateReadAt: Date? = nil, version: RunnerVersion? = nil,
+    isServiceActionReserved: Bool = false
   ) {
     self.runner = runner
     self.display = display
     self.qualifier = qualifier
     self.jobs = jobs
     self.readAt = readAt
+    self.stateReadAt = stateReadAt ?? readAt
     self.version = version
     self.isServiceActionReserved = isServiceActionReserved
   }
@@ -345,21 +351,23 @@ final class RunnerFleetModel: ObservableObject {
     readers: [String: JobLogReader], versions: any RunnerVersionReading,
     clock: @escaping @Sendable () -> Date
   ) async -> Scan {
+    // Conservative by design: discovery may enumerate the directory first and
+    // then spend arbitrarily long resolving candidates before it returns. An
+    // absence from that result must not be dated after an action that completed
+    // during those candidate reads.
+    let discoveryStartedAt = clock()
     let found = await offCooperativePool { discover() }
-    // Absence has no per-runner launchd probe to date it, so stamp discovery
-    // at the boundary where its directory enumeration has definitely ended.
-    // A later probe for another runner may delay apply without making this
-    // absence newer than an action that happened in between.
-    let discoveredAt = clock()
     var states: [RunnerState] = []
     var jobs: [JobHistory] = []
     var installed: [RunnerVersion?] = []
     var readAt: [Date] = []
+    var stateReadAt: [Date] = []
     var readers = readers
     for runner in found.runners {
       let state = await resolver.reading(for: runner, clock: clock)
       states.append(state.state)
       readAt.append(state.readAt)
+      stateReadAt.append(state.stateReadAt)
       // The same rule as discovery, for the same reason: this is file I/O, and
       // the cheap path — a directory listing and a `stat` — is only the usual
       // one. A cold read is hundreds of kilobytes, off a home directory that
@@ -384,7 +392,8 @@ final class RunnerFleetModel: ObservableObject {
     }
     return Scan(
       found: found, states: states, jobs: jobs, readers: readers, versions: installed,
-      discoveredAt: discoveredAt, readAt: readAt)
+      discoveryStartedAt: discoveryStartedAt, readAt: readAt,
+      stateReadAt: stateReadAt)
   }
 
   /// Everything one hop off the pool reads about one runner's `_diag`.
@@ -406,11 +415,13 @@ final class RunnerFleetModel: ObservableObject {
     let jobs: [JobHistory]
     let readers: [String: JobLogReader]
     let versions: [RunnerVersion?]
-    /// When discovery finished enumerating candidates. This dates absence;
-    /// present runners use their later, exact launchd probe stamps below.
-    let discoveredAt: Date
+    /// The conservative instant just before discovery began. This dates
+    /// absence; present runners use their exact stamps below.
+    let discoveryStartedAt: Date
     /// When launchd answered for each corresponding runner.
     let readAt: [Date]
+    /// When the source completing each corresponding state answered.
+    let stateReadAt: [Date]
   }
 
   /// - Parameter startedAt: when this scan began. This is the fleet-level
@@ -424,7 +435,7 @@ final class RunnerFleetModel: ObservableObject {
     let labelsProtectedFromAbsence = Set(
       serviceActionsInFlight.filter { label in
         guard let completedAt = serviceActionCompletions[label] else { return true }
-        return scan.discoveredAt < completedAt
+        return scan.discoveryStartedAt < completedAt
       })
     let retainedLabels: Set<String>
     if let possiblyInstalledLabels = scan.found.possiblyInstalledLabels {
@@ -459,6 +470,7 @@ final class RunnerFleetModel: ObservableObject {
           ? runner.scope.displayName : nil,
         jobs: scan.jobs[index],
         readAt: readAt,
+        stateReadAt: scan.stateReadAt[index],
         version: scan.versions[index],
         isServiceActionReserved: serviceActionsInFlight.contains(runner.label))
     }
@@ -527,7 +539,8 @@ final class RunnerFleetModel: ObservableObject {
       return RunnerSnapshot(
         runner: snapshot.runner, display: snapshot.display,
         qualifier: snapshot.qualifier, jobs: snapshot.jobs,
-        readAt: snapshot.readAt, version: snapshot.version,
+        readAt: snapshot.readAt, stateReadAt: snapshot.stateReadAt,
+        version: snapshot.version,
         isServiceActionReserved: true)
     }
     return true
