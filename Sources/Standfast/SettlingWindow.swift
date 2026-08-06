@@ -78,9 +78,9 @@ struct SettlingWindow: Sendable {
   ///   over a restart that is going perfectly well. So a reading older than the
   ///   window is not evidence about it, and is neither believed nor allowed to
   ///   spend it.
-  mutating func display(_ state: RunnerState, for label: String, readAt: Date)
-    -> DisplayState
-  {
+  mutating func display(
+    _ state: RunnerState, for label: String, readAt: Date
+  ) -> DisplayState {
     guard let window = windows[label] else { return .resolved(state) }
     guard readAt >= window.openedAt else { return .starting }
     guard state == .disconnected, readAt < window.deadline else {

@@ -460,9 +460,10 @@ private func model(
   let beforeRestart = commands.invocations.count
   fleet.perform(.restart, on: fleet.snapshots[0].runner)
   await fleet.quiesce()
-  #expect(commands.invocations.dropFirst(beforeRestart).map { $0 } == [
-    ["/bin/bash", script, "stop"], ["/bin/bash", script, "start"],
-  ])
+  #expect(
+    commands.invocations.dropFirst(beforeRestart).map { $0 } == [
+      ["/bin/bash", script, "stop"], ["/bin/bash", script, "start"],
+    ])
 
   // `openOnGitHub` opens a URL and runs no command, which is the only way to
   // see it from here.

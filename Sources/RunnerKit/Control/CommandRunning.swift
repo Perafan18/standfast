@@ -35,8 +35,9 @@ public enum CommandError: Error {
 public protocol CommandRunning: Sendable {
   /// Throws only when the process could not be launched or would not finish;
   /// a non-zero exit comes back in the result for the caller to interpret.
-  func run(_ executable: String, _ arguments: [String], workingDirectory: URL?) throws
-    -> CommandResult
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult
 }
 
 extension CommandRunning {
@@ -59,9 +60,9 @@ public struct ProcessCommandRunner: CommandRunning {
     self.terminationGrace = terminationGrace
   }
 
-  public func run(_ executable: String, _ arguments: [String], workingDirectory: URL?)
-    throws -> CommandResult
-  {
+  public func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = arguments

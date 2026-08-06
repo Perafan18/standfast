@@ -9,7 +9,8 @@ import Testing
 private let runner = ProcessCommandRunner()
 
 @Test func returnsWhatTheProcessWroteToStdout() throws {
-  #expect(try runner.run("/bin/echo", ["hello", "world"]).standardOutput == "hello world\n")
+  #expect(
+    try runner.run("/bin/echo", ["hello", "world"]).standardOutput == "hello world\n")
 }
 
 @Test func runsTheProcessInTheGivenWorkingDirectory() throws {
@@ -25,8 +26,9 @@ private let runner = ProcessCommandRunner()
   let reported = URL(
     fileURLWithPath: printed.standardOutput.trimmingCharacters(in: .newlines))
 
-  #expect(reported.resolvingSymlinksInPath().path
-          == directory.resolvingSymlinksInPath().path)
+  #expect(
+    reported.resolvingSymlinksInPath().path
+      == directory.resolvingSymlinksInPath().path)
 }
 
 @Test func throwsWhenTheExecutableIsNotThere() {
@@ -75,8 +77,9 @@ private let runner = ProcessCommandRunner()
 }
 
 @Test func stderrDoesNotContaminateStdout() throws {
-  #expect(try runner.run("/bin/sh", ["-c", "echo out; echo err >&2"]).standardOutput
-          == "out\n")
+  #expect(
+    try runner.run("/bin/sh", ["-c", "echo out; echo err >&2"]).standardOutput
+      == "out\n")
 }
 
 @Test func returnsOutputThatIsNotValidUTF8AsBestItCan() throws {
@@ -129,8 +132,9 @@ private func makeChatterFile() throws -> URL {
   let file = try makeChatterFile()
   defer { try? FileManager.default.removeItem(at: file) }
 
-  #expect(runAgainstADeadline(runner, "/bin/cat", [file.path])?.result?.standardOutput.count
-          == 200_000)
+  #expect(
+    runAgainstADeadline(runner, "/bin/cat", [file.path])?.result?.standardOutput.count
+      == 200_000)
 }
 
 @Test func survivesAProcessThatIsChattyOnStderr() throws {
@@ -140,8 +144,9 @@ private func makeChatterFile() throws -> URL {
   let file = try makeChatterFile()
   defer { try? FileManager.default.removeItem(at: file) }
 
-  #expect(runAgainstADeadline(runner, "/bin/sh", ["-c", "cat \(file.path) >&2; echo done"])?
-          .result?.standardOutput == "done\n")
+  #expect(
+    runAgainstADeadline(runner, "/bin/sh", ["-c", "cat \(file.path) >&2; echo done"])?
+      .result?.standardOutput == "done\n")
 }
 
 @Test func givesUpOnAProcessThatNeverFinishes() throws {

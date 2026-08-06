@@ -48,9 +48,10 @@ func reportsNotRunningWhenTheListingDoesNotMentionTheLabel(listed: String) {
 @Test func asksLaunchctlForTheWholeList() {
   let fake = FakeCommandRunner([["/bin/launchctl", "list"]: listing])
   _ = LaunchctlProbe(commandRunner: fake).blockingIsRunning(label: "whatever")
-  #expect(fake.invocations == [
-    .init(executable: "/bin/launchctl", arguments: ["list"], workingDirectory: nil)
-  ])
+  #expect(
+    fake.invocations == [
+      .init(executable: "/bin/launchctl", arguments: ["list"], workingDirectory: nil)
+    ])
 }
 
 @Test func admitsItCouldNotTellWhenLaunchctlCannotBeLaunched() {

@@ -17,7 +17,8 @@ import Testing
 
 @Test func unknownOutranksIdleButNotDisconnected() {
   #expect(AggregateState.summarising([.idle, .unknown(.noAnswer)]) == .unknown(.noAnswer))
-  #expect(AggregateState.summarising([.disconnected, .unknown(.noAnswer)]) == .disconnected)
+  #expect(
+    AggregateState.summarising([.disconnected, .unknown(.noAnswer)]) == .disconnected)
 }
 
 @Test func idleBeatsStopped() {

@@ -82,6 +82,7 @@ public struct ServiceController: Sendable {
     //
     // The working directory matters as much as the verb — svc.sh resolves its
     // template and its plist path from `pwd`, not from where it lives.
-    _ = try commandRunner.run("/bin/bash", [script.path, verb], workingDirectory: directory)
+    _ = try commandRunner.run(
+      "/bin/bash", [script.path, verb], workingDirectory: directory)
   }
 }

@@ -37,9 +37,9 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
   /// one argument with spaces in it.
   init(_ responses: [[String]: String] = [:]) { self.responses = responses }
 
-  func run(_ executable: String, _ arguments: [String], workingDirectory: URL?) throws
-    -> CommandResult
-  {
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
     onRun?()
     invocations.append(
       Invocation(

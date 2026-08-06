@@ -175,9 +175,9 @@ final class RecordingCommandRunner: CommandRunning, @unchecked Sendable {
     return queues
   }
 
-  func run(_ executable: String, _ arguments: [String], workingDirectory: URL?) throws
-    -> CommandResult
-  {
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
     let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
     lock.lock()
     seen.append([executable] + arguments)

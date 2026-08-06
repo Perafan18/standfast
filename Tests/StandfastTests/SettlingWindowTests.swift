@@ -74,8 +74,9 @@ private let label = "actions.runner.acme-widget.build-mac"
   var window = SettlingWindow(duration: 30)
   window.open(for: label, at: epoch)
 
-  #expect(window.display(.disconnected, for: "another.runner", readAt: epoch + 1)
-    == .resolved(.disconnected))
+  #expect(
+    window.display(.disconnected, for: "another.runner", readAt: epoch + 1)
+      == .resolved(.disconnected))
   #expect(window.display(.disconnected, for: label, readAt: epoch + 1) == .starting)
 }
 

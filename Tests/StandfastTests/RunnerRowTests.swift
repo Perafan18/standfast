@@ -107,9 +107,10 @@ private func snapshot(
 // MARK: - The actions
 
 @Test func aRowOffersTheSameFourActionsInTheSameOrder() {
-  #expect(snapshot(.resolved(.idle)).row.actions.map(\.kind) == [
-    .start, .stop, .restart, .openOnGitHub,
-  ])
+  #expect(
+    snapshot(.resolved(.idle)).row.actions.map(\.kind) == [
+      .start, .stop, .restart, .openOnGitHub,
+    ])
 }
 
 @Test func everyActionCarriesItsOwnLabel() {

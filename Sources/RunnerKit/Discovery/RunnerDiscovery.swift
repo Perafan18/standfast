@@ -82,7 +82,7 @@ public struct RunnerDiscovery: Sendable {
     self.launchAgentsDirectory =
       launchAgentsDirectory
       ?? FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/LaunchAgents")
+      .appendingPathComponent("Library/LaunchAgents")
   }
 
   /// Reads the whole LaunchAgents directory and a file from each runner, on the

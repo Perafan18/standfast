@@ -25,9 +25,9 @@ private func atIntelHomebrew(_ path: String = runnerPath) -> [String] {
   ["/usr/local/bin/gh"] + ghArguments(path)
 }
 
-private func ask(_ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope) throws
-  -> RemoteStatus
-{
+private func ask(
+  _ fake: FakeCommandRunner, scope: RunnerScope = repositoryScope
+) throws -> RemoteStatus {
   try GHCommandLineClient(commandRunner: fake).blockingRunnerStatus(id: 21, scope: scope)
 }
 
