@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>               <string>Standfast</string>
+  <key>CFBundleDisplayName</key>        <string>Standfast</string>
+  <key>CFBundleIdentifier</key>         <string>dev.standfast.app</string>
+  <key>CFBundleExecutable</key>         <string>Standfast</string>
+  <key>CFBundlePackageType</key>        <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+  <key>CFBundleShortVersionString</key> <string>0.1.0</string>
+  <key>CFBundleVersion</key>            <string>1</string>
+  <key>LSMinimumSystemVersion</key>     <string>14.0</string>
+
+  <!-- Menu bar only: no Dock icon, no entry in the app switcher. Without it
+       an app whose entire interface is a status item still takes a Dock tile
+       that does nothing when clicked. -->
+  <key>LSUIElement</key>                <true/>
+
+  <!-- What the menu falls back to, and what it can be switched to. macOS only
+       offers an app in System Settings › General › Language & Region › Apps
+       when the app declares its languages here, so this is what lets a user
+       read Standfast in Spanish on an English Mac and the other way round.
+       The `.lproj` directories in Contents/Resources are the other half:
+       either one alone is not enough. -->
+  <key>CFBundleDevelopmentRegion</key>  <string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>es</string>
+  </array>
+
+  <!-- Deliberately NOT sandboxed, and this must stay that way.
+       Discovery works by scanning ~/Library/LaunchAgents for
+       actions.runner.*.plist and reading each runner's directory. Under App
+       Sandbox `FileManager.homeDirectoryForCurrentUser` answers with the
+       app's container rather than ~, that scan finds nothing, and the app
+       degrades into an empty menu that reports no error because, as far as
+       it can tell, this Mac simply has no runners. There is no entitlement
+       that buys the directory back: LaunchAgents is not one of the
+       user-selected or well-known locations a sandboxed app may reach.
+       Adding com.apple.security.app-sandbox here would break the whole
+       product silently, and the symptom — "it finds no runners" — points
+       nowhere near the cause. -->
+</dict>
+</plist>
