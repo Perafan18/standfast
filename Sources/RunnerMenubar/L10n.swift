@@ -131,32 +131,26 @@ enum L10n {
       .first
   }()
 
-  /// The language this Mac asked for, out of the ones this app ships.
-  ///
-  /// Measured, not assumed: with `es-419` at the top of the user's list and
-  /// both catalogues sitting in the bundle, `preferredLocalizations` answers
-  /// `["en"]`. A bundle negotiates through the *main* bundle's language, and
-  /// under `swift run` the main bundle is a bare executable that declares
-  /// none — so the Spanish catalogue ships, is found, and is unreachable.
-  ///
-  /// Asking with the user's own preferences skips that negotiation and gets
-  /// `["es"]`, which is what the user actually said. It still honours a
-  /// per-app language override, because macOS applies one by rewriting the
-  /// app's own `AppleLanguages`, which is what `Locale.preferredLanguages`
-  /// reads. Inside a properly assembled `.app` the negotiation would work by
-  /// itself; this keeps it working everywhere else as well.
-  static let localization = Bundle.preferredLocalizations(
-    from: resourceBundle?.localizations ?? [], forPreferences: Locale.preferredLanguages
-  ).first
-
-  /// Both shapes this app can be packaged in, each narrowed to the chosen
-  /// language. `swift run` leaves the catalogues in the SwiftPM bundle beside
-  /// the binary; a hand-assembled `.app` may instead carry them in
-  /// `Contents/Resources`.
+  /// Both shapes this app can be packaged in, each narrowed to the language
+  /// this Mac asked for. `swift run` leaves the catalogues in the SwiftPM
+  /// bundle beside the binary; a hand-assembled `.app` may instead carry them
+  /// in `Contents/Resources`.
   static let bundles: [Bundle] = [resourceBundle, Bundle.main]
     .compactMap { $0 }
     .map(speaking)
 
+  /// The same bundle, narrowed to one `.lproj`.
+  ///
+  /// Negotiated per bundle, and against the user's own preferences rather than
+  /// left to `Bundle` — measured, not assumed: with `es-419` at the top of the
+  /// user's list and both catalogues sitting in the bundle,
+  /// `preferredLocalizations` answers `["en"]`. A bundle negotiates through the
+  /// *main* bundle's language, and under `swift run` the main bundle is a bare
+  /// executable that declares none, so the Spanish catalogue ships, is found,
+  /// and is unreachable. Asking with the user's preferences gets `["es"]`,
+  /// which is what they actually said, and still honours a per-app language
+  /// override — macOS applies one by rewriting the app's own `AppleLanguages`,
+  /// which is exactly what `Locale.preferredLanguages` reads.
   private static func speaking(_ bundle: Bundle) -> Bundle {
     guard
       let language = Bundle.preferredLocalizations(
