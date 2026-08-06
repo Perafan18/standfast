@@ -54,8 +54,15 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist does not 
 # as `Standfast` with Info.plist unbound — and an app with no bundle identity
 # is one whose notifications `usernoted` drops without registering it or
 # saying anything. Nothing on screen, nothing in a log.
-codesign -dv "$APP" 2>&1 | grep -qx "Identifier=dev.standfast.app" \
-  || fail "the bundle is not signed as dev.standfast.app: notifications will be dropped"
+# Read into a variable rather than piped into `grep -q`: under `pipefail` a grep
+# that stops at its first match leaves codesign writing into a closed pipe, and
+# the SIGPIPE it dies of becomes the status of the whole pipeline — a check that
+# fails or passes depending on which process got there first.
+signature="$(codesign -dv "$APP" 2>&1 || true)"
+case "$signature" in
+  *"Identifier=dev.standfast.app"*) ;;
+  *) fail "the bundle is not signed as dev.standfast.app: notifications will be dropped" ;;
+esac
 for language in en es; do
   [ -d "$APP/Contents/Resources/$language.lproj" ] || fail "$language.lproj is missing"
   plist "CFBundleLocalizations" | grep -qx "    $language" \
