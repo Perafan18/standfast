@@ -78,7 +78,19 @@ echo "    $(printf '%s\n' "$signature" \
 # ends up pasted into a terminal scrollback.
 PROFILE="${NOTARY_PROFILE:-standfast-notary}"
 
-if xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
+if [ -n "${NOTARY_KEY:-}" ] && [ -n "${NOTARY_KEY_ID:-}" ] \
+  && [ -n "${NOTARY_ISSUER:-}" ]; then
+  # An App Store Connect API key, and the only path that needs no interactive
+  # Apple account behind it — which is what makes it the one CI can use. It is
+  # also the credential this team already has, minted for uploading iOS builds;
+  # notarytool takes the same key.
+  echo "==> Using the App Store Connect API key from the environment"
+  credentials=(
+    --key "$NOTARY_KEY"
+    --key-id "$NOTARY_KEY_ID"
+    --issuer "$NOTARY_ISSUER"
+  )
+elif xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
   echo "==> Using the keychain profile '$PROFILE'"
   credentials=(--keychain-profile "$PROFILE")
 elif [ -n "${APPLE_ID:-}" ] && [ -n "${TEAM_ID:-}" ] \
@@ -112,6 +124,12 @@ notarize.sh: no notarisation credentials.
 
   Or, for a machine where no keychain profile can be stored, export
   APPLE_ID, TEAM_ID and APP_SPECIFIC_PASSWORD instead.
+
+  For CI, prefer an App Store Connect API key over either: it needs no
+  interactive Apple account and nothing is stored on the machine. Export
+  NOTARY_KEY (path to the AuthKey_XXXX.p8), NOTARY_KEY_ID and NOTARY_ISSUER.
+  The key is minted at App Store Connect -> Users and Access -> Integrations,
+  and the same key that uploads builds also notarises.
 EOF
   exit 1
 fi
