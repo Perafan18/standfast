@@ -1,0 +1,129 @@
+import Foundation
+import RunnerKit
+import Testing
+
+@testable import Standfast
+
+/// Builds the real scan/apply path while keeping every external or destructive
+/// dependency inert. The filesystem reader remains real: it is the boundary
+/// these regressions exercise.
+@MainActor
+private func diagnosticsModel(
+  _ sandbox: FleetSandbox, notifications: NotificationSettings,
+  sleep: SleepGuard
+) -> RunnerFleetModel {
+  RunnerFleetModel(
+    discover: sandbox.discover, resolver: sandbox.resolver,
+    controller: ServiceController(commandRunner: RecordingCommandRunner(), settleDelay: 0),
+    notifications: notifications, sleep: sleep,
+    housekeeping: HousekeepingModel(
+      housekeeper: Housekeeper(files: DiagnosticsUntouchableFiles()),
+      confirmation: DiagnosticsRefusingConfirmation(), probe: { _ in .busy }),
+    versions: sandbox.versions, releases: sandbox.releases,
+    opener: FakeURLOpener(), probeDelay: 0, refreshInterval: nil)
+}
+
+@MainActor
+private func enabledNotifications() async -> (
+  NotificationSettings, FakeNotificationDelivery
+) {
+  let delivery = FakeNotificationDelivery()
+  let settings = NotificationSettings(delivery: delivery, defaults: scratchDefaults())
+  for kind in NotificationKind.allCases { settings.setEnabled(kind, true) }
+  await settings.quiesce()
+  return (settings, delivery)
+}
+
+/// Replaces `_diag` with something FileManager cannot enumerate, retaining the
+/// original directory for an explicit recovery later in the test.
+private struct SuspendedDiagnostics {
+  let diagnostics: URL
+  let parked: URL
+
+  init(runnerDirectory: URL) throws {
+    diagnostics = runnerDirectory.appendingPathComponent("_diag")
+    parked = runnerDirectory.appendingPathComponent("_diag-parked")
+    try FileManager.default.moveItem(at: diagnostics, to: parked)
+    try Data("temporarily unavailable".utf8).write(to: diagnostics)
+  }
+
+  func restore() throws {
+    try FileManager.default.removeItem(at: diagnostics)
+    try FileManager.default.moveItem(at: parked, to: diagnostics)
+  }
+}
+
+@MainActor
+private struct DiagnosticsRefusingConfirmation: CleanupConfirming {
+  func confirm(_ prompt: CleanupPrompt) -> Bool { false }
+}
+
+private struct DiagnosticsUntouchableFiles: DestructiveFileOperations {
+  func createDirectory(at url: URL) throws {}
+  func move(_ url: URL, to destination: URL) throws {}
+  func remove(_ url: URL) throws {}
+}
+
+@Test @MainActor func anInconclusiveRemoteReadAndUnavailableDiagnosticsKeepSleepHeld()
+  async throws
+{
+  // A missing GitHub answer cannot end a job, and neither can a directory that
+  // failed to answer. The last observed running line remains the only positive
+  // evidence available, so releasing the power assertion here risks sleeping
+  // through the build that assertion exists to protect.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  box.set(remote: .failure(.noAnswer))
+  let activity = FakeSleepPreventer()
+  let sleep = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleep.setEnabled(true)
+  let (notifications, _) = await enabledNotifications()
+  let fleet = diagnosticsModel(box, notifications: notifications, sleep: sleep)
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  let suspended = try SuspendedDiagnostics(runnerDirectory: directory)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.unknown(.noAnswer)))
+  #expect(fleet.snapshots[0].jobs.running?.name == "testflight")
+  #expect(activity.isHeld)
+  #expect(activity.ended == 0)
+
+  try suspended.restore()
+}
+
+@Test @MainActor func recoveringDiagnosticsDoesNotRepeatABaselinedFailure() async throws {
+  // The failed job predates monitoring and is baselined on the first scan. A
+  // temporary listing error must not lower that watermark to nil; otherwise
+  // the same old failure looks new when the directory answers again.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: "2026-08-05 20:38:59Z", result: "Failed")
+  box.set(remote: .failure(.noAnswer))
+  let (notifications, delivery) = await enabledNotifications()
+  let sleep = SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults())
+  let fleet = diagnosticsModel(box, notifications: notifications, sleep: sleep)
+  await fleet.quiesce()
+  #expect(delivery.posted.isEmpty)
+
+  let suspended = try SuspendedDiagnostics(runnerDirectory: directory)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(delivery.posted.isEmpty)
+
+  try suspended.restore()
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].jobs.records.map(\.name) == ["testflight"])
+  #expect(delivery.posted.isEmpty)
+}

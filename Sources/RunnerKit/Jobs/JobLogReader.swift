@@ -90,6 +90,13 @@ public struct JobLogReader: Sendable {
 
   private var cache: Cache?
 
+  /// A successful empty listing is evidence that the history is gone. A
+  /// failed listing is no evidence about the directory's contents at all.
+  private enum LogListing {
+    case available([URL])
+    case unavailable
+  }
+
   public init() {}
 
   /// The log the listener had open at the last read, and nil until something
@@ -113,7 +120,15 @@ public struct JobLogReader: Sendable {
   ///
   /// - Parameter directory: the runner's `_diag`.
   public mutating func read(diagnosticsIn directory: URL) -> JobHistory {
-    let logs = Self.listenerLogs(in: directory)
+    let logs: [URL]
+    switch Self.listenerLogs(in: directory) {
+    case .available(let listed): logs = listed
+    case .unavailable:
+      // A transient permissions, volume or filesystem error cannot prove that
+      // jobs ended or logs disappeared. Preserve both the last history and the
+      // offset needed to resume incrementally when `_diag` answers again.
+      return history()
+    }
     guard let active = logs.last else {
       // No listener has ever run here, or `_diag` has been cleared out. Either
       // way there is no history, and holding on to the one from before would
@@ -271,18 +286,32 @@ public struct JobLogReader: Sendable {
 
   // MARK: - Finding the logs
 
-  static func listenerLogs(in directory: URL) -> [URL] {
-    let entries =
-      (try? FileManager.default.contentsOfDirectory(
-        at: directory, includingPropertiesForKeys: nil)) ?? []
-    return
+  private static func listenerLogs(in directory: URL) -> LogListing {
+    let entries: [URL]
+    do {
+      entries = try FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: nil)
+    } catch {
+      let failure = error as NSError
+      // A runner directory can disappear between discovery and this read. That
+      // is confirmed absence, not an outage, and retains the established
+      // behavior of presenting no history for a missing `_diag`.
+      if failure.domain == NSCocoaErrorDomain,
+        failure.code == CocoaError.Code.fileReadNoSuchFile.rawValue
+          || failure.code == CocoaError.Code.fileNoSuchFile.rawValue
+      {
+        return .available([])
+      }
+      return .unavailable
+    }
+    return .available(
       entries
-      .filter { $0.lastPathComponent.hasPrefix(logPrefix) && $0.pathExtension == "log" }
-      // Sorted by name, not by modification date. The name carries the UTC
-      // instant the listener started, fixed-width so it sorts as text, and it
-      // is written once and never touched again — where an mtime is rewritten
-      // by anything that copies the directory, a backup restore included.
-      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        .filter { $0.lastPathComponent.hasPrefix(logPrefix) && $0.pathExtension == "log" }
+        // Sorted by name, not by modification date. The name carries the UTC
+        // instant the listener started, fixed-width so it sorts as text, and it
+        // is written once and never touched again — where an mtime is rewritten
+        // by anything that copies the directory, a backup restore included.
+        .sorted { $0.lastPathComponent < $1.lastPathComponent })
   }
 
   private static func size(of url: URL) -> Int? {

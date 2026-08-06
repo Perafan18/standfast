@@ -57,6 +57,37 @@ private func job(
     reader.read(diagnosticsIn: box.root.appendingPathComponent("gone")) == .empty)
 }
 
+@Test func aListingFailurePreservesHistoryUntilAnEmptyDirectoryIsConfirmed() throws {
+  // A failed listing is not evidence that the files disappeared. Park the real
+  // directory and put a regular file at `_diag`: this makes
+  // `contentsOfDirectory` fail deterministically without depending on the
+  // account running the suite honoring chmod restrictions.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  try box.writeLog(
+    startedAt: "20260805-173458",
+    job("testflight", from: "2026-08-05 20:36:14Z", to: "2026-08-05 20:38:59Z"))
+  var reader = JobLogReader()
+  #expect(reader.read(diagnosticsIn: box.diagnostics).records.map(\.name) == ["testflight"])
+
+  let parked = box.root.appendingPathComponent("_diag-parked")
+  try FileManager.default.moveItem(at: box.diagnostics, to: parked)
+  try Data("temporarily unavailable".utf8).write(to: box.diagnostics)
+
+  let unavailable = reader.read(diagnosticsIn: box.diagnostics)
+  #expect(unavailable.records.map(\.name) == ["testflight"])
+  #expect(unavailable.records.map(\.result) == [.succeeded])
+  #expect(reader.activeLog?.lastPathComponent == "Runner_20260805-173458-utc.log")
+
+  // An actual, successfully listed empty directory is different evidence: the
+  // logs really are gone, so stale history and its active-log pointer must go.
+  try FileManager.default.removeItem(at: box.diagnostics)
+  try FileManager.default.createDirectory(
+    at: box.diagnostics, withIntermediateDirectories: true)
+  #expect(reader.read(diagnosticsIn: box.diagnostics) == .empty)
+  #expect(reader.activeLog == nil)
+}
+
 @Test func theWorkerLogsBesideItAreNeverOpened() throws {
   // They are ten times the size, there is one per job, and the only thing this
   // needs from them is nothing. A filter that matched `*.log` would multiply
