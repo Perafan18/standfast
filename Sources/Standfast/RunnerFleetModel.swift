@@ -403,7 +403,11 @@ final class RunnerFleetModel: ObservableObject {
     // runner the settling window is covering for cannot be announced as
     // disconnected while the menu says it is starting.
     notifications.deliver(watcher.events(in: snapshots))
-    sleep.update(busy: snapshots.contains { $0.display.resolvedState == .busy })
+    sleep.update(
+      busy: snapshots.contains {
+        $0.display.resolvedState == .busy
+          || ($0.display.resolvedState != .stopped && $0.jobs.running != nil)
+      })
   }
 
   /// Whether some runner's job has already taken longer than that job usually

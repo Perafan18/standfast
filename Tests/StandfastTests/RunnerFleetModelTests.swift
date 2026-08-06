@@ -852,6 +852,70 @@ private func listening(
   #expect(activity.ended == 1)
 }
 
+@Test @MainActor func runningLogKeepsTheMacAwakeWhenGitHubSaysDisconnected()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: false, busy: false))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.disconnected))
+  #expect(fleet.snapshots[0].row.progress == nil)
+  #expect(activity.isHeld)
+}
+
+@Test @MainActor func runningLogKeepsTheMacAwakeWhenGitHubStateIsUnknown()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  box.set(remote: .failure(.noAnswer))
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.unknown(.noAnswer)))
+  #expect(fleet.snapshots[0].row.progress == nil)
+  #expect(activity.isHeld)
+}
+
+@Test @MainActor func runningLogDoesNotKeepTheMacAwakeWhenServiceIsStopped()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.stopped))
+  #expect(!activity.isHeld)
+}
+
 @Test @MainActor func aMacWithNoRunnersLeftIsNotHeldAwakeForever() async throws {
   // Uninstall the runner mid-build and the snapshots go empty, which is a fleet
   // that is not busy — but only if the answer is read from the scan rather than
