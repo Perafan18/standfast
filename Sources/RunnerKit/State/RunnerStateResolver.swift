@@ -87,4 +87,48 @@ public struct RunnerStateResolver: Sendable {
       return .unknown(.noAnswer)
     }
   }
+
+  /// The same verdict, with nothing taken from launchd on trust — for the one
+  /// caller that is about to delete four gigabytes.
+  ///
+  /// `blockingState(for:)` lets the local probe settle `.stopped` alone, and
+  /// for the menu that is right, for the two reasons written above it. For a
+  /// deletion it is wrong, and `RunnerState.stopped`'s own wording says why:
+  /// "the LaunchAgent is not running" is a statement about launchd, not about
+  /// the runner process. `svc.sh stop; ./run.sh` is GitHub's documented
+  /// interactive mode and the ordinary way to debug a failing job — the plist
+  /// stays on disk, so this app still lists the runner, `launchctl list` no
+  /// longer names it, and there is a build in flight behind a verdict of
+  /// `.stopped`. Deleting `_actions` under it is the worse half: the runner
+  /// resolves each `uses:` step out of `_work/_actions` as it reaches it, so
+  /// the rename breaks the next step rather than costing a cache miss.
+  ///
+  /// So GitHub is asked first here, and `.stopped` comes back only when both
+  /// sources agree there is nothing running. The extra API call is spent once
+  /// per click rather than once per runner per refresh, which is the whole of
+  /// why the other one does it the other way round.
+  public func blockingConfirmedState(for runner: DiscoveredRunner) -> RunnerState {
+    let remote: RemoteStatus
+    do {
+      remote = try github.blockingRunnerStatus(id: runner.agentId, scope: runner.scope)
+    } catch let failure as GitHubError {
+      return .unknown(UnknownReason(failure))
+    } catch {
+      return .unknown(.noAnswer)
+    }
+
+    guard remote.online else {
+      // Offline on its own is the shape of a runner grinding through a build
+      // behind a dead connection, so the local probe has to agree there is no
+      // process — and it has to say so. "I could not tell" is not a licence to
+      // delete anything. That GitHub answered at all is what makes this sound:
+      // a runner working through a job on a reachable network is online, so
+      // offline plus no local process leaves nothing that could be building.
+      guard let running = isServiceRunning(runner) else {
+        return .unknown(.serviceStateUnreadable)
+      }
+      return running ? .disconnected : .stopped
+    }
+    return remote.busy ? .busy : .idle
+  }
 }

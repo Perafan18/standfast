@@ -204,7 +204,14 @@ extension MaintenanceSection {
     // over no rows at all would read as a runner using no disk, which is the
     // opposite of what happened.
     guard measurement.report != nil else { return L10n.diskUnavailable }
-    let elapsed = now.timeIntervalSince(measurement.readAt)
+    return measuredLine(ago: now.timeIntervalSince(measurement.readAt))
+  }
+
+  /// How old a measurement is, as the menu and the confirmation both write it.
+  /// Shared rather than written twice: the dialogue is the last thing between a
+  /// click and four gigabytes, and a second copy is how the two come to
+  /// disagree about the age of one number.
+  static func measuredLine(ago elapsed: TimeInterval) -> String {
     guard elapsed >= FleetStatus.justNow else { return L10n.diskMeasuredJustNow }
     return L10n.diskMeasuredAgo(DurationText.coarse(elapsed))
   }
@@ -239,8 +246,16 @@ struct CleanupPrompt: Equatable {
 }
 
 extension CleanupPrompt {
+  /// - Parameter measuredAgo: how old the size below is. Said out loud because
+  ///   it can be any age at all: nothing measures on a timer and nothing expires
+  ///   a measurement, so the directory about to go may have gained gigabytes
+  ///   since — a build fills `_tool` — and the deletion works against the
+  ///   directory as it is rather than as it was read. The whole set goes either
+  ///   way, so what the number needs is not to be fresher but to say when it was
+  ///   taken.
   static func cleaning(
-    _ target: CleanupTarget, in runner: DiscoveredRunner, bytes: Int64
+    _ target: CleanupTarget, in runner: DiscoveredRunner, bytes: Int64,
+    measuredAgo: TimeInterval
   ) -> CleanupPrompt {
     CleanupPrompt(
       // The path, not the folder name. `_tool` does not say whose, and this app
@@ -249,6 +264,7 @@ extension CleanupPrompt {
         PathText.abbreviated(target.directory(in: runner))),
       message: [
         L10n.cleanupConfirmBody(ByteText.short(bytes), runner.displayName),
+        MaintenanceSection.measuredLine(ago: measuredAgo),
         effect(of: target),
       ].joined(separator: "\n\n"),
       confirm: L10n.cleanupDelete,

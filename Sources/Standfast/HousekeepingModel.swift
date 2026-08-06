@@ -29,21 +29,35 @@ struct AlertConfirmation: CleanupConfirming {
     alert.informativeText = prompt.message
     alert.addButton(withTitle: prompt.confirm)
     alert.addButton(withTitle: prompt.cancel)
-    // Return cancels. `NSAlert` makes the first button the default, and the
-    // first button has to be the destructive one because macOS draws it on the
-    // right — so the key equivalents are swapped back by hand. Somebody
-    // dismissing a stack of windows with the Return key must not delete four
-    // gigabytes on the way past.
-    alert.buttons.first?.keyEquivalent = ""
-    alert.buttons.last?.keyEquivalent = "\r"
+    alert.buttons.first?.keyEquivalent = CleanupKeys.destructive
+    alert.buttons.last?.keyEquivalent = CleanupKeys.cancel
     return alert.runModal() == .alertFirstButtonReturn
   }
 }
 
-/// What the last action had to say, and which runner it was about.
-struct HousekeepingReport: Equatable {
-  let label: String
-  let text: String
+/// Which keys the delete dialogue answers to.
+///
+/// Its own value because `AlertConfirmation` has no seam a test can reach — it
+/// opens a modal window, and a suite that reached it would hang on whatever
+/// machine ran it — while this is the whole of what that unit decides.
+///
+/// `NSAlert` hands the *first* button the Return key, and the first button has
+/// to be the destructive one because macOS draws it on the right. So Return
+/// would delete four gigabytes for somebody clearing a stack of windows with
+/// it, and the key comes off. It does not go on Cancel either, which is what
+/// this used to do: `NSAlert` gives Cancel the Escape key by matching its
+/// title, so overwriting it left the dialogue with no way out at all — measured
+/// as `[("Delete", ""), ("Cancel", "\r")]`, no button carrying `\u{1B}`. In
+/// Spanish it was worse: the title match is against the English word, so
+/// "Cancelar" was never given Escape in the first place.
+///
+/// Escape is set by hand for that reason, and Return is left doing nothing. A
+/// button carries one key equivalent, and of the two this is the one worth
+/// having: Escape is what every other dialogue on the machine answers to, and
+/// the property that matters is only ever that Return does not delete.
+enum CleanupKeys {
+  static let destructive = ""
+  static let cancel = "\u{1B}"
 }
 
 /// Measures what a runner is costing this Mac, and deletes the parts of that
@@ -57,13 +71,16 @@ final class HousekeepingModel: ObservableObject {
   @Published private(set) var measurements: [String: DiskMeasurement] = [:]
   /// Runners with a measurement or a deletion in flight, by label.
   @Published private(set) var working: Set<String> = []
-  /// One report for the whole model rather than one per runner, because only
-  /// one action runs at a time — but it carries the label of the runner it is
-  /// about, and nothing reads it without one. The submenu is drawn once per
-  /// runner, so "nothing was deleted: build-mac picked up work" under
-  /// build-intel's Maintenance menu is a sentence about the wrong machine, on
-  /// exactly the two-runner Mac this app is built for.
-  @Published private var report: HousekeepingReport?
+  /// What the last action on each runner had to say, by label.
+  ///
+  /// One per runner rather than one for the model, because `working` is indexed
+  /// by runner and so two of them can be acting at once — on exactly the
+  /// two-runner Mac this app is built for, where clearing one runner's four
+  /// gigabytes takes long enough to go and clear the other's. A single slot let
+  /// whichever finished last overwrite the other, and what it overwrote could
+  /// be a refusal: the one outcome the user asked for, agreed to, and did not
+  /// get.
+  @Published private var reports: [String: String] = [:]
 
   private let usage: DiskUsage
   private let housekeeper: Housekeeper
@@ -77,18 +94,16 @@ final class HousekeepingModel: ObservableObject {
 
   /// - Parameters:
   ///   - probe: how this asks whether a runner is safe to touch *now*. Blocking
-  ///     on purpose — it is `launchctl` and a call to GitHub — and it is called
-  ///     from the same thread as the deletion, so that nothing at all can
-  ///     happen between the answer and the rename.
+  ///     on purpose — it is a call to GitHub and possibly `launchctl` — and it
+  ///     is called from the same thread as the deletion, so that nothing at all
+  ///     can happen between the answer and the rename.
   ///   - clock: read for the age of a measurement, which is the one number here
   ///     nothing refreshes for the user.
   init(
     usage: DiskUsage = DiskUsage(),
     housekeeper: Housekeeper = Housekeeper(),
     confirmation: any CleanupConfirming = AlertConfirmation(),
-    probe: @escaping @Sendable (DiscoveredRunner) -> RunnerState = {
-      RunnerStateResolver().blockingState(for: $0)
-    },
+    probe: @escaping @Sendable (DiscoveredRunner) -> RunnerState,
     retention: DiagnosticsRetention = .standard,
     clock: @escaping @Sendable () -> Date = Date.init
   ) {
@@ -100,10 +115,38 @@ final class HousekeepingModel: ObservableObject {
     self.clock = clock
   }
 
+  /// The one the app builds, which is the one that decides *which* of the
+  /// resolver's two verdicts guards a deletion.
+  ///
+  /// Its own entry point rather than a default value on `probe:` above, because
+  /// a default argument is wiring no test can reach — and this is the single
+  /// line the whole safety of the file rests on.
+  ///
+  /// `blockingConfirmedState` and never `blockingState`. That one lets
+  /// `launchctl` settle `.stopped` alone, and `.stopped` is a state this app is
+  /// willing to delete four gigabytes in. A runner started by hand with
+  /// `./run.sh` — GitHub's own documented way to debug a failing job — leaves
+  /// the LaunchAgent plist on disk, so this app still lists it, and takes the
+  /// label out of `launchctl list`. It would be mid-build behind a verdict that
+  /// says nothing is running.
+  convenience init(
+    usage: DiskUsage = DiskUsage(),
+    housekeeper: Housekeeper = Housekeeper(),
+    confirmation: any CleanupConfirming = AlertConfirmation(),
+    resolver: RunnerStateResolver = RunnerStateResolver(),
+    retention: DiagnosticsRetention = .standard,
+    clock: @escaping @Sendable () -> Date = Date.init
+  ) {
+    self.init(
+      usage: usage, housekeeper: housekeeper, confirmation: confirmation,
+      probe: resolver.blockingConfirmedState, retention: retention, clock: clock)
+  }
+
   /// Drops what is known about runners that are no longer installed, so an
   /// uninstalled runner's numbers do not sit in memory for the life of the app.
   func keepOnly(_ labels: Set<String>) {
     measurements = measurements.filter { labels.contains($0.key) }
+    reports = reports.filter { labels.contains($0.key) }
   }
 
   func measurement(for runner: DiscoveredRunner) -> DiskMeasurement? {
@@ -113,10 +156,12 @@ final class HousekeepingModel: ObservableObject {
   func isWorking(on runner: DiscoveredRunner) -> Bool { working.contains(runner.label) }
 
   /// Anything the last action has to say about *this* runner, and nil for every
-  /// other one. The only way the report is read.
-  func notice(for runner: DiscoveredRunner) -> String? {
-    report?.label == runner.label ? report?.text : nil
-  }
+  /// other one. The only way a report is read.
+  ///
+  /// The submenu is drawn once per runner, so "nothing was deleted: build-mac
+  /// picked up work" under build-intel's Maintenance menu is a sentence about
+  /// the wrong machine.
+  func notice(for runner: DiscoveredRunner) -> String? { reports[runner.label] }
 
   /// The one way the menu acts, so the view has nothing to wire up wrongly.
   ///
@@ -173,7 +218,8 @@ final class HousekeepingModel: ObservableObject {
 
   private func clean(_ target: CleanupTarget, on snapshot: RunnerSnapshot) {
     let runner = snapshot.runner
-    guard let report = measurements[runner.label]?.report else { return }
+    guard let measurement = measurements[runner.label], let report = measurement.report
+    else { return }
     let bytes = report.bytes(of: target.kind)
     // Gated on this runner's own state, never on the fleet's, and checked here
     // as well as in the view: a dialogue about deleting the cache of a runner
@@ -181,14 +227,17 @@ final class HousekeepingModel: ObservableObject {
     guard bytes > 0, !working.contains(runner.label),
       snapshot.display.allowsHousekeeping
     else { return }
-    guard confirmation.confirm(.cleaning(target, in: runner, bytes: bytes)) else { return }
+    let prompt = CleanupPrompt.cleaning(
+      target, in: runner, bytes: bytes,
+      measuredAgo: clock().timeIntervalSince(measurement.readAt))
+    guard confirmation.confirm(prompt) else { return }
 
     let housekeeper = housekeeper
     let probe = probe
     perform(on: runner, failurePath: target.directory(in: runner)) {
       // Everything up to the rename happens before the check inside
       // `blockingClean`, and the check is the last thing before it.
-      try? housekeeper.blockingClean(target, in: runner) {
+      try housekeeper.blockingClean(target, in: runner) {
         probe(runner).allowsHousekeeping
       }
     }
@@ -208,36 +257,46 @@ final class HousekeepingModel: ObservableObject {
     let probe = probe
     let now = clock()
     perform(on: runner, failurePath: runner.diagnosticsDirectory) {
-      // Re-planned in there, against the directory as it is at that moment
-      // rather than against the listing the menu was drawn from. A listener
-      // that rotated in between would otherwise leave the plan naming a file
-      // that has since become the active log.
+      // Re-planned in there against the directory as it is at that moment, and
+      // held to what the user agreed to. Re-planning is what keeps a file that
+      // has since become the active log out of the sweep; the plan going in is
+      // what keeps the sweep from taking more than the number in the dialogue,
+      // which was drawn from a measurement of any age at all.
       housekeeper.blockingRotateDiagnostics(
-        in: runner, retention: retention, now: now,
+        in: runner, retention: retention, now: now, agreedTo: plan,
         isStillSafe: { probe(runner).allowsHousekeeping })
     }
   }
 
   /// - Parameters:
   ///   - work: blocking, and run off both pools.
-  ///   - failurePath: what to name in the menu when it did not work, which by
-  ///     the time anything can fail means a directory this app cannot write to.
+  ///   - failurePath: what to name in the menu when it did not work and did not
+  ///     say which directory it was about.
   private func perform(
     on runner: DiscoveredRunner, failurePath: URL,
-    _ work: @escaping @Sendable () -> HousekeepingOutcome?
+    _ work: @escaping @Sendable () throws -> HousekeepingOutcome
   ) {
     let label = runner.label
-    report = nil
+    reports[label] = nil
     working.insert(label)
     let name = runner.displayName
     run {
-      let outcome = await offCooperativePool(work)
+      let answer = await offCooperativePool { () -> (HousekeepingOutcome?, URL) in
+        do { return (try work(), failurePath) } catch let failure as HousekeepingFailure {
+          // By the time a delete can fail the rename has already happened, so
+          // the directory the user was told about is gone. Naming it would send
+          // them to fix a permission on a path that no longer exists.
+          return (nil, failure.directory)
+        } catch {
+          return (nil, failurePath)
+        }
+      }
       self.working.remove(label)
-      self.report = Self.notice(for: outcome, runner: name, path: failurePath)
-        .map { HousekeepingReport(label: label, text: $0) }
+      self.reports[label] = Self.notice(
+        for: answer.0, runner: name, path: answer.1)
       // The numbers on screen now describe a directory that is not there any
       // more, and the next thing the user does is look at them.
-      if outcome == .done { self.measure(runner) }
+      if answer.0 == .done { self.measure(runner) }
     }
   }
 

@@ -58,8 +58,15 @@ private func log(
   // reads a real `_diag` on both sides of a sweep instead of restating the
   // arithmetic.
   #expect(DiagnosticsRetention.standard.listenerLogsKept == 25)
-  #expect(
-    DiagnosticsRetention.standard.listenerLogsKept == JobLogReader.retainedListenerLogs)
+  // And only the literal. Restating it as `JobLogReader.maxFiles + 1` — or as
+  // `retainedListenerLogs`, which this used to do — cannot fail on its own:
+  // both sides evaluate to 25, so a floor that stopped tracking the reader and
+  // became a copied constant satisfies either form. There is no runtime
+  // assertion that tells a derivation from a coincidence, and a line that
+  // cannot fail is worse than no line, because it reads like cover. What the
+  // literal above does catch is the half that matters: moving the reader's
+  // reach without moving the floor fails here rather than in the menu a
+  // fortnight later.
 }
 
 @Test func aWorkerLogIsNotProtectedByTheListenerFloor() {
@@ -119,6 +126,60 @@ private func log(
   #expect(plan.bytes == 1000)
 }
 
+// MARK: - The order a sweep goes in
+
+@Test func logsWrittenAtTheSameInstantAreStillSweptInAFixedOrder() {
+  // `doomed` promises oldest first, so that a sweep interrupted halfway has
+  // done the useful half — and against equal dates `sorted(by:)` promises
+  // nothing at all, because it is not stable. That is not a made-up directory:
+  // a `_diag` copied or restored from a backup arrives with every modification
+  // date set to the copy. The plan is `Equatable` and travels into `@Published`
+  // state, where an order that reshuffles reads as a change.
+  let tied = (1...20).map {
+    log(String(format: "Worker_202601%02d-000000-utc.log", $0), daysOld: 400)
+  }
+  let retention = DiagnosticsRetention(keepFor: day, listenerLogsKept: 1)
+  let once = DiagnosticsRotation.plan(tied, retention: retention, now: now)
+  #expect(once.doomed == tied.map(\.url))
+  // And the same answer for the same directory handed over in another order,
+  // which is the only thing `contentsOfDirectory` ever promises.
+  #expect(
+    DiagnosticsRotation.plan(tied.reversed(), retention: retention, now: now) == once)
+}
+
+// MARK: - Holding a sweep to what was agreed to
+
+@Test func aSweepCanBeHeldToTheFilesSomebodyWasShown() {
+  // The confirmation names a count and a size taken from a measurement that
+  // nothing expires, and the sweep decides what leaves against the clock at the
+  // moment of the click. Those are two different sets, and the second is the
+  // bigger one on any runner that keeps writing logs.
+  let files = (1...6).map {
+    log(String(format: "Worker_202601%02d-000000-utc.log", $0), daysOld: Double(407 - $0))
+  }
+  let agreed = Set(files.prefix(2).map(\.url))
+  let plan = DiagnosticsRotation.plan(
+    files, retention: DiagnosticsRetention(keepFor: day, listenerLogsKept: 1), now: now,
+    limitedTo: agreed)
+
+  #expect(plan.doomed == files.prefix(2).map(\.url))
+  // Sized off this listing rather than off the older one, so the number is
+  // exact and not merely smaller.
+  #expect(plan.bytes == 2048)
+}
+
+@Test func agreementCannotSaveAFileThatHasBecomeTheActiveLog() {
+  // The limit is a ceiling and never a floor. A listener that rotated between
+  // the measurement and the click leaves the agreed plan naming a file the
+  // runner now has open, and re-planning here is the only thing that catches
+  // it.
+  let files = [log("Runner_20260101-000000-utc.log", daysOld: 400)]
+  let plan = DiagnosticsRotation.plan(
+    files, retention: DiagnosticsRetention(keepFor: 0, listenerLogsKept: 0), now: now,
+    limitedTo: Set(files.map(\.url)))
+  #expect(plan.isEmpty)
+}
+
 // MARK: - What the listing sees
 
 @Test func onlyLogFilesAreEverConsidered() throws {
@@ -134,6 +195,13 @@ private func log(
       withIntermediateDirectories: true)
   }
   try Data("{}".utf8).write(to: sandbox.diagnostics.appendingPathComponent("state.json"))
+  // And one named like a log, which is what the extension filter alone cannot
+  // keep out. Everything in a plan is handed to a recursive delete, so a
+  // directory that got in would take whatever is under it — the one thing the
+  // listing promises never to decide about.
+  try FileManager.default.createDirectory(
+    at: sandbox.diagnostics.appendingPathComponent("Runner_20260102-000000-utc.log"),
+    withIntermediateDirectories: true)
 
   let listing = DiagnosticsFile.listing(in: sandbox.diagnostics)
   #expect(

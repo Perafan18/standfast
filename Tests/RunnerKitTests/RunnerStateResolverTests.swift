@@ -300,3 +300,73 @@ private func currentQueueLabel() -> String {
   #expect(state == .stopped)
   #expect(recorder.questions.isEmpty)
 }
+
+// MARK: - The verdict something is about to delete four gigabytes on
+
+private func confirm(
+  localRunning: Bool?, remote: Result<RemoteStatus, GitHubError>
+) -> RunnerState {
+  RunnerStateResolver(
+    isServiceRunning: { _ in localRunning },
+    github: StubGitHub(result: remote, asked: StubGitHub.Recorder())
+  ).blockingConfirmedState(for: runner)
+}
+
+@Test func aRunnerStartedByHandIsNotReportedAsStoppedToTheThingThatDeletes() {
+  // The gap this exists to close. `svc.sh stop; ./run.sh` is GitHub's own
+  // documented way to debug a failing job: the LaunchAgent plist stays on disk
+  // so this app keeps listing the runner, and `launchctl list` no longer names
+  // it. `blockingState` settles that as `.stopped` without asking GitHub — and
+  // `.stopped` is a state this app deletes `_tool` and `_actions` in, under a
+  // build that is running.
+  let busy = Result<RemoteStatus, GitHubError>.success(
+    RemoteStatus(online: true, busy: true))
+  #expect(confirm(localRunning: false, remote: busy) == .busy)
+  #expect(!confirm(localRunning: false, remote: busy).allowsHousekeeping)
+  // And the same runner between jobs is safe, which is the whole point of
+  // asking rather than refusing outright.
+  #expect(confirm(localRunning: false, remote: .success(online)) == .idle)
+}
+
+@Test func aRunnerThatIsGenuinelyStoppedCanStillBeTidiedUp() {
+  // Both sources agreeing there is nothing there is the one way `.stopped`
+  // comes back — and it has to, because a stopped runner is the safest thing
+  // this app could ever be asked to clean up.
+  let offline = Result<RemoteStatus, GitHubError>.success(
+    RemoteStatus(online: false, busy: false))
+  #expect(confirm(localRunning: false, remote: offline) == .stopped)
+  #expect(confirm(localRunning: false, remote: offline).allowsHousekeeping)
+}
+
+@Test func nothingIsTidiedOnAVerdictNeitherSourceWouldStandBehind() {
+  let offline = Result<RemoteStatus, GitHubError>.success(
+    RemoteStatus(online: false, busy: false))
+  // Offline with the process still up is the shape of a Mac grinding through a
+  // build behind a dead connection.
+  #expect(confirm(localRunning: true, remote: offline) == .disconnected)
+  // And a local probe that could not tell settles nothing either way.
+  #expect(confirm(localRunning: nil, remote: offline) == .unknown(.serviceStateUnreadable))
+  for failure in [GitHubError.cliUnavailable, .notAuthenticated, .noAnswer] {
+    #expect(!confirm(localRunning: false, remote: .failure(failure)).allowsHousekeeping)
+  }
+}
+
+@Test func theCheapLocalProbeIsSkippedWhenGitHubHasAlreadyAnswered() {
+  // GitHub saying a runner is online settles it on its own: it is talking to
+  // the process, so whether launchd is the thing that started it changes
+  // nothing. Asking anyway would park a thread inside `launchctl` for an answer
+  // already known.
+  final class Counter: @unchecked Sendable {
+    var probes = 0
+  }
+  let counter = Counter()
+  let resolver = RunnerStateResolver(
+    isServiceRunning: { _ in
+      counter.probes += 1
+      return true
+    },
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()))
+
+  #expect(resolver.blockingConfirmedState(for: runner) == .idle)
+  #expect(counter.probes == 0)
+}

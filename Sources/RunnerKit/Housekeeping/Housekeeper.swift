@@ -37,10 +37,27 @@ public enum HousekeepingOutcome: Equatable, Sendable {
   /// There was nothing there to delete. Not a failure — a tool cache that has
   /// already been cleared is the state the button was asking for.
   case nothingToDo
-  /// The runner had work by the time the last check ran, so nothing was
-  /// touched. Its own case rather than an error: refusing is this type working
-  /// correctly, and the user has to be told which of the two happened.
+  /// The runner had work by the time the last check ran, so its directory was
+  /// not touched. Its own case rather than an error: refusing is this type
+  /// working correctly, and the user has to be told which of the two happened.
+  ///
+  /// A statement about the runner's directory and not about the whole of
+  /// `_work`: a refusal still clears this app's own grave, which holds nothing
+  /// but what a previous run of this app left behind. See `blockingClean`.
   case refused
+}
+
+/// A write the filesystem refused, and the directory it refused it about.
+///
+/// Which directory is the whole of what the menu has to say — by the time
+/// anything here can fail, what is left is a permission on one folder — and it
+/// cannot be worked out from outside. A delete that fails does so *after* the
+/// rename, so the directory the user was told about is not there any more, and
+/// naming it would point them at a path that no longer exists.
+public struct HousekeepingFailure: Error, Equatable, Sendable {
+  public let directory: URL
+
+  public init(directory: URL) { self.directory = directory }
 }
 
 /// Deletes the parts of a runner's directory that can be deleted, and refuses
@@ -87,41 +104,71 @@ public struct Housekeeper: Sendable {
   public func blockingClean(
     _ target: CleanupTarget, in runner: DiscoveredRunner, isStillSafe: () -> Bool
   ) throws -> HousekeepingOutcome {
-    let victim = target.directory(in: runner)
-    guard FileManager.default.fileExists(atPath: victim.path) else { return .nothingToDo }
-
     let trash = runner.workDirectory.appendingPathComponent(Self.trashFolder)
-    // Anything still in there is from a previous run that was killed between
-    // the rename and the delete. Nobody else writes here, so it is ours to
-    // clear, and clearing it now is the only thing that ever will.
+    // Anything still in there is from an earlier run that did not finish
+    // emptying it — quit, killed, or stopped by a file it could not unlink.
+    // Nobody else writes here, so it is ours to clear, and clearing it is the
+    // only thing that ever will.
+    //
+    // Above the guard below, which is the whole point of where this line sits.
+    // A delete that failed halfway has already renamed the directory away, so
+    // every later call finds nothing to clean and returns before it reaches
+    // here — and those gigabytes are then reported under "Other runner files"
+    // with no button in the menu that can reach them again.
     sweepLeftovers(in: trash)
-    try files.createDirectory(at: trash)
+
+    let victim = target.directory(in: runner)
+    guard FileManager.default.fileExists(atPath: victim.path) else {
+      removeIfEmpty(trash)
+      return .nothingToDo
+    }
+
+    // `_work` and not the trash: what could not be written to is the directory
+    // the trash was going to be made in, and sending the user to look at a
+    // hidden folder that does not exist helps nobody.
+    try attempting(runner.workDirectory) { try files.createDirectory(at: trash) }
     let grave = trash.appendingPathComponent(UUID().uuidString)
 
     // Everything above this line is preparation, and it is above the check for
     // that reason: what follows the check is one syscall.
-    guard isStillSafe() else { return .refused }
-    try files.move(victim, to: grave)
-    try files.remove(grave)
-    // Only when it is ours alone to remove. Two cleanups running at once would
-    // otherwise let the first one finish by deleting the second one's grave.
-    if (try? FileManager.default.contentsOfDirectory(atPath: trash.path))?.isEmpty == true {
-      try? files.remove(trash)
+    guard isStillSafe() else {
+      // The empty folder this was about to delete through has no business
+      // outliving the decision not to. Leaving it behind turns a refusal the
+      // user is told changed nothing into a directory the next measurement
+      // reports to them under "Other runner files".
+      removeIfEmpty(trash)
+      return .refused
     }
+    try attempting(victim) { try files.move(victim, to: grave) }
+    try attempting(trash) { try files.remove(grave) }
+    removeIfEmpty(trash)
     return .done
   }
 
   /// Blocks the calling thread on a directory listing and a handful of
   /// unlinks. Same rule as `blockingClean`.
   ///
-  /// - Parameter now: the moment the sweep is being asked for, which is what
-  ///   ages the files.
+  /// - Parameters:
+  ///   - now: the moment the sweep is being asked for, which is what ages the
+  ///     files.
+  ///   - agreedTo: the plan the user was shown, or nil to sweep whatever the
+  ///     fresh one names. What they agreed to is a ceiling and never a floor:
+  ///     the plan behind a confirmation comes out of a measurement of unbounded
+  ///     age — there is no expiry on one, deliberately, because `du` is too
+  ///     expensive to run on a timer — and `_diag` gains about ten worker logs
+  ///     a day, so a fortnight-old number understates by a hundred and forty
+  ///     files. Re-planning has to stay here, because that is what keeps the
+  ///     log the listener has open out of the sweep; intersecting the two is
+  ///     what keeps the count in the dialogue true as well.
   @discardableResult
   public func blockingRotateDiagnostics(
     in runner: DiscoveredRunner, retention: DiagnosticsRetention = .standard,
-    now: Date, isStillSafe: () -> Bool
+    now: Date, agreedTo agreed: DiagnosticsRotationPlan? = nil,
+    isStillSafe: () -> Bool
   ) -> HousekeepingOutcome {
-    let plan = Self.rotationPlan(for: runner, retention: retention, now: now)
+    let plan = Self.rotationPlan(
+      for: runner, retention: retention, now: now,
+      limitedTo: agreed.map { Set($0.doomed) })
     guard !plan.isEmpty else { return .nothingToDo }
     guard isStillSafe() else { return .refused }
     // Unlinked one at a time rather than moved aside first. Each unlink is
@@ -136,11 +183,12 @@ public struct Housekeeper: Sendable {
   }
 
   public static func rotationPlan(
-    for runner: DiscoveredRunner, retention: DiagnosticsRetention = .standard, now: Date
+    for runner: DiscoveredRunner, retention: DiagnosticsRetention = .standard,
+    now: Date, limitedTo allowed: Set<URL>? = nil
   ) -> DiagnosticsRotationPlan {
     DiagnosticsRotation.plan(
       DiagnosticsFile.listing(in: runner.diagnosticsDirectory),
-      retention: retention, now: now)
+      retention: retention, now: now, limitedTo: allowed)
   }
 
   private func sweepLeftovers(in trash: URL) {
@@ -148,6 +196,27 @@ public struct Housekeeper: Sendable {
       (try? FileManager.default.contentsOfDirectory(
         at: trash, includingPropertiesForKeys: nil)) ?? []
     for entry in entries { try? files.remove(entry) }
+  }
+
+  /// Removes the trash only when it is ours alone to remove. Two cleanups
+  /// running at once would otherwise let the first one finish by deleting the
+  /// second one's grave.
+  ///
+  /// Never a failure: an empty hidden folder left behind costs a row in a
+  /// breakdown, and the action the user asked for has already happened.
+  private func removeIfEmpty(_ trash: URL) {
+    // A listing that could not be read leaves it alone: a directory nothing can
+    // look inside is not one to delete recursively.
+    guard let left = try? FileManager.default.contentsOfDirectory(atPath: trash.path),
+      left.isEmpty
+    else { return }
+    try? files.remove(trash)
+  }
+
+  /// Names the directory a failed write was about, so the menu can point at the
+  /// one thing the user can fix.
+  private func attempting(_ directory: URL, _ write: () throws -> Void) throws {
+    do { try write() } catch { throw HousekeepingFailure(directory: directory) }
   }
 }
 

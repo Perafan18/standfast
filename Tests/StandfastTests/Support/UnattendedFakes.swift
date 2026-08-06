@@ -106,12 +106,14 @@ func snapshot(
 /// a disk without there being one.
 func measured(
   toolCache: Int64 = 0, actionCache: Int64 = 0, checkout: Int64 = 0, logs: Int64 = 0,
+  temporary: Int64 = 0, other: Int64 = 0,
   rotatable: Int64 = 0, rotatableCount: Int = 0,
   at readAt: Date = Date(timeIntervalSince1970: 1_785_962_174)
 ) -> DiskMeasurement {
   let named: [(String, DiskEntryKind, Int64)] = [
     ("_tool", .toolCache, toolCache), ("_actions", .actionCache, actionCache),
-    ("nest-rules-app", .checkout, checkout),
+    ("nest-rules-app", .checkout, checkout), ("_temp", .temporary, temporary),
+    ("_PipelineMapping", .other, other),
   ]
   return DiskMeasurement(
     report: DiskReport(

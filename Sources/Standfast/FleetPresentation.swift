@@ -219,7 +219,7 @@ extension FleetNotice {
       // The overflow line carries no number for that same reason.
       [L10n.someRunnersUnreadable]
         + paths.prefix(Self.pathsShown).map {
-          ($0.path as NSString).abbreviatingWithTildeInPath
+          PathText.abbreviated($0)
         }
         + (paths.count > Self.pathsShown ? [L10n.moreUnreadable] : [])
     }

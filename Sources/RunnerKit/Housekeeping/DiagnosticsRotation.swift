@@ -92,10 +92,17 @@ public struct DiagnosticsRotationPlan: Equatable, Sendable {
 /// a sweep is not a crash, it is five rows quietly becoming two — and a plan is
 /// something a test can read without a single file being removed.
 public enum DiagnosticsRotation {
-  /// - Parameter now: the moment the sweep is being asked about, so a test can
-  ///   put a file a fortnight in the past without waiting a fortnight.
+  /// - Parameters:
+  ///   - now: the moment the sweep is being asked about, so a test can put a
+  ///     file a fortnight in the past without waiting a fortnight.
+  ///   - allowed: the files a plan may name, or nil for no such limit. How a
+  ///     caller holds a sweep to what somebody agreed to while still deciding
+  ///     what leaves against the directory as it is now — the sizes come from
+  ///     this listing rather than from the older one, so the answer is exact
+  ///     rather than merely smaller.
   public static func plan(
-    _ files: [DiagnosticsFile], retention: DiagnosticsRetention, now: Date
+    _ files: [DiagnosticsFile], retention: DiagnosticsRetention, now: Date,
+    limitedTo allowed: Set<URL>? = nil
   ) -> DiagnosticsRotationPlan {
     // Sorted by name, exactly as `JobLogReader.listenerLogs` sorts them. The
     // name carries the UTC instant the listener started, fixed width so it
@@ -111,6 +118,7 @@ public enum DiagnosticsRotation {
     let doomed =
       files
       .filter { !kept.contains($0.url) }
+      .filter { allowed?.contains($0.url) ?? true }
       // Aged by the modification date rather than by the instant in the name.
       // A listener that has been up for a fortnight has an old name and a log
       // it wrote to a second ago, and the two answers are two weeks apart. The
@@ -118,9 +126,23 @@ public enum DiagnosticsRotation {
       // backup arrives with every mtime set to the restore, so nothing is old
       // enough to sweep and nothing is deleted.
       .filter { now.timeIntervalSince($0.modifiedAt) > retention.keepFor }
-      .sorted { $0.modifiedAt < $1.modifiedAt }
+      .sorted(by: Self.oldestFirst)
 
     return DiagnosticsRotationPlan(
       doomed: doomed.map(\.url), bytes: doomed.reduce(0) { $0 + $1.bytes })
+  }
+
+  /// Oldest first, and by name where two were written at the same instant — the
+  /// same tie-break `DiskUsage.biggestFirst` carries, for the same reason.
+  ///
+  /// `sorted(by:)` is not stable, so without this a `_diag` whose files share a
+  /// modification date comes back in an order that is neither chronological nor
+  /// repeatable. That is not a hypothetical directory: it is what a `_diag`
+  /// copied or restored from a backup looks like, which this file already warns
+  /// about two comments below — and `DiagnosticsRotationPlan` is `Equatable`
+  /// and travels into `@Published` state, where a reshuffle reads as a change.
+  static func oldestFirst(_ lhs: DiagnosticsFile, _ rhs: DiagnosticsFile) -> Bool {
+    if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt < rhs.modifiedAt }
+    return lhs.name < rhs.name
   }
 }

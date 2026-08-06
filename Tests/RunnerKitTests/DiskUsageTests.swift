@@ -64,6 +64,7 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   for folder in ["_tool", "_actions", "_temp", "_PipelineMapping", "nest-rules-app"] {
     try sandbox.makeWorkFolder(folder)
   }
+  try sandbox.makeLog("Runner_20260805-000000-utc.log", modified: Date())
 
   let work = sandbox.work
   let runner = FakeCommandRunner([
@@ -73,12 +74,14 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
       work.appendingPathComponent("_temp").path,
       work.appendingPathComponent("_tool").path,
       work.appendingPathComponent("nest-rules-app").path,
+      sandbox.diagnostics.path,
     ]:
       duLine(4, work.appendingPathComponent("_PipelineMapping"))
       + duLine(16_200, work.appendingPathComponent("_actions"))
       + duLine(0, work.appendingPathComponent("_temp"))
       + duLine(4_229_008, work.appendingPathComponent("_tool"))
       + duLine(420_724, work.appendingPathComponent("nest-rules-app"))
+      + duLine(9_048, sandbox.diagnostics)
   ])
   let report = try #require(
     DiskUsage(commandRunner: runner).blockingReport(
@@ -92,6 +95,35 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   // cache, and nothing in `CleanupTarget` can name it.
   #expect(report.bytes(of: .checkout) == 420_724 * 1024)
   #expect(!CleanupTarget.allCases.map(\.kind).contains(.checkout))
+  // And `_diag`, which is not under `_work` and so gets no entry of its own —
+  // the submenu's "Logs" row is read straight off this field, and it is the one
+  // number here nothing else would notice going to zero.
+  #expect(report.logBytes == 9_048 * 1024)
+}
+
+@Test func twoCheckoutsAreOneRowAndTheirSizesAddUp() throws {
+  // What `bytes(of:)` exists for. `_work` holds one working copy per repository
+  // a runner builds and the submenu has no room for a row each — so a Mac
+  // building two of them would be told the cost of whichever came first, under
+  // the one heading in that menu that says "do not delete this".
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  for folder in ["nest-rules-app", "widget"] { try sandbox.makeWorkFolder(folder) }
+
+  let work = sandbox.work
+  let runner = FakeCommandRunner([
+    [
+      "/usr/bin/du", "-sk", work.appendingPathComponent("nest-rules-app").path,
+      work.appendingPathComponent("widget").path,
+    ]:
+      duLine(420_724, work.appendingPathComponent("nest-rules-app"))
+      + duLine(102_400, work.appendingPathComponent("widget"))
+  ])
+  let report = try #require(
+    DiskUsage(commandRunner: runner).blockingReport(
+      for: sandbox.runner, retention: .standard, now: Date()))
+
+  #expect(report.bytes(of: .checkout) == (420_724 + 102_400) * 1024)
 }
 
 @Test func blocksAreNotBytes() throws {

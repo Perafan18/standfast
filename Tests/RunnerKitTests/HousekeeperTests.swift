@@ -54,6 +54,63 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(sandbox.names(in: sandbox.work).isEmpty)
 }
 
+@Test func aGraveIsSweptEvenWhenThereIsNothingLeftToClean() throws {
+  // The state the test above cannot reach, and the one that does not heal
+  // itself. Being killed between the rename and the delete leaves no `_tool`
+  // either — but the next build puts one back, and the cleanup after that
+  // sweeps the grave. A delete that *failed* has nothing coming to repopulate
+  // anything: `_tool` is gone for good, so every later call would find nothing
+  // to clean and return before it ever swept. The four gigabytes then read as
+  // "Other runner files" in the breakdown with no button in the menu that can
+  // reach them.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("\(Housekeeper.trashFolder)/leftover", kilobytes: 4)
+
+  let outcome = try Housekeeper().blockingClean(
+    .toolCache, in: sandbox.runner, isStillSafe: { true })
+
+  #expect(outcome == .nothingToDo)
+  #expect(sandbox.names(in: sandbox.work).isEmpty)
+}
+
+@Test func aDeleteThatFailedHalfwayLeavesBytesTheNextOneCanStillReach() throws {
+  // End to end, because the two halves of it are in different places: the
+  // rename works, the delete behind it does not — which is what a file a `sudo`
+  // step left root-owned in `_tool` does to `removeItem` — and what is left has
+  // to be reachable by the next press of the same button.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 8)
+
+  #expect(throws: (any Error).self) {
+    try Housekeeper(files: MovingButNotDeletingOperations()).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+  #expect(sandbox.names(in: sandbox.work) == [Housekeeper.trashFolder])
+
+  try Housekeeper().blockingClean(.toolCache, in: sandbox.runner, isStillSafe: { true })
+  #expect(sandbox.names(in: sandbox.work).isEmpty)
+}
+
+/// Renames for real and refuses to delete, which is what a directory holding a
+/// file this app cannot unlink looks like from here.
+private struct MovingButNotDeletingOperations: DestructiveFileOperations {
+  struct Refusal: Error {}
+  /// Set to have the rename fail too, which is the earlier of the two places a
+  /// clean can stop and names a different directory.
+  var refusingMove = false
+
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws {
+    if refusingMove { throw Refusal() }
+    try FileManager.default.moveItem(at: url, to: destination)
+  }
+  func remove(_ url: URL) throws { throw Refusal() }
+}
+
 @Test func aTrashLeftBehindIsNotMistakenForARepositoryCheckout() throws {
   // The leading dot is load-bearing, not decoration. `_work` carries no
   // manifest, so the breakdown reads each directory's purpose off its name:
@@ -87,18 +144,40 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
   try sandbox.makeWorkFolder("_tool", kilobytes: 4)
+  // With a grave in it, so the sweep above the check is actually under these
+  // assertions. Without one the trash branch never runs and they pass over a
+  // path nothing exercised.
+  try sandbox.makeWorkFolder("\(Housekeeper.trashFolder)/leftover", kilobytes: 4)
 
   let files = RecordingFileOperations()
   let outcome = try Housekeeper(files: files).blockingClean(
     .toolCache, in: sandbox.runner, isStillSafe: { false })
 
   #expect(outcome == .refused)
-  // Nothing was moved and nothing was removed. Creating the trash directory is
-  // allowed to have happened — it is empty, it is preparation, and doing it
-  // before the check is what makes the check the last thing before the rename.
+  // Nothing of the runner's was moved, and nothing of the runner's was removed.
+  // The grave is this app's own and is swept whatever the answer — it holds
+  // only what an earlier run of this left behind, at a path the runner cannot
+  // be using, and sweeping it is the one thing that ever will.
   #expect(!files.calls.contains { $0.hasPrefix("move") })
-  #expect(!files.calls.contains { $0.hasPrefix("remove") })
+  #expect(!files.calls.contains { $0.contains("_tool") })
   #expect(sandbox.names(in: sandbox.work).contains("_tool"))
+}
+
+@Test func aRefusalLeavesNoEmptyGraveBehindIt() throws {
+  // `.refused` is reported to the user as "nothing was deleted", and the menu
+  // is redrawn from a fresh measurement underneath it. A trash folder left
+  // sitting there turns that sentence into a lie and shows up in the breakdown
+  // as "Other runner files" — this app's own litter, reported to the user as
+  // the runner's.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 4)
+
+  let outcome = try Housekeeper().blockingClean(
+    .toolCache, in: sandbox.runner, isStillSafe: { false })
+
+  #expect(outcome == .refused)
+  #expect(sandbox.names(in: sandbox.work) == ["_tool"])
 }
 
 @Test func theCheckIsTheLastThingBeforeTheRename() throws {
@@ -150,6 +229,51 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(throws: (any Error).self) {
     try Housekeeper(files: files).blockingClean(
       .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+}
+
+@Test func aFailedWriteSaysWhichDirectoryTheUserHasToFix() throws {
+  // The menu prints this path and the user goes and looks at it, so it has to
+  // be a directory that is still there. Which one that is depends on how far
+  // the operation got — and after the rename it is emphatically not the one
+  // they were asked about, because that one has just been moved away.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 1)
+  let trash = sandbox.work.appendingPathComponent(Housekeeper.trashFolder)
+
+  // Nothing can be written at all: what failed is making the trash, and what
+  // the user has to fix is `_work`.
+  let refusing = RecordingFileOperations()
+  refusing.failing = true
+  #expect(blamedDirectory(Housekeeper(files: refusing), sandbox) == sandbox.work.path)
+
+  // The rename itself failed, so the cache is where it always was.
+  #expect(
+    blamedDirectory(
+      Housekeeper(files: MovingButNotDeletingOperations(refusingMove: true)), sandbox)
+      == sandbox.work.appendingPathComponent("_tool").path)
+
+  // And the delete behind a rename that worked: `_tool` is gone, and the bytes
+  // the user is looking for are in the grave.
+  #expect(
+    blamedDirectory(Housekeeper(files: MovingButNotDeletingOperations()), sandbox)
+      == trash.path)
+}
+
+/// The directory a clean blamed, as a path — compared as text because a `URL`
+/// built over a directory that exists picks up a trailing slash and one built
+/// over the same name before it exists does not.
+private func blamedDirectory(
+  _ keeper: Housekeeper, _ sandbox: RunnerDirectorySandbox
+) -> String? {
+  do {
+    try keeper.blockingClean(.toolCache, in: sandbox.runner, isStillSafe: { true })
+    return nil
+  } catch let failure as HousekeepingFailure {
+    return failure.directory.path
+  } catch {
+    return nil
   }
 }
 
