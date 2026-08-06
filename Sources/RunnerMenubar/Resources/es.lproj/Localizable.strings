@@ -4,9 +4,11 @@
 "menu.openOnGitHub" = "Abrir en GitHub";
 "menu.refreshNow" = "Actualizar ahora";
 "menu.quit" = "Salir";
+"menu.runnerRow" = "%@ — %@";
 
 "state.noRunners" = "No hay runners instalados en esta Mac";
 "state.unreadable" = "No se pudieron leer algunos archivos de runner:";
+"state.unreadable.more" = "…y más";
 
 "state.idle" = "Inactivo — listo para trabajos";
 "state.busy" = "Ejecutando un job";
