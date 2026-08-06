@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import RunnerMenubar
+@testable import Standfast
 
 /// Reads one `.lproj` straight off disk, rather than through `L10n`, which
 /// answers in whichever language the test host booted in.

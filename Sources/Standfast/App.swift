@@ -2,7 +2,7 @@ import RunnerKit
 import SwiftUI
 
 @main
-struct RunnerMenubarApp: App {
+struct StandfastApp: App {
   @StateObject private var fleet = RunnerFleetModel()
 
   var body: some Scene {

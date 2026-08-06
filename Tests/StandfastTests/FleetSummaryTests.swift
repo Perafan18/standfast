@@ -1,7 +1,7 @@
 import RunnerKit
 import Testing
 
-@testable import RunnerMenubar
+@testable import Standfast
 
 // MARK: - The icon is the only thing the summary drives
 

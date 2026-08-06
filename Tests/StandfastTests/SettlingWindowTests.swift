@@ -2,7 +2,7 @@ import Foundation
 import RunnerKit
 import Testing
 
-@testable import RunnerMenubar
+@testable import Standfast
 
 private let epoch = Date(timeIntervalSince1970: 1_700_000_000)
 private let label = "actions.runner.acme-widget.build-mac"

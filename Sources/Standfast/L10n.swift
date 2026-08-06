@@ -111,7 +111,11 @@ enum L10n {
   /// Nil is a normal answer here rather than an error: it means this build
   /// carries no catalogue, and the English above is what the user gets.
   static let resourceBundle: Bundle? = {
-    let name = "RunnerMenubar_RunnerMenubar.bundle"
+    // SwiftPM names this `<package>_<target>.bundle`, so renaming either one
+    // renames the file this looks for. The catalogue tests below fail when the
+    // two drift, which is the only reason a silent fall back to English does
+    // not become the permanent behaviour after a rename.
+    let name = "Standfast_Standfast.bundle"
     // `Bundle(for:)` resolves to whatever image this code was loaded from —
     // the `.app` in production, the `.xctest` bundle under `swift test` — and
     // its enclosing directory is where SwiftPM leaves the resource bundle in

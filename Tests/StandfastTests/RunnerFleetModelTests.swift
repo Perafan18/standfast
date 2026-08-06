@@ -2,7 +2,7 @@ import Foundation
 import RunnerKit
 import Testing
 
-@testable import RunnerMenubar
+@testable import Standfast
 
 @MainActor
 private func model(

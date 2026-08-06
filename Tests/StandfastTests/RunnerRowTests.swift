@@ -2,7 +2,7 @@ import Foundation
 import RunnerKit
 import Testing
 
-@testable import RunnerMenubar
+@testable import Standfast
 
 private func runner(
   name: String = "build-mac", agentName: String? = nil, repository: String = "widget"

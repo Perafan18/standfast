@@ -1,7 +1,7 @@
 import RunnerKit
 import Testing
 
-@testable import RunnerMenubar
+@testable import Standfast
 
 /// Every state a row can be in, so a new one cannot be added without a test
 /// failing until it is given copy and button rules.

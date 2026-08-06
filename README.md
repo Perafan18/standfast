@@ -1,7 +1,11 @@
-# Runner Menubar
+# Standfast
 
-Estado del runner self-hosted de GitHub Actions en la barra de menús de macOS,
-con arrancar / parar / reiniciar a un par de clics.
+Estado de los runners self-hosted de GitHub Actions en la barra de menús de
+macOS, con arrancar / parar / reiniciar a un par de clics.
+
+> Este README sigue en español y describe la app anterior a medias. Se
+> reescribe en inglés en la Unidad 7; hasta entonces sólo se corrige lo que
+> contradice al código.
 
 ## Por qué existe
 
@@ -15,8 +19,8 @@ GitHub y `cd ~/actions-runner && ./svc.sh status`.
 
 ## Lo que mira, y por qué son dos cosas
 
-- **`svc.sh status`** — si el proceso local está vivo.
-- **API de GitHub** — si GitHub lo ve online y si está ocupado.
+- **`launchctl list`** — si el proceso local está vivo.
+- **API de GitHub** (por `gh`) — si GitHub lo ve online y si está ocupado.
 
 Se consultan por separado a propósito. Discrepan más de lo que parece: un
 runner con el token caducado mantiene su proceso funcionando tan feliz
@@ -32,13 +36,15 @@ un estado propio y no un sabor de `stopped` — el arreglo es distinto.
 | ⚙︎ | Ejecutando un job |
 | ⚠︎ | Proceso vivo, GitHub no lo ve |
 | ☾ | Detenido |
+| ↻ | Arrancando, esperando a que GitHub lo vea |
 | ? | Sin determinar |
+| ◌ | Esta Mac no tiene runners |
 
 ## Uso
 
 ```bash
-swift build -c release
-./.build/release/RunnerMenubar
+make app                      # ensambla .build/Standfast.app
+open .build/Standfast.app
 ```
 
 Sin `sudo`: en macOS el runner es un LaunchAgent por usuario, y `sudo` es la
@@ -46,5 +52,11 @@ instrucción de Linux.
 
 ## Configuración
 
-Repo y ruta del runner están fijos en `App.swift`. Sacarlos a preferencias es
-el siguiente paso obvio.
+Ninguna. Standfast descubre solo los runners de esta Mac escaneando
+`~/Library/LaunchAgents/actions.runner.*.plist` y leyendo el `.runner` de cada
+uno, así que soporta varios runners y runners de organización o empresa sin
+tocar nada. Lo único que hace falta es `gh` autenticado (`gh auth login`) para
+el estado remoto.
+
+Limitación conocida: los runners que no están instalados como servicio (los que
+se lanzan con `./run.sh`) no dejan LaunchAgent y no se descubren.
