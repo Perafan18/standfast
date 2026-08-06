@@ -74,6 +74,7 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.runnerVersionOutdated("a", "b"), L10n.cleanupConfirmTitle("a"),
     L10n.cleanupConfirmBody("a", "b"), L10n.cleanupLogsTitle(1, "a"),
     L10n.cleanupLogsEffect(1), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
+    L10n.cleanupPartiallyFailed("a"),
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -122,7 +123,7 @@ private func speaking(_ localization: String) throws -> Bundle {
       "cleanup.confirm.title", "cleanup.confirm.body", "cleanup.confirm.delete",
       "cleanup.confirm.cancel", "cleanup.toolCache.effect",
       "cleanup.actionCache.effect", "cleanup.logs.title", "cleanup.logs.effect",
-      "cleanup.refused", "cleanup.failed",
+      "cleanup.refused", "cleanup.failed", "cleanup.partiallyFailed",
     ])
   #expect(everyKey == reached)
 }
@@ -204,7 +205,7 @@ private func speaking(_ localization: String) throws -> Bundle {
     // dropped one leaves a dialogue that does not say what is about to be
     // deleted, or does not say how much.
     "cleanup.confirm.title": 1, "cleanup.confirm.body": 2, "cleanup.failed": 1,
-    "cleanup.refused": 1, "cleanup.logs.title": 1,
+    "cleanup.partiallyFailed": 1, "cleanup.refused": 1, "cleanup.logs.title": 1,
     // The size is the reason to press the button.
     "menu.maintenance.freeToolCache": 1, "menu.maintenance.freeActionCache": 1,
     "menu.maintenance.trimLogs": 1, "disk.toolCache": 1, "disk.actionCache": 1,

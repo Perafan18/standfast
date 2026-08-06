@@ -56,6 +56,21 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   #expect(report == .empty)
 }
 
+@Test func duIsNotRunWhenTheWorkFolderWasReplacedByAnOutsideSymlink() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("placeholder")
+  try sandbox.makeOutsideFolder("_tool", kilobytes: 4)
+  try sandbox.replaceWorkDirectoryWithOutsideSymlink()
+  let runner = FakeCommandRunner()
+
+  let report = DiskUsage(commandRunner: runner).blockingReport(
+    for: sandbox.runner, retention: .standard, now: Date())
+
+  #expect(report == nil)
+  #expect(runner.invocations.isEmpty)
+}
+
 // MARK: - What comes back
 
 @Test func theBreakdownSaysWhatEachDirectoryIsFor() throws {

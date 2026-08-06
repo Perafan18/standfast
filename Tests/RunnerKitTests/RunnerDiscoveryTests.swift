@@ -31,15 +31,14 @@ private struct Sandbox {
   func addRunner(
     label: String, agentId: Int, gitHubUrl: String,
     runnerFile: RunnerFile = .complete, fileName: String? = nil,
-    workFolder: String = "_work"
+    workFolder: String? = "_work"
   ) throws -> URL {
     let dir = root.appendingPathComponent(label)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     if runnerFile != .missing {
-      var fields: [String: Any] = [
-        "agentId": agentId, "gitHubUrl": gitHubUrl, "workFolder": workFolder,
-      ]
+      var fields: [String: Any] = ["agentId": agentId, "gitHubUrl": gitHubUrl]
       if runnerFile == .complete { fields["agentName"] = label }
+      if let workFolder { fields["workFolder"] = workFolder }
       var data = Data([0xEF, 0xBB, 0xBF])  // same BOM the real agent writes
       data.append(try JSONSerialization.data(withJSONObject: fields))
       try data.write(to: dir.appendingPathComponent(".runner"))
@@ -211,6 +210,44 @@ private struct DirectoryListingFailure: Error {}
     ])
 }
 
+@Test func reportsAWorkFolderSymlinkedOutsideTheRunnerAsUnreadable() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(
+    label: "actions.runner.acme-widget.linked", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "builds")
+  let outside = box.root.appendingPathComponent("outside-work")
+  try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: directory.appendingPathComponent("builds"), withDestinationURL: outside)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(
+    found.unreadable.map(\.lastPathComponent)
+      == ["actions.runner.acme-widget.linked.plist"])
+  #expect(found.possiblyInstalledLabels == ["actions.runner.acme-widget.linked"])
+}
+
+@Test func keepsAWorkFolderSymlinkedWithinTheRunner() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(
+    label: "actions.runner.acme-widget.linked", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "builds")
+  let actualWork = directory.appendingPathComponent("actual-work")
+  try FileManager.default.createDirectory(at: actualWork, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: directory.appendingPathComponent("builds"), withDestinationURL: actualWork)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.count == 1)
+  #expect(found.runners[0].workDirectory == directory.appendingPathComponent("builds"))
+  #expect(found.unreadable.isEmpty)
+}
+
 @Test func fallsBackToTheStandardWorkFolderWhenTheFileDoesNotSayOne() throws {
   // `workFolder` is one of the cosmetic fields, so a runner release that stops
   // writing it must not cost the runner its row — nor leave the work directory
@@ -219,7 +256,8 @@ private struct DirectoryListingFailure: Error {}
   defer { box.cleanUp() }
   let dir = try box.addRunner(
     label: "actions.runner.acme-widget.mac-a", agentId: 1,
-    gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName)
+    gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName,
+    workFolder: nil)
 
   let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
 

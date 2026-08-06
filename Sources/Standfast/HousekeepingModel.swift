@@ -281,38 +281,45 @@ final class HousekeepingModel: ObservableObject {
     working.insert(label)
     let name = runner.displayName
     run {
-      let answer = await offCooperativePool { () -> (HousekeepingOutcome?, URL) in
-        do { return (try work(), failurePath) } catch let failure as HousekeepingFailure {
-          // By the time a delete can fail the rename has already happened, so
-          // the directory the user was told about is gone. Naming it would send
-          // them to fix a permission on a path that no longer exists.
-          return (nil, failure.directory)
+      let answer = await offCooperativePool {
+        () -> (outcome: HousekeepingOutcome?, path: URL, didModify: Bool) in
+        do {
+          return (try work(), failurePath, false)
+        } catch let failure as HousekeepingFailure {
+          // The operation knows which directory the failed write was about and
+          // whether an earlier write changed it; neither can be recovered from
+          // the generic path at this boundary.
+          return (nil, failure.directory, failure.didModify)
         } catch {
-          return (nil, failurePath)
+          return (nil, failurePath, false)
         }
       }
       self.working.remove(label)
       self.reports[label] = Self.notice(
-        for: answer.0, runner: name, path: answer.1)
+        for: answer.outcome, runner: name, path: answer.path,
+        didModify: answer.didModify)
       // The numbers on screen now describe a directory that is not there any
       // more, and the next thing the user does is look at them.
-      if answer.0 == .done { self.measure(runner) }
+      if answer.outcome == .done || answer.didModify { self.measure(runner) }
     }
   }
 
   static func notice(
-    for outcome: HousekeepingOutcome?, runner: String, path: URL
+    for outcome: HousekeepingOutcome?, runner: String, path: URL,
+    didModify: Bool = false
   ) -> String? {
     switch outcome {
     // Nothing to say. What was asked for happened, and the rows underneath are
     // about to redraw with the new numbers, which is the report.
-    case .done, .nothingToDo: nil
+    case .done, .nothingToDo: return nil
     // The one outcome that has to be reported: the user asked for something,
     // agreed to it, and did not get it.
-    case .refused: L10n.cleanupRefused(runner)
+    case .refused: return L10n.cleanupRefused(runner)
     // By the time anything can throw, the only thing left that can go wrong is
     // the filesystem saying no.
-    case nil: L10n.cleanupFailed(PathText.abbreviated(path))
+    case nil:
+      let path = PathText.abbreviated(path)
+      return didModify ? L10n.cleanupPartiallyFailed(path) : L10n.cleanupFailed(path)
     }
   }
 

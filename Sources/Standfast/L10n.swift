@@ -249,6 +249,10 @@ enum L10n {
     String(format: t("cleanup.failed"), path)
   }
 
+  static func cleanupPartiallyFailed(_ path: String) -> String {
+    String(format: t("cleanup.partiallyFailed"), path)
+  }
+
   /// A runner's name and the GitHub scope it is registered against, for the
   /// rows where the name alone appears twice. Localised for the same reason as
   /// the row itself: the brackets are punctuation, and punctuation is written
@@ -325,6 +329,8 @@ enum L10n {
       + "writing now is never deleted, and neither is the history this menu shows.",
     "cleanup.refused": "Nothing was deleted: %@ picked up work",
     "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
+    "cleanup.partiallyFailed":
+      "Some files were deleted, but cleanup did not finish; check that %@ is writable",
     "state.noRunners": "No runners installed on this Mac",
     "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",

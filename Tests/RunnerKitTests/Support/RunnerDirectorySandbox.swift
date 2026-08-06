@@ -10,6 +10,7 @@ import Foundation
 /// them, and the difference between the two is one wrong string.
 final class RunnerDirectorySandbox {
   let root: URL
+  let outside: URL
 
   init() throws {
     let created = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -24,6 +25,8 @@ final class RunnerDirectorySandbox {
     // comparison of two names for one directory, which no real runner directory
     // has — nothing symlinks a home directory.
     root = Self.canonical(created)
+    outside = root.deletingLastPathComponent()
+      .appendingPathComponent("outside-work-\(UUID().uuidString)")
   }
 
   private static func canonical(_ url: URL) -> URL {
@@ -38,7 +41,10 @@ final class RunnerDirectorySandbox {
     return URL(fileURLWithPath: path)
   }
 
-  func cleanUp() { try? FileManager.default.removeItem(at: root) }
+  func cleanUp() {
+    try? FileManager.default.removeItem(at: root)
+    try? FileManager.default.removeItem(at: outside)
+  }
 
   var runner: DiscoveredRunner {
     DiscoveredRunner(
@@ -64,6 +70,24 @@ final class RunnerDirectorySandbox {
         .write(to: directory.appendingPathComponent("payload"))
     }
     return directory
+  }
+
+  /// A work-like tree outside the runner, for containment regressions.
+  @discardableResult
+  func makeOutsideFolder(_ name: String, kilobytes: Int = 0) throws -> URL {
+    let directory = outside.appendingPathComponent(name)
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true)
+    if kilobytes > 0 {
+      try Data(repeating: UInt8(ascii: "x"), count: kilobytes * 1024)
+        .write(to: directory.appendingPathComponent("payload"))
+    }
+    return directory
+  }
+
+  func replaceWorkDirectoryWithOutsideSymlink() throws {
+    try FileManager.default.removeItem(at: work)
+    try FileManager.default.createSymbolicLink(at: work, withDestinationURL: outside)
   }
 
   /// A log in `_diag`, with a modification date of this test's choosing.

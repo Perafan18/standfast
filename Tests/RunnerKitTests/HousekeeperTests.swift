@@ -140,6 +140,23 @@ private struct MovingButNotDeletingOperations: DestructiveFileOperations {
 
 // MARK: - What is refused
 
+@Test func anOutsideWorkFolderSymlinkIsRefusedBeforeAnyMutation() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("placeholder")
+  try sandbox.makeOutsideFolder("_tool", kilobytes: 4)
+  try sandbox.replaceWorkDirectoryWithOutsideSymlink()
+  let files = RecordingFileOperations()
+
+  #expect(throws: HousekeepingFailure(directory: sandbox.work)) {
+    try Housekeeper(files: files).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+
+  #expect(files.calls.isEmpty)
+  #expect(sandbox.exists(sandbox.outside.appendingPathComponent("_tool/payload")))
+}
+
 @Test func aRunnerThatPickedUpWorkKeepsItsCache() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
@@ -308,6 +325,48 @@ private func blamedDirectory(
   #expect(throws: HousekeepingFailure(directory: sandbox.diagnostics)) {
     try Housekeeper(files: files).blockingRotateDiagnostics(
       in: sandbox.runner, now: now, isStillSafe: { true })
+  }
+}
+
+@Test func aRotationFailureReportsWhenAnEarlierLogWasRemoved() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let first = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-40 * 24 * 3600))
+  let second = try sandbox.makeLog(
+    "Worker_20260201-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600))
+
+  do {
+    _ = try Housekeeper(files: RemovingOneThenRefusingOperations())
+      .blockingRotateDiagnostics(in: sandbox.runner, now: now, isStillSafe: { true })
+    Issue.record("Expected the second unlink to fail")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.directory == sandbox.diagnostics)
+    #expect(failure.didModify)
+  }
+
+  #expect(!sandbox.exists(first))
+  #expect(sandbox.exists(second))
+}
+
+private final class RemovingOneThenRefusingOperations:
+  DestructiveFileOperations, @unchecked Sendable
+{
+  private struct Refusal: Error {}
+  private let lock = NSLock()
+  private var removalCount = 0
+
+  func createDirectory(at url: URL) throws {}
+  func move(_ url: URL, to destination: URL) throws {}
+
+  func remove(_ url: URL) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard removalCount == 0 else { throw Refusal() }
+    removalCount += 1
+    try FileManager.default.removeItem(at: url)
   }
 }
 

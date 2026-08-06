@@ -52,6 +52,7 @@
 "cleanup.logs.effect" = "%d archivos en los que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra este menú.";
 "cleanup.refused" = "No se borró nada: %@ tomó trabajo";
 "cleanup.failed" = "No se pudo borrar nada; comprueba que se puede escribir en %@";
+"cleanup.partiallyFailed" = "Se borraron algunos archivos, pero la limpieza no terminó; comprueba que se puede escribir en %@";
 
 "state.noRunners" = "No hay runners instalados en esta Mac";
 "state.launchAgentsUnreadable" = "No se pudo leer el directorio LaunchAgents:";

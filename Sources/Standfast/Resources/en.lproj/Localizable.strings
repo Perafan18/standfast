@@ -52,6 +52,7 @@
 "cleanup.logs.effect" = "%d files nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history this menu shows.";
 "cleanup.refused" = "Nothing was deleted: %@ picked up work";
 "cleanup.failed" = "Nothing could be deleted; check that %@ is writable";
+"cleanup.partiallyFailed" = "Some files were deleted, but cleanup did not finish; check that %@ is writable";
 
 "state.noRunners" = "No runners installed on this Mac";
 "state.launchAgentsUnreadable" = "The LaunchAgents directory could not be read:";

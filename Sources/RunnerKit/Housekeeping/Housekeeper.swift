@@ -56,8 +56,14 @@ public enum HousekeepingOutcome: Equatable, Sendable {
 /// naming it would point them at a path that no longer exists.
 public struct HousekeepingFailure: Error, Equatable, Sendable {
   public let directory: URL
+  /// Whether the operation changed the directory before it failed. Callers use
+  /// this to invalidate measurements and avoid claiming that nothing happened.
+  public let didModify: Bool
 
-  public init(directory: URL) { self.directory = directory }
+  public init(directory: URL, didModify: Bool = false) {
+    self.directory = directory
+    self.didModify = didModify
+  }
 }
 
 /// Deletes the parts of a runner's directory that can be deleted, and refuses
@@ -104,7 +110,12 @@ public struct Housekeeper: Sendable {
   public func blockingClean(
     _ target: CleanupTarget, in runner: DiscoveredRunner, isStillSafe: () -> Bool
   ) throws -> HousekeepingOutcome {
-    let trash = runner.workDirectory.appendingPathComponent(Self.trashFolder)
+    guard let workDirectory = runner.containedWorkDirectory else {
+      throw HousekeepingFailure(directory: runner.workDirectory)
+    }
+    let configuredWorkDirectory = runner.workDirectory
+    let trash = workDirectory.appendingPathComponent(Self.trashFolder)
+    let configuredTrash = configuredWorkDirectory.appendingPathComponent(Self.trashFolder)
     // Anything still in there is from an earlier run that did not finish
     // emptying it — quit, killed, or stopped by a file it could not unlink.
     // Nobody else writes here, so it is ours to clear, and clearing it is the
@@ -117,7 +128,7 @@ public struct Housekeeper: Sendable {
     // with no button in the menu that can reach them again.
     sweepLeftovers(in: trash)
 
-    let victim = target.directory(in: runner)
+    let victim = workDirectory.appendingPathComponent(target.folderName)
     guard FileManager.default.fileExists(atPath: victim.path) else {
       removeIfEmpty(trash)
       return .nothingToDo
@@ -126,7 +137,7 @@ public struct Housekeeper: Sendable {
     // `_work` and not the trash: what could not be written to is the directory
     // the trash was going to be made in, and sending the user to look at a
     // hidden folder that does not exist helps nobody.
-    try attempting(runner.workDirectory) { try files.createDirectory(at: trash) }
+    try attempting(configuredWorkDirectory) { try files.createDirectory(at: trash) }
     let grave = trash.appendingPathComponent(UUID().uuidString)
 
     // Everything above this line is preparation, and it is above the check for
@@ -139,8 +150,8 @@ public struct Housekeeper: Sendable {
       removeIfEmpty(trash)
       return .refused
     }
-    try attempting(victim) { try files.move(victim, to: grave) }
-    try attempting(trash) { try files.remove(grave) }
+    try attempting(target.directory(in: runner)) { try files.move(victim, to: grave) }
+    try attempting(configuredTrash) { try files.remove(grave) }
     removeIfEmpty(trash)
     return .done
   }
@@ -178,8 +189,17 @@ public struct Housekeeper: Sendable {
     //
     // A file that has gone since the plan was made is not a failure either: the
     // point of the whole operation is that it is not there any more.
+    var didModify = false
     for url in plan.doomed {
-      try removingIfPresent(url, blaming: runner.diagnosticsDirectory)
+      do {
+        didModify =
+          try removingIfPresent(url, blaming: runner.diagnosticsDirectory)
+          || didModify
+      } catch let failure as HousekeepingFailure {
+        throw HousekeepingFailure(
+          directory: failure.directory,
+          didModify: didModify || failure.didModify)
+      }
     }
     return .done
   }
@@ -221,11 +241,12 @@ public struct Housekeeper: Sendable {
     do { try write() } catch { throw HousekeepingFailure(directory: directory) }
   }
 
-  private func removingIfPresent(_ url: URL, blaming directory: URL) throws {
+  private func removingIfPresent(_ url: URL, blaming directory: URL) throws -> Bool {
     do {
       try files.remove(url)
+      return true
     } catch let error as CocoaError where error.code == .fileNoSuchFile {
-      return
+      return false
     } catch {
       throw HousekeepingFailure(directory: directory)
     }

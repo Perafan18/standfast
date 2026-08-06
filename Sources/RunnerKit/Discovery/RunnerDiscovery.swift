@@ -54,6 +54,58 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   }
 }
 
+extension DiscoveredRunner {
+  /// Resolves the part of a work path that exists and proves the result stays
+  /// under the runner. Returning the resolved spelling also means a later
+  /// replacement of the configured symlink cannot redirect an operation that
+  /// already crossed this boundary.
+  var containedWorkDirectory: URL? {
+    guard let resolvedRunner = Self.resolvingExistingPathComponents(in: directory),
+      let resolvedWork = Self.resolvingExistingPathComponents(in: workDirectory)
+    else { return nil }
+
+    let runnerPath = resolvedRunner.path
+    let workPath = resolvedWork.path
+    guard workPath == runnerPath || workPath.hasPrefix(runnerPath + "/") else {
+      return nil
+    }
+    return resolvedWork
+  }
+
+  /// `resolvingSymlinksInPath` leaves a wholly missing suffix unresolved. Walk
+  /// upward until something exists, resolve that ancestor, then restore the
+  /// suffix. A dangling symlink is not the same as a missing directory: its
+  /// destination cannot be proved contained, so it fails closed.
+  private static func resolvingExistingPathComponents(in url: URL) -> URL? {
+    let standardized = url.standardizedFileURL
+    do {
+      let attributes = try FileManager.default.attributesOfItem(atPath: standardized.path)
+      let resolved = standardized.resolvingSymlinksInPath().standardizedFileURL
+      if attributes[.type] as? FileAttributeType == .typeSymbolicLink,
+        resolved.path == standardized.path
+      {
+        return nil
+      }
+      return resolved
+    } catch {
+      guard Self.isNoSuchFile(error) else { return nil }
+      let parent = standardized.deletingLastPathComponent()
+      guard parent.path != standardized.path,
+        let resolvedParent = Self.resolvingExistingPathComponents(in: parent)
+      else { return nil }
+      return resolvedParent.appendingPathComponent(standardized.lastPathComponent)
+        .standardizedFileURL
+    }
+  }
+
+  private static func isNoSuchFile(_ error: any Error) -> Bool {
+    let error = error as NSError
+    guard error.domain == NSCocoaErrorDomain else { return false }
+    return error.code == CocoaError.Code.fileNoSuchFile.rawValue
+      || error.code == CocoaError.Code.fileReadNoSuchFile.rawValue
+  }
+}
+
 /// The outcome of one scan.
 ///
 /// The failures are kept instead of being folded into an empty list. "No
@@ -218,15 +270,14 @@ public struct RunnerDiscovery: Sendable {
       let scope = RunnerScope(gitHubURL: config.gitHubUrl)
     else { return (nil, agent.label) }
 
-    return (
-      DiscoveredRunner(
-        label: agent.label,
-        directory: agent.workingDirectory,
-        agentId: config.agentId,
-        agentName: config.agentName,
-        scope: scope,
-        workFolder: config.workFolder),
-      agent.label
-    )
+    let runner = DiscoveredRunner(
+      label: agent.label,
+      directory: agent.workingDirectory,
+      agentId: config.agentId,
+      agentName: config.agentName,
+      scope: scope,
+      workFolder: config.workFolder)
+    guard runner.containedWorkDirectory != nil else { return (nil, agent.label) }
+    return (runner, agent.label)
   }
 }

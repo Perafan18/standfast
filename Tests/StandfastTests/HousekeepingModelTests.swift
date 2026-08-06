@@ -594,6 +594,58 @@ private struct MovingButNotDeletingOperations: DestructiveFileOperations {
 }
 
 @MainActor
+@Test func aPartiallyFailedSweepRemeasuresAndDoesNotClaimNothingWasDeleted() async throws {
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let first = try sandbox.writeLog(
+    "Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 40)
+  let second = try sandbox.writeLog(
+    "Worker_20260201-000000-utc.log", bytes: 8192, ageInDays: 30)
+  let clock = TestClock()
+  let subject = HousekeepingModel(
+    usage: DiskUsage(),
+    housekeeper: Housekeeper(files: RemovingOneThenRefusingOperations()),
+    confirmation: FakeConfirmation(), probe: sandbox.probe, clock: clock.read)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  let before = try #require(subject.measurement(for: sandbox.runner))
+  #expect(before.report?.rotation.count == 2)
+
+  clock.advance(60)
+  subject.perform(.trimLogs, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  #expect(!FileManager.default.fileExists(atPath: first.path))
+  #expect(FileManager.default.fileExists(atPath: second.path))
+  let after = try #require(subject.measurement(for: sandbox.runner))
+  #expect(after.readAt > before.readAt)
+  #expect(after.report?.rotation.count == 1)
+  let path = PathText.abbreviated(sandbox.root.appendingPathComponent("_diag"))
+  let notice = try #require(subject.notice(for: sandbox.runner))
+  #expect(notice != L10n.cleanupFailed(path))
+  #expect(notice.contains(path))
+}
+
+private final class RemovingOneThenRefusingOperations:
+  DestructiveFileOperations, @unchecked Sendable
+{
+  private struct Refusal: Error {}
+  private let lock = NSLock()
+  private var removalCount = 0
+
+  func createDirectory(at url: URL) throws {}
+  func move(_ url: URL, to destination: URL) throws {}
+
+  func remove(_ url: URL) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard removalCount == 0 else { throw Refusal() }
+    removalCount += 1
+    try FileManager.default.removeItem(at: url)
+  }
+}
+
+@MainActor
 @Test func aSweepTakesNoMoreThanTheNumberInTheDialogue() async throws {
   // Nothing expires a measurement — `du` is far too expensive to run on a
   // timer, which is why the menu says how old the number is instead — so the
