@@ -40,17 +40,21 @@ already has the same file authority and can replace a checked path before the ne
 filesystem call. Eliminating that race would require descriptor-relative operations such
 as `openat`, `renameat` and `unlinkat` with no-follow checks.
 
-Standfast opens no listening ports, has no telemetry or analytics, and never checks for
-updates to Standfast itself. Its outgoing GitHub requests are functional: runner-status
-requests identify the configured scope and runner, while the latest-runner-release request
-uses a public endpoint. Standfast does not upload `_diag` contents or other job data.
+Standfast opens no listening ports, adds no telemetry or analytics of its own, and never
+checks for updates to Standfast itself. Its outgoing GitHub requests are functional:
+runner-status requests identify the configured scope and runner, while the
+latest-runner-release request uses a public endpoint. Standfast does not upload `_diag`
+contents or other job data.
 
 Standfast launches `gh` with the environment it inherited; it neither injects nor removes
-GitHub authentication or update-notifier variables. Depending on the installed `gh`
-version and configuration, `gh` may perform its own update check or related traffic when
-invoked. Standfast does not initiate that delegated check or inspect whether it occurred:
-the only API calls it explicitly asks `gh` to make are runner status and the public latest
-`actions/runner` release.
+GitHub authentication, update-notifier, or telemetry variables. Current `gh` versions may
+send their own pseudonymous telemetry unless the user disables it; see
+[GitHub CLI telemetry](https://cli.github.com/telemetry). `GH_TELEMETRY=false` or
+`DO_NOT_TRACK=true` disables that telemetry in the environment Standfast inherits.
+Depending on the installed `gh` version and configuration, `gh` may also perform its own
+update check or other related traffic when invoked. Standfast does not initiate or inspect
+those delegated behaviors: the only API calls it explicitly asks `gh` to make are runner
+status and the public latest `actions/runner` release.
 
 ## No sudo, ever
 

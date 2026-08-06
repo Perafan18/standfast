@@ -190,12 +190,18 @@ These are real and deliberate, not oversights:
 
 ## Privacy
 
-Standfast has no telemetry or analytics, and never checks for updates to *itself*. Its
-functional GitHub API calls go through `gh`: it asks for each configured runner's status
-and asks the public endpoint for the latest `actions/runner` release so the menu can say
-when an installed runner is out of date. That release request runs once when Standfast
+Standfast itself adds no telemetry or analytics, and never checks for updates to *itself*.
+Its functional GitHub API calls go through `gh`: it asks for each configured runner's
+status and asks the public endpoint for the latest `actions/runner` release so the menu can
+say when an installed runner is out of date. That release request runs once when Standfast
 launches and then no more often than every 24 hours while that same instance stays open;
 relaunching starts a new instance and a new first check.
+
+Standfast launches the installed GitHub CLI with the environment it inherited. Current
+`gh` versions may send their own pseudonymous telemetry; Standfast neither adds to nor
+suppresses that delegated behavior. GitHub documents the data and opt-out controls at
+[GitHub CLI telemetry](https://cli.github.com/telemetry). In particular,
+`GH_TELEMETRY=false` or `DO_NOT_TRACK=true` disables it for the inherited environment.
 
 The app reads the runner's own `_diag` locally: listener-log contents provide job history
 and the installed runner version, while file metadata and disk usage support maintenance.
