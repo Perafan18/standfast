@@ -29,9 +29,10 @@ public enum CommandError: Error {
 
 /// The seam every external command goes through.
 ///
-/// `launchctl`, `svc.sh` and `gh` are the whole of this app's contact with the
-/// system, and none of them exist on a machine running the test suite. Keeping
-/// them behind one protocol is what makes the state logic testable at all.
+/// `launchctl`, `svc.sh`, `gh` and `du` are the external commands this app
+/// invokes, and tests must not depend on any of them describing the host that
+/// runs the suite. Keeping them behind one protocol makes those boundaries
+/// deterministic and the state logic testable.
 public protocol CommandRunning: Sendable {
   /// Throws only when the process could not be launched or would not finish;
   /// a non-zero exit comes back in the result for the caller to interpret.

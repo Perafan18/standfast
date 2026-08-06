@@ -93,10 +93,13 @@ public struct GHCommandLineClient: GitHubClient {
   /// Where to look for `gh`, in order.
   ///
   /// PATH first, because a `gh` from mise, nix or asdf is a deliberate choice
-  /// and the only one that will have the right credentials. The two Homebrew
-  /// prefixes follow because PATH is usually not enough: `launchctl getenv
-  /// PATH` is empty on a stock Mac, so an .app opened from Finder runs with
-  /// `/usr/bin:/bin:/usr/sbin:/sbin` and cannot see a brew install at all.
+  /// of installation and configuration. Authentication still follows `gh`'s
+  /// own precedence, including token environment variables inherited by this
+  /// process; no executable location proves which credentials it will use.
+  /// The two Homebrew prefixes follow because PATH is usually not enough:
+  /// `launchctl getenv PATH` is empty on a stock Mac, so an .app opened from
+  /// Finder runs with `/usr/bin:/bin:/usr/sbin:/sbin` and cannot see a brew
+  /// install at all.
   /// Without this fallback the app's default state, for most users, is a
   /// permanent "gh is not installed" about a gh that is installed.
   ///
