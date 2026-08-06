@@ -104,12 +104,46 @@ struct RunnerRow: Equatable {
 }
 
 extension RunnerSnapshot {
+  /// The names carried by more than one runner on this machine.
+  ///
+  /// `config.sh` proposes the hostname as the runner's name and nearly
+  /// everybody presses enter, so one Mac registered against two repositories
+  /// arrives here as two runners called `mac-mini-m4` — two identical rows,
+  /// each with its own four buttons, and no way to tell which is which. That is
+  /// the likeliest multi-runner setup there is, which makes it the one this has
+  /// to answer for.
+  ///
+  /// A question about the fleet, and unanswerable from one runner: whether a
+  /// name identifies anything depends entirely on the others. Nothing else
+  /// about a row works this way — every button is still read off its own
+  /// runner's state, which is what stops a stopped runner from being made
+  /// unstartable by a busy neighbour.
+  static func repeatedNames(among runners: [DiscoveredRunner]) -> Set<String> {
+    let counts = runners.reduce(into: [String: Int]()) { counts, runner in
+      counts[runner.displayName, default: 0] += 1
+    }
+    return Set(counts.filter { $0.value > 1 }.keys)
+  }
+
+  /// The name this row leads with: the runner's own, plus where it is
+  /// registered when that is what tells it apart from another runner here.
+  ///
+  /// Only when it is needed. `Perafan18/nest-rules-app` is most of a menu bar
+  /// row's width, and a Mac with one runner gains nothing from carrying it —
+  /// there is nothing to disambiguate it from. GitHub will not accept two
+  /// runners with the same name in the same scope, so the scope is always
+  /// enough to separate the runners that collide.
+  var name: String {
+    guard let qualifier else { return runner.displayName }
+    return L10n.runnerInScope(runner.displayName, qualifier)
+  }
+
   var row: RunnerRow {
     RunnerRow(
       // `displayName`, not `agentName`: the `.runner` file does not always
       // carry a name, and that runner would render as a blank row followed by
       // four buttons belonging to nobody.
-      title: L10n.runnerRow(runner.displayName, display.summary),
+      title: L10n.runnerRow(name, display.summary),
       // Every action reads this runner's own state. Nothing here consults the
       // fleet summary, which is for the icon and only the icon.
       actions: [

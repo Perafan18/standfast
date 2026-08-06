@@ -36,6 +36,14 @@ enum L10n {
     String(format: t("menu.runnerRow"), name, state)
   }
 
+  /// A runner's name and the GitHub scope it is registered against, for the
+  /// rows where the name alone appears twice. Localised for the same reason as
+  /// the row itself: the brackets are punctuation, and punctuation is written
+  /// differently in different languages.
+  static func runnerInScope(_ name: String, _ scope: String) -> String {
+    String(format: t("menu.runnerInScope"), name, scope)
+  }
+
   /// The English this app carries inside its own binary, keyed the same way as
   /// the catalogues.
   ///
@@ -51,6 +59,7 @@ enum L10n {
     "menu.refreshNow": "Refresh now",
     "menu.quit": "Quit",
     "menu.runnerRow": "%@ — %@",
+    "menu.runnerInScope": "%@ (%@)",
     "state.noRunners": "No runners installed on this Mac",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",

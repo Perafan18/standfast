@@ -6,7 +6,18 @@ import SwiftUI
 struct RunnerSnapshot: Identifiable, Equatable {
   let runner: DiscoveredRunner
   let display: DisplayState
+  /// Where this runner is registered, and nil when its name already says which
+  /// runner it is. Decided for the fleet rather than for the runner, because
+  /// whether a name identifies anything is a question about the other runners;
+  /// see `repeatedNames(among:)`.
+  let qualifier: String?
   var id: String { runner.label }
+
+  init(runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil) {
+    self.runner = runner
+    self.display = display
+    self.qualifier = qualifier
+  }
 }
 
 /// What the menu has to say beyond the runner rows themselves.
@@ -166,10 +177,13 @@ final class RunnerFleetModel: ObservableObject {
     // A runner that has been uninstalled since it was started would otherwise
     // leave its deadline behind, with nothing left to ever read and clear it.
     settling.keepOnly(Set(scan.found.runners.map(\.label)))
+    let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
     snapshots = zip(scan.found.runners, scan.states).map { runner, state in
       RunnerSnapshot(
         runner: runner,
-        display: settling.display(state, for: runner.label, readAt: readAt))
+        display: settling.display(state, for: runner.label, readAt: readAt),
+        // Only where the name alone would not say which runner this is.
+        qualifier: repeated.contains(runner.displayName) ? runner.scope.displayName : nil)
     }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable)

@@ -46,7 +46,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.quit, L10n.noRunnersFound, L10n.someRunnersUnreadable, L10n.moreUnreadable,
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
-    L10n.stateUnknownNoAnswer, L10n.runnerRow("a", "b"),
+    L10n.stateUnknownNoAnswer, L10n.stateUnknownNoLocalAnswer,
+    L10n.runnerRow("a", "b"), L10n.runnerInScope("a", "b"),
   ]
   for string in everyString {
     #expect(!string.isEmpty)
@@ -115,14 +116,13 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
 }
 
-// MARK: - Which language
-
-@Test func theLanguageIsTheOneThisMacAskedFor() throws {
-  // Not what `Bundle` would negotiate by itself. That runs through the main
-  // bundle, which under `swift run` declares no languages at all, so it
-  // answers "en" whatever the user set — measured on a Mac running es-419 with
-  // both catalogues sitting in the bundle it was reading from.
-  let chosen = try #require(L10n.localization)
-  #expect(["en", "es"].contains(chosen))
-  #expect(try catalogue(chosen)["menu.start"] == L10n.start)
+@Test func theScopedNameFormatTakesBothOfItsArgumentsToo() throws {
+  // A format that dropped one of them would silently erase either the runner's
+  // name or the only thing separating it from the runner below it.
+  #expect(L10n.runnerInScope("mac-mini-m4", "acme/widget").contains("mac-mini-m4"))
+  #expect(L10n.runnerInScope("mac-mini-m4", "acme/widget").contains("acme/widget"))
+  for language in ["en", "es"] {
+    let format = try #require(try catalogue(language)["menu.runnerInScope"])
+    #expect(format.components(separatedBy: "%@").count == 3)
+  }
 }

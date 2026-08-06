@@ -254,6 +254,44 @@ private func model(
       == DisplayState.starting.symbolName)
 }
 
+// MARK: - Two runners, one name
+
+@Test @MainActor func oneMacInTwoRepositoriesDrawsTwoDistinguishableRows()
+  async throws
+{
+  // The headline case for a multi-runner release, and the one where the menu
+  // used to give up: `config.sh` proposes the hostname, so both runners call
+  // themselves the same thing and both rows read `mac-mini-m4 — Idle`.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "mac-mini-m4", scope: "widget", agentId: 7)
+  try box.addRunner(name: "mac-mini-m4", scope: "gadget", agentId: 8)
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  let titles = fleet.snapshots.map(\.row.title)
+  #expect(titles.count == 2)
+  #expect(Set(titles).count == 2)
+  #expect(titles.allSatisfy { $0.contains("mac-mini-m4") })
+  #expect(titles.contains { $0.contains("acme/widget") })
+  #expect(titles.contains { $0.contains("acme/gadget") })
+}
+
+@Test @MainActor func aMacWithOneRunnerKeepsTheShortRow() async throws {
+  // The other half of the same decision: nothing to disambiguate, nothing
+  // added. A menu bar row has very little width to spend.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "mac-mini-m4", scope: "widget")
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.qualifier) == [nil])
+  #expect(fleet.snapshots[0].row.title == L10n.runnerRow("mac-mini-m4", L10n.stateIdle))
+}
+
 // MARK: - Acting on one runner, not on the machine
 
 @Test @MainActor func anActionThatCouldNotRunOpensNoWindow() async throws {

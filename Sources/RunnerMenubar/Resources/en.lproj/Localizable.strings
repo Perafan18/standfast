@@ -5,6 +5,7 @@
 "menu.refreshNow" = "Refresh now";
 "menu.quit" = "Quit";
 "menu.runnerRow" = "%@ — %@";
+"menu.runnerInScope" = "%@ (%@)";
 
 "state.noRunners" = "No runners installed on this Mac";
 "state.unreadable" = "Some runner files could not be read:";

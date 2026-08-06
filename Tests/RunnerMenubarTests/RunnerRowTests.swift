@@ -5,19 +5,22 @@ import Testing
 @testable import RunnerMenubar
 
 private func runner(
-  name: String = "build-mac", agentName: String? = nil
+  name: String = "build-mac", agentName: String? = nil, repository: String = "widget"
 ) -> DiscoveredRunner {
   DiscoveredRunner(
-    label: "actions.runner.acme-widget.\(name)",
-    directory: URL(fileURLWithPath: "/tmp/\(name)"),
+    label: "actions.runner.acme-\(repository).\(name)",
+    directory: URL(fileURLWithPath: "/tmp/\(repository)/\(name)"),
     agentId: 7, agentName: agentName ?? name,
-    scope: .repository(owner: "acme", name: "widget"))
+    scope: .repository(owner: "acme", name: repository))
 }
 
 private func snapshot(
-  _ display: DisplayState, name: String = "build-mac", agentName: String? = nil
+  _ display: DisplayState, name: String = "build-mac", agentName: String? = nil,
+  repository: String = "widget", qualifier: String? = nil
 ) -> RunnerSnapshot {
-  RunnerSnapshot(runner: runner(name: name, agentName: agentName), display: display)
+  RunnerSnapshot(
+    runner: runner(name: name, agentName: agentName, repository: repository),
+    display: display, qualifier: qualifier)
 }
 
 // MARK: - The title
@@ -36,6 +39,69 @@ private func snapshot(
   #expect(nameless.row.title.contains("acme-widget.build-mac"))
   #expect(!nameless.row.title.hasPrefix(" "))
   #expect(nameless.row.title != L10n.runnerRow("", L10n.stateIdle))
+}
+
+// MARK: - Telling two runners on one Mac apart
+
+@Test func aLoneRunnerIsNotMadeToCarryWhereItIsRegistered() {
+  // `config.sh` proposes the hostname and everyone takes it, so almost every
+  // runner is called after its Mac. With nothing to distinguish it from, the
+  // repository slug is width spent on a question nobody asked.
+  let alone = snapshot(.resolved(.idle), name: "mac-mini-m4")
+
+  #expect(alone.name == "mac-mini-m4")
+  #expect(alone.row.title == L10n.runnerRow("mac-mini-m4", L10n.stateIdle))
+}
+
+@Test func twoRunnersWithOneNameAreToldApartByWhereTheyAreRegistered() {
+  // The measured shape: one Mac registered against two repositories produces
+  // two rows reading `mac-mini-m4 — Idle`, each with its own four buttons, and
+  // nothing on screen to say which is which.
+  let runners = [
+    runner(name: "mac-mini-m4", repository: "widget"),
+    runner(name: "mac-mini-m4", repository: "gadget"),
+  ]
+  let repeated = RunnerSnapshot.repeatedNames(among: runners)
+  #expect(repeated == ["mac-mini-m4"])
+
+  let rows = runners.map {
+    RunnerSnapshot(
+      runner: $0, display: .resolved(.idle),
+      qualifier: repeated.contains($0.displayName) ? $0.scope.displayName : nil
+    ).row
+  }
+
+  #expect(rows[0].title.contains("acme/widget"))
+  #expect(rows[1].title.contains("acme/gadget"))
+  #expect(rows[0].title != rows[1].title)
+  // The name is still in there: the scope answers "which one", not "what".
+  #expect(rows.allSatisfy { $0.title.contains("mac-mini-m4") })
+}
+
+@Test func runnersWithDifferentNamesAreLeftAlone() {
+  #expect(
+    RunnerSnapshot.repeatedNames(among: [
+      runner(name: "build-mac"), runner(name: "spare-mac", repository: "gadget"),
+    ]).isEmpty)
+}
+
+@Test func aNameSharedByThreeRunnersQualifiesAllThree() {
+  // Counting, not pairwise comparison: a rule that only marked the duplicates
+  // after the first would leave one unqualified row among the ambiguous ones.
+  let runners = ["widget", "gadget", "sprocket"].map {
+    runner(name: "mac-mini-m4", repository: $0)
+  }
+  #expect(RunnerSnapshot.repeatedNames(among: runners) == ["mac-mini-m4"])
+}
+
+@Test func theScopeIsAppendedToTheNameRatherThanReplacingIt() {
+  let qualified = snapshot(
+    .resolved(.idle), name: "mac-mini-m4", qualifier: "acme/widget")
+
+  #expect(qualified.name == L10n.runnerInScope("mac-mini-m4", "acme/widget"))
+  #expect(qualified.name.contains("mac-mini-m4"))
+  #expect(qualified.name.contains("acme/widget"))
+  #expect(qualified.row.title.contains(L10n.stateIdle))
 }
 
 // MARK: - The actions

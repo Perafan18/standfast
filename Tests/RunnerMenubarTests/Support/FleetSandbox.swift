@@ -62,17 +62,24 @@ final class FleetSandbox: @unchecked Sendable {
     RecordingCommandRunner { [self] verb in set(serviceRunning: verb == "start") }
   }
 
+  /// - Parameters:
+  ///   - name: what the runner calls itself, which is what the menu shows.
+  ///   - scope: the repository slug it is registered against. Separate from the
+  ///     name because they are separate on a real machine: `config.sh` proposes
+  ///     the hostname, so one Mac in two repositories is two runners with one
+  ///     name — the case the rows have to survive.
   @discardableResult
   func addRunner(
-    name: String = "build-mac", agentId: Int = 7, withScript: Bool = true
+    name: String = "build-mac", scope: String = "acme-widget", agentId: Int = 7,
+    withScript: Bool = true
   ) throws -> URL {
-    let label = "actions.runner.acme-widget.\(name)"
-    let directory = root.appendingPathComponent(name)
+    let label = "actions.runner.\(scope).\(name)"
+    let directory = root.appendingPathComponent("\(scope).\(name)")
     try FileManager.default.createDirectory(
       at: directory, withIntermediateDirectories: true)
     let fields: [String: Any] = [
       "agentId": agentId, "agentName": name, "workFolder": "_work",
-      "gitHubUrl": "https://github.com/acme/widget",
+      "gitHubUrl": "https://github.com/acme/\(scope)",
     ]
     try JSONSerialization.data(withJSONObject: fields)
       .write(to: directory.appendingPathComponent(".runner"))
@@ -93,8 +100,8 @@ final class FleetSandbox: @unchecked Sendable {
   /// networked home directory it is not the microsecond it is here.
   /// Takes a runner off the machine the way an uninstall does: launchd stops
   /// advertising it, and the directory it pointed at may well stay behind.
-  func removeRunner(name: String = "build-mac") throws {
-    let label = "actions.runner.acme-widget.\(name)"
+  func removeRunner(name: String = "build-mac", scope: String = "acme-widget") throws {
+    let label = "actions.runner.\(scope).\(name)"
     try FileManager.default.removeItem(
       at: launchAgents.appendingPathComponent("\(label).plist"))
   }
