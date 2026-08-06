@@ -123,6 +123,10 @@ final class RunnerFleetModel: ObservableObject {
   /// Actions still running, each removing itself when it finishes. Kept only
   /// so `quiesce()` has something to wait on.
   private var actions: [UUID: Task<Void, Never>] = [:]
+  /// A service mutation owns its runner until it has requested the re-probe.
+  /// Labels, rather than one fleet-wide flag, keep independent runners
+  /// independent while making contradictory clicks on one runner harmless.
+  private var serviceActionsInFlight: Set<String> = []
 
   /// - Parameters:
   ///   - discover: a call rather than a `RunnerDiscovery`, because *where* the
@@ -435,28 +439,35 @@ final class RunnerFleetModel: ObservableObject {
   /// blocking call needs is the callee's business, not something each caller
   /// has to remember.
   func start(_ runner: DiscoveredRunner) {
+    guard serviceActionsInFlight.insert(runner.label).inserted else { return }
     perform(on: runner, thenSettles: true) { controller, directory in
       try await controller.start(in: directory)
     }
   }
 
   func stop(_ runner: DiscoveredRunner) {
+    // Acquired before either side effect: an ignored overlapping Stop must not
+    // close another action's settling window or mint a stop intent of its own.
+    guard serviceActionsInFlight.insert(runner.label).inserted else { return }
     settling.close(for: runner.label)
     // Told before the command runs rather than after it returns: `svc.sh stop`
     // takes a moment and a scan can land inside it, and a stop this app ordered
     // must never be reported back to the person who ordered it — not even when
     // the reading arrives early.
-    watcher.expectStop(for: runner.label)
-    perform(on: runner, thenSettles: false) { controller, directory in
+    watcher.expectStop(for: runner.label, at: clock())
+    perform(on: runner, thenSettles: false, expectsStop: true) {
+      controller, directory in
       try await controller.stop(in: directory)
     }
   }
 
   func restart(_ runner: DiscoveredRunner) {
+    guard serviceActionsInFlight.insert(runner.label).inserted else { return }
     // A restart takes the service down first, so it looks exactly like a stop
     // to anything reading `launchctl` in the 1.5s gap.
-    watcher.expectStop(for: runner.label)
-    perform(on: runner, thenSettles: true) { controller, directory in
+    watcher.expectStop(for: runner.label, at: clock())
+    perform(on: runner, thenSettles: true, expectsStop: true) {
+      controller, directory in
       try await controller.restart(in: directory)
     }
   }
@@ -468,6 +479,7 @@ final class RunnerFleetModel: ObservableObject {
   private func perform(
     on runner: DiscoveredRunner,
     thenSettles: Bool,
+    expectsStop: Bool = false,
     _ work: @escaping @Sendable (ServiceController, URL) async throws -> Void
   ) {
     let controller = controller
@@ -497,12 +509,17 @@ final class RunnerFleetModel: ObservableObject {
         // as "Starting…" for thirty seconds over an action that never
         // happened.
         ranSomething = false
+        if expectsStop { watcher.cancelExpectedStop(for: label) }
       }
       if thenSettles && ranSomething { settling.open(for: label, at: clock()) }
       // `svc.sh` returns before launchd has settled, so an immediate re-probe
       // reports the state we just left.
       try? await Task.sleep(for: .seconds(probeDelay))
       refresh()
+      // The action owns the label through re-probe scheduling. Releasing it
+      // sooner lets a second click alter settling or expected-stop state before
+      // the first action has even asked to observe its result.
+      serviceActionsInFlight.remove(label)
       actions[id] = nil
     }
   }

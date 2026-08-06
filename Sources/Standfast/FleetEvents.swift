@@ -57,7 +57,7 @@ struct FleetWatcher {
   /// Kept apart from `seen` because it is set before the reading it applies to,
   /// and by a different caller: `stop` and `restart` know a stop is coming, and
   /// the scan that finds the runner down lands two seconds later.
-  private var expectedStops: Set<String> = []
+  private var expectedStops: [String: Date] = [:]
 
   /// Called when this app asks a runner to stop, so the stop it then observes
   /// is not reported back to the person who ordered it.
@@ -66,13 +66,22 @@ struct FleetWatcher {
   /// stopped": there is nothing in `launchctl` that says which, and guessing
   /// from timing would make a slow machine look like a crashed one. Restart
   /// takes the service down too, and lands in the same place.
-  mutating func expectStop(for label: String) { expectedStops.insert(label) }
+  mutating func expectStop(for label: String, at requestAt: Date) {
+    expectedStops[label] = requestAt
+  }
+
+  /// Revokes an intent whose command definitely failed before completing.
+  /// Timeouts deliberately do not call this: the process may already have
+  /// stopped the service before it was killed at the deadline.
+  mutating func cancelExpectedStop(for label: String) {
+    expectedStops.removeValue(forKey: label)
+  }
 
   /// Forgets runners that are no longer installed, so an uninstalled one does
   /// not leave a baseline behind for a reinstall to be compared against.
   mutating func keepOnly(_ labels: Set<String>) {
     seen = seen.filter { labels.contains($0.key) }
-    expectedStops = expectedStops.filter { labels.contains($0) }
+    expectedStops = expectedStops.filter { labels.contains($0.key) }
   }
 
   /// Reads one scan and reports what changed since the last one.
@@ -121,18 +130,27 @@ struct FleetWatcher {
     in snapshot: RunnerSnapshot, from before: DisplayState
   ) -> [FleetEvent] {
     let changed = snapshot.display != before
+    let maySpendExpectedStop =
+      expectedStops[snapshot.runner.label].map {
+        snapshot.readAt >= $0
+      } ?? false
     switch snapshot.display.resolvedState {
     case .stopped:
       // Spent on the first stop observed rather than on the first stop
       // *reported*: a user who presses Stop on an already-stopped runner would
       // otherwise leave the token behind to swallow a real crash later.
-      let expected = expectedStops.remove(snapshot.runner.label) != nil
+      let expected =
+        maySpendExpectedStop
+        ? expectedStops.removeValue(forKey: snapshot.runner.label) != nil
+        : false
       guard changed, !expected else { return [] }
       return [.runnerStoppedUnexpectedly(runner: snapshot.name)]
     case .idle, .busy:
       // Up and taking work, so whatever stop was expected has been and gone —
       // which is what a restart looks like when the scan misses the gap.
-      expectedStops.remove(snapshot.runner.label)
+      if maySpendExpectedStop {
+        expectedStops.removeValue(forKey: snapshot.runner.label)
+      }
       return []
     case .disconnected:
       return changed ? [.runnerDisconnected(runner: snapshot.name)] : []

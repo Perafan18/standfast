@@ -614,6 +614,75 @@ private func listening(
 
 // MARK: - Acting on one runner, not on the machine
 
+@Test @MainActor func oneRunnerAcceptsOnlyOneServiceActionAtATime() async throws {
+  // Hold Start inside svc.sh, then press every service button again. All three
+  // overlap the same label and therefore belong to the one ignored group.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  await commands.waitForInvocationCount(1)
+  fleet.start(runner)
+  fleet.stop(runner)
+  fleet.restart(runner)
+  commands.release(10)
+  await fleet.quiesce()
+
+  #expect(commands.invocations.map(\.last) == ["start"])
+}
+
+@Test @MainActor func differentRunnersCanActAtTheSameTime() async throws {
+  // The first command is still blocked when the second reaches the runner, so
+  // this proves the guard is keyed by label rather than fleet-wide.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "build-mac", scope: "widget")
+  try box.addRunner(name: "release-mac", scope: "gadget")
+  let commands = BlockingCommandRunner()
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let runners = Dictionary(
+    uniqueKeysWithValues: fleet.snapshots.map {
+      ($0.runner.displayName, $0.runner)
+    })
+
+  fleet.start(runners["build-mac"]!)
+  await commands.waitForInvocationCount(1)
+  fleet.stop(runners["release-mac"]!)
+  await commands.waitForInvocationCount(2)
+  commands.release(10)
+  await fleet.quiesce()
+
+  #expect(Set(commands.invocations.compactMap(\.last)) == ["start", "stop"])
+}
+
+@Test @MainActor func openingGitHubIsNotBlockedByAServiceAction() async throws {
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner(scope: "widget")
+  let commands = BlockingCommandRunner()
+  let opener = FakeURLOpener()
+  let fleet = model(box, commands: commands, opener: opener)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  await commands.waitForInvocationCount(1)
+  fleet.perform(.openOnGitHub, on: runner)
+
+  #expect(
+    opener.urls.map(\.absoluteString) == [
+      "https://github.com/acme/widget/settings/actions/runners"
+    ])
+  commands.release()
+  await fleet.quiesce()
+}
+
 @Test @MainActor func anActionThatCouldNotRunOpensNoWindow() async throws {
   // Half-uninstalled runner: no `svc.sh`, so Start throws before anything
   // happens. Nothing was started, so nothing is settling, and the state the
@@ -765,6 +834,62 @@ private func listening(
   defer { box.cleanUp() }
   try box.addRunner()
   let (fleet, delivery) = await listening(box, commands: box.svcDrivingCommandRunner)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aFailedStopDoesNotSilenceTheNextRealCrash() async throws {
+  // A definite command failure revokes the intent immediately. The runner can
+  // go down independently before the re-probe, and that crash still belongs
+  // in notifications rather than under a stop the app never performed.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = FailingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+}
+
+@Test @MainActor func aFailedRestartDoesNotSilenceTheNextRealCrash() async throws {
+  // Restart fails in its stop half here. It is still a definite failure, so
+  // its expected-stop intent cannot be inherited by an unrelated crash.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = FailingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+}
+
+@Test @MainActor func aTimedOutStopKeepsItsExpectedStopIntent() async throws {
+  // A timeout says only that the process was killed at its deadline. If the
+  // stop already took effect, its resulting scan is still the ordered stop.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = TimingOutCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
   await fleet.quiesce()
 
   fleet.stop(fleet.snapshots[0].runner)

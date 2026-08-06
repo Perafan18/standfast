@@ -262,10 +262,48 @@ import Testing
   let runner = snapshot()
   _ = watcher.events(in: [runner])
 
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
   let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
 
   #expect(events.isEmpty)
+}
+
+@Test func aScanReadBeforeTheClickCannotSpendTheExpectedStop() {
+  // A slow scan can start before Stop is pressed and land afterward. Its
+  // answer is older than the click, so seeing the runner up in that answer
+  // cannot prove the ordered stop has already been and gone.
+  let beforeClick = Date(timeIntervalSince1970: 100)
+  let clickedAt = Date(timeIntervalSince1970: 200)
+  let afterClick = Date(timeIntervalSince1970: 300)
+  var watcher = FleetWatcher()
+  let runner = snapshot(readAt: beforeClick.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+
+  watcher.expectStop(for: runner.runner.label, at: clickedAt)
+  #expect(
+    watcher.events(in: [snapshot(display: .resolved(.busy), readAt: beforeClick)]).isEmpty)
+
+  let events = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: afterClick)
+  ])
+  #expect(events.isEmpty)
+}
+
+@Test func aStoppedScanReadBeforeTheClickIsStillUnexpected() {
+  // The same ordering at the stop branch: a stale answer cannot be attributed
+  // to a click that had not happened when the machine was read.
+  let beforeClick = Date(timeIntervalSince1970: 100)
+  let clickedAt = Date(timeIntervalSince1970: 200)
+  var watcher = FleetWatcher()
+  let runner = snapshot(readAt: beforeClick.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+
+  watcher.expectStop(for: runner.runner.label, at: clickedAt)
+  let events = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: beforeClick)
+  ])
+
+  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
 @Test func theNextStopAfterAnOrderedOneIsReportedAgain() {
@@ -275,7 +313,7 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot()
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
   #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
 
@@ -293,7 +331,7 @@ import Testing
   let runner = snapshot()
   _ = watcher.events(in: [runner])
 
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.busy))]).isEmpty)
   let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
 
@@ -307,7 +345,7 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot(display: .resolved(.stopped))
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
 
   #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
@@ -324,7 +362,7 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot()
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
 
   // Started again from a terminal; GitHub has not registered it yet.
@@ -358,7 +396,7 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot()
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
 
   watcher.keepOnly([])
   _ = watcher.events(in: [snapshot(display: .resolved(.idle))])

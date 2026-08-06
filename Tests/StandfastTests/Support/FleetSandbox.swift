@@ -362,6 +362,76 @@ final class TimingOutCommandRunner: CommandRunning, @unchecked Sendable {
   }
 }
 
+/// A `svc.sh` that definitely did not complete, for distinguishing a known
+/// failure from a timeout whose effects cannot be known.
+final class FailingCommandRunner: CommandRunning, @unchecked Sendable {
+  private let onVerb: @Sendable (String) -> Void
+
+  init(onVerb: @escaping @Sendable (String) -> Void = { _ in }) { self.onVerb = onVerb }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    if let verb = arguments.last { onVerb(verb) }
+    throw DeliberateCommandFailure.failed
+  }
+
+  private enum DeliberateCommandFailure: Error { case failed }
+}
+
+/// Holds every command at a gate after recording it, so tests can act while a
+/// service mutation is definitely still in flight without racing a sleep.
+final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
+  private struct Waiter {
+    let count: Int
+    let continuation: CheckedContinuation<Void, Never>
+  }
+
+  private let lock = NSLock()
+  private let gate = DispatchSemaphore(value: 0)
+  private var seen: [[String]] = []
+  private var waiters: [Waiter] = []
+
+  var invocations: [[String]] {
+    lock.lock()
+    defer { lock.unlock() }
+    return seen
+  }
+
+  func waitForInvocationCount(_ count: Int) async {
+    await withCheckedContinuation { continuation in
+      lock.lock()
+      guard seen.count < count else {
+        lock.unlock()
+        continuation.resume()
+        return
+      }
+      waiters.append(Waiter(count: count, continuation: continuation))
+      lock.unlock()
+    }
+  }
+
+  /// Signals may be issued before a command reaches the gate; the semaphore
+  /// keeps them, which lets a test release both the expected and buggy paths.
+  func release(_ count: Int = 1) {
+    for _ in 0..<count { gate.signal() }
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    lock.lock()
+    seen.append([executable] + arguments)
+    let ready = waiters.filter { seen.count >= $0.count }
+    waiters.removeAll { seen.count >= $0.count }
+    lock.unlock()
+    for waiter in ready { waiter.continuation.resume() }
+
+    gate.wait()
+    return CommandResult(standardOutput: "", exitCode: 0)
+  }
+}
+
 /// A clock a test moves by hand, for the parts of this model that measure how
 /// stale their own answer is.
 final class TestClock: @unchecked Sendable {
