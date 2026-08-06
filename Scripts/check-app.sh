@@ -22,11 +22,23 @@ STAGE="$(mktemp -d /tmp/standfast-check.XXXXXX)"
 APP="$STAGE/Standfast.app"
 PID=""
 
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/\
+LaunchServices.framework/Support/lsregister
+
 cleanup() {
   if [ -n "$PID" ]; then
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
   fi
+  # Launching the staged copy registers this path with LaunchServices under
+  # `dev.standfast.app`, and deleting the directory does not unregister it.
+  # Every run of this script therefore used to leave one more entry claiming
+  # the app's bundle identifier at a path that no longer exists — twenty of
+  # them accumulated on the machine this was found on, each reported by
+  # `lsregister -dump` as "Bundle node not found on disk". Whatever else that
+  # costs, it makes `dev.standfast.app` resolve to a phantom, and the app this
+  # script exists to prove is installable is the one being shadowed.
+  [ -x "$LSREGISTER" ] && "$LSREGISTER" -u "$APP" 2>/dev/null || true
   rm -rf "$STAGE"
 }
 trap cleanup EXIT
@@ -58,10 +70,45 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist does not 
 # that stops at its first match leaves codesign writing into a closed pipe, and
 # the SIGPIPE it dies of becomes the status of the whole pipeline — a check that
 # fails or passes depending on which process got there first.
-signature="$(codesign -dv "$APP" 2>&1 || true)"
+signature="$(codesign -dvvv "$APP" 2>&1 || true)"
 case "$signature" in
   *"Identifier=dev.standfast.app"*) ;;
   *) fail "the bundle is not signed as dev.standfast.app: notifications will be dropped" ;;
+esac
+
+# That the seal actually closes over the files that were copied in. The check
+# above only reads what the signature claims; this one recomputes it, and it is
+# what catches a resource added to the bundle after signing — which stays
+# invisible until Gatekeeper refuses the app on somebody else's Mac.
+codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 \
+  || fail "the signature does not verify"
+
+# The hardened runtime, on the ad-hoc path too. Notarisation requires it, and a
+# release is the worst place to discover it was dropped: the notary service
+# rejects the upload after several minutes with a message that names no line of
+# any script. Asserting it on every build makes the revert fail here instead.
+flags="$(printf '%s\n' "$signature" | sed -n 's/.*flags=\([^ ]*\).*/\1/p')"
+case "$flags" in
+  *runtime*) ;;
+  *) fail "the bundle is not signed with the hardened runtime (flags=$flags)" ;;
+esac
+
+# Gatekeeper's verdict, reported rather than asserted, because the right answer
+# depends on the certificate this machine happens to have. An ad-hoc build is
+# *supposed* to be rejected — that is what unsigned distribution means — so
+# failing on it would break every contributor and all of CI. A Developer ID
+# build that is rejected is a real problem, and that one does fail.
+echo "==> Gatekeeper's assessment"
+assessment="$(spctl --assess --type install -vv "$APP" 2>&1 || true)"
+echo "$assessment" | sed 's/^/    /'
+case "$signature" in
+  *"Authority=Developer ID Application:"*)
+    case "$assessment" in
+      *accepted*) ;;
+      *) fail "signed with a Developer ID and still rejected by Gatekeeper" ;;
+    esac ;;
+  *)
+    echo "    (ad-hoc build: rejection here is expected)" ;;
 esac
 for language in en es; do
   [ -d "$APP/Contents/Resources/$language.lproj" ] || fail "$language.lproj is missing"

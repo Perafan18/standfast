@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 438 tests, ~1s
+make test      # 462 tests, ~1s
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
@@ -106,14 +106,21 @@ from the UI: use the `async` facades, which hop to `DispatchQueue.global()`. `Ta
 `Task.detached {}` both land on the cooperative pool, whose width is the core count, so
 "off the main actor" is not enough.
 
-**Do not drop the `codesign` line at the end of `Scripts/build-app.sh`.** It is ad-hoc
-and it looks like something only a release needs. It is not: SwiftPM leaves the executable
-linker-signed with the identifier `Standfast` and `Info.plist` unbound, so an unsigned
-bundle has no bundle identity as far as the system is concerned. `usernoted` then declines
-to register `dev.standfast.app` and drops every notification the app posts — no banner, no
-error, nothing in any log. `check-app.sh` compares the identifier `codesign` reports
-against the one `Info.plist` claims, which is the only way this failure is visible from
-outside.
+**Do not drop the `codesign` line at the end of `Scripts/build-app.sh`.** On the ad-hoc
+branch it looks like something only a release needs. It is not: SwiftPM leaves the
+executable linker-signed with the identifier `Standfast` and `Info.plist` unbound, so an
+unsigned bundle has no bundle identity as far as the system is concerned. `usernoted` then
+declines to register `dev.standfast.app` and drops every notification the app posts — no
+banner, no error, nothing in any log. `check-app.sh` compares the identifier `codesign`
+reports against the one `Info.plist` claims, which is the only way this failure is visible
+from outside.
+
+**Do not drop `--options runtime` from either branch of the signing.** The hardened
+runtime is a notarisation requirement, so a release signed without it is refused — but the
+refusal comes from Apple's notary service, minutes after the upload, in a message that
+names no file. It is applied to the ad-hoc build too so that a contributor's app is
+subject to the same restrictions as the shipped one, and anything the hardened runtime
+breaks breaks locally instead of on a release branch. `check-app.sh` asserts the flag.
 
 **The `.runner` file starts with a UTF-8 BOM.** `JSONDecoder` rejects it. The fixture
 carries real BOM bytes so a regression fails the test rather than only failing on somebody's
@@ -152,7 +159,62 @@ It assembles the bundle, **deletes `.build`**, launches the app and confirms it 
 alive. That deletion is the point — with the build directory present, a broken bundle still
 resolves and the failure hides. No unit test can catch this class of bug.
 
+## Signing and notarisation
+
+`build-app.sh` picks its identity itself and says which one it used:
+
+1. `$SIGN_IDENTITY`, when set — and if that identity is not in the keychain the build
+   **fails** rather than falling back, because a caller who named one is releasing.
+2. A **Developer ID Application** certificate, when the keychain has one. It is selected
+   by SHA-1, not by name: renewing a certificate leaves two with the same common name and
+   `codesign` refuses an ambiguous match.
+3. Ad-hoc, so a contributor with no certificate still gets a working app.
+
+Only a Developer ID Application certificate notarises. Apple Development and Apple
+Distribution certificates are deliberately not used even when present — signing with one
+produces a bundle that passes `codesign --verify` and is still refused on every Mac but
+the one that built it.
+
+Notarisation needs credentials that are not in this repository and never should be. Store
+them once:
+
+```sh
+xcrun notarytool store-credentials "standfast-notary" \
+  --apple-id "<apple-id-email>" --team-id "<10-character-team-id>" \
+  --password "<app-specific-password>"
+```
+
+The password is an **app-specific** password from
+[appleid.apple.com](https://appleid.apple.com) under Sign-In and Security; the normal
+Apple ID password is refused. `Scripts/notarize.sh` uses that profile if it exists and
+`APPLE_ID` / `TEAM_ID` / `APP_SPECIFIC_PASSWORD` otherwise, and refuses to upload anything
+when neither is present rather than failing halfway through a release.
+
+CI never signs with a real identity. The certificate stays on the release manager's
+machine, and what CI covers is that the ad-hoc branch still produces a bundle with a real
+identity, and that `notarize.sh` refuses to submit one.
+
 ## Releasing
+
+Signing and notarisation happen on the release manager's machine, before the tag:
+
+```sh
+./Scripts/build-app.sh      # says which identity it used — check it is the Developer ID
+./Scripts/notarize.sh       # submits, waits, staples, then verifies
+```
+
+`notarize.sh` reads the bundle before spending an upload on it and refuses a signature
+that is ad-hoc, missing the hardened runtime, or missing a secure timestamp. After
+stapling it runs the three checks that describe what a downloader actually gets:
+
+```sh
+codesign --verify --deep --strict --verbose=2 .build/Standfast.app
+xcrun stapler validate .build/Standfast.app
+spctl --assess --type install -vv .build/Standfast.app   # must say "accepted"
+```
+
+`--type install` matters: plain `spctl --assess` uses the execute rule, which is not the
+one that rejects a quarantined download.
 
 The version is written in two places that no build step keeps in step:
 `CFBundleShortVersionString` in `Resources/Info.plist`, and the tag inside `url` in
@@ -164,8 +226,20 @@ So a release is, in order:
 1. Bump `CFBundleShortVersionString` and the formula's `url` tag together, in one commit.
 2. In `CHANGELOG.md`, replace `— unreleased` on that version's heading with the date,
    and open a new heading above it.
-3. Tag `v<version>` and push the tag.
-4. Put the release tarball's `sha256` into the formula, replacing `REPLACE_ON_RELEASE`,
-   and copy the formula into the tap.
+3. **Sign**: `./Scripts/build-app.sh`, and read the line it prints. It must name the
+   Developer ID Application certificate — if it says "Signed ad-hoc", stop.
+4. **Notarise, staple and verify**: `./Scripts/notarize.sh`. It submits, waits for
+   Apple's verdict, staples the ticket into the bundle and then verifies the signature,
+   the ticket and Gatekeeper's assessment. Stapling is not optional: without it a user
+   who is offline, or behind something that blocks Apple, is refused an app that *was*
+   notarised.
+5. **Tag** `v<version>` and push the tag.
+6. **sha256**: put the release tarball's into the formula, replacing `REPLACE_ON_RELEASE`.
+7. **Formula**: copy it into the tap.
+
+Steps 3 and 4 sign the bundle this repository builds. The formula builds from source on
+the user's own machine, so what Homebrew installs is signed ad-hoc by their own toolchain
+and never touches Gatekeeper — which is why building from source is the default. The
+notarised bundle is what a direct download needs.
 
 `CFBundleVersion` is the build number and is deliberately not tied to any of this.

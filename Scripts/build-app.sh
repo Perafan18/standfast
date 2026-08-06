@@ -50,25 +50,107 @@ cp -R "$RESOURCES" "$DEST/Contents/Resources/"
 # macOS offer Standfast in the per-app language picker.
 cp -R "$RESOURCES"/*.lproj "$DEST/Contents/Resources/"
 
-# LaunchServices caches bundle metadata by mtime; without this a rebuilt app
-# can keep being launched with the previous Info.plist.
-# Ad-hoc, and this is not the signing that release needs — it is the signing
-# that makes the app work at all.
+# Signing is not a release-only concern, and dropping it breaks the app.
 #
 # SwiftPM leaves the executable linker-signed with the identifier `Standfast`,
 # and copying it into a bundle does not bind Info.plist to it. `codesign -dv`
 # on the result says `Identifier=Standfast`, `Info.plist=not bound`,
 # `Sealed Resources=none` — so as far as the system is concerned this process
-# has no bundle identity. Measured consequence: `requestAuthorization` reaches
-# `usernoted` and the app is never registered, `dev.standfast.app` never
-# appears in its database, and every notification is dropped in silence. There
-# is nothing to see and nothing to debug. One `codesign --sign -` over the
-# whole bundle binds Info.plist and the identifier becomes
-# `dev.standfast.app`, after which banners arrive.
+# has no bundle identity, and `usernoted` will not register a bundle it cannot
+# identify. Signing the whole bundle binds Info.plist and the identifier
+# becomes `dev.standfast.app`, which is the precondition for a notification
+# ever being delivered. `check-app.sh` asserts exactly that.
 #
-# Developer ID and notarisation are a separate job. This is the floor.
-codesign --force --sign - "$DEST"
+# Which identity is chosen, and why it is chosen in this order:
+#
+#   1. $SIGN_IDENTITY, when set. An explicit choice is never second-guessed,
+#      and never silently downgraded — see the hard failure below.
+#   2. A Developer ID Application certificate, when the keychain has one. This
+#      is the only kind of certificate Gatekeeper accepts outside the App
+#      Store, and the only one `notarytool` will take. Apple Development and
+#      Apple Distribution certificates are deliberately NOT used: neither
+#      notarises, so signing with one produces a bundle that looks signed,
+#      passes `codesign --verify`, and is still refused on every Mac but this
+#      one.
+#   3. Ad-hoc, so a contributor with no certificate still gets a working app.
+#
+# Selection is by SHA-1 rather than by name on purpose: renewing a certificate
+# leaves two in the keychain with the same common name, and `codesign` refuses
+# an ambiguous match rather than picking one.
+identities="$(security find-identity -v -p codesigning 2>/dev/null \
+  | sed -n 's/^ *[0-9]*) \([0-9A-F]*\) "\(Developer ID Application:.*\)"$/\1 \2/p')"
 
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  # A caller who named an identity is releasing. Falling back to ad-hoc here
+  # would hand them a bundle that cannot be notarised, after the point where
+  # anyone would think to check.
+  matched="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep -F -- "$SIGN_IDENTITY" | head -n 1)"
+  if [ -z "$matched" ]; then
+    echo "build-app.sh: SIGN_IDENTITY=$SIGN_IDENTITY is not in the keychain" >&2
+    echo "  available:" >&2
+    security find-identity -v -p codesigning >&2
+    exit 1
+  fi
+  chosen="$SIGN_IDENTITY"
+  # Report the certificate's name, not the SHA-1 the caller may have passed:
+  # "signed with 388391D0…" tells whoever reads the log nothing about whether
+  # the right certificate was used.
+  description="$(printf '%s\n' "$matched" | sed -n 's/.*"\(.*\)"$/\1/p')"
+  case "$description" in
+    "Developer ID Application:"*) ;;
+    # Not fatal — an override is sometimes a deliberate experiment — but it
+    # must not be reported as something it is not. Only a Developer ID
+    # Application certificate notarises.
+    *)
+      echo "build-app.sh: $description is not a Developer ID Application" >&2
+      echo "  certificate. The bundle will not notarise." >&2
+      ;;
+  esac
+elif [ -n "$identities" ]; then
+  chosen="$(printf '%s\n' "$identities" | head -n 1 | cut -d' ' -f1)"
+  description="$(printf '%s\n' "$identities" | head -n 1 | cut -d' ' -f2-)"
+  if [ "$(printf '%s\n' "$identities" | wc -l | tr -d ' ')" != "1" ]; then
+    echo "build-app.sh: more than one Developer ID Application certificate;" >&2
+    echo "  using $description" >&2
+    echo "  set SIGN_IDENTITY to a SHA-1 from this list to choose another:" >&2
+    printf '    %s\n' "$identities" >&2
+  fi
+else
+  chosen=""
+fi
+
+if [ -n "$chosen" ]; then
+  # --options runtime: the hardened runtime, which notarisation requires. It
+  # is not optional and cannot be added after the fact — a bundle signed
+  # without it is rejected by the notary service, not by codesign, so the
+  # mistake surfaces minutes later at the end of an upload.
+  #
+  # --timestamp: a signature with no trusted timestamp stops verifying the day
+  # the certificate expires, which would strand every copy already downloaded.
+  # It needs to reach timestamp.apple.com, so this path is the one that fails
+  # offline — deliberately, because an untimestamped release is worse.
+  codesign --force --options runtime --timestamp \
+    --sign "$chosen" "$DEST"
+  echo "Signed with: $description"
+else
+  # --options runtime here too, so the bundle a contributor runs is subject to
+  # the same restrictions as the one that ships. Library validation and the
+  # rest are what the hardened runtime turns on, and finding out that they
+  # break something at notarisation time — on a release branch, from an error
+  # the notary service words vaguely — is how a day disappears.
+  #
+  # --timestamp=none because there is no certificate to timestamp: codesign
+  # ignores --timestamp for an ad-hoc signature anyway, and saying so
+  # explicitly keeps a build with no network from reaching for one.
+  codesign --force --options runtime --timestamp=none --sign - "$DEST"
+  echo "Signed ad-hoc: no Developer ID Application certificate in the keychain."
+  echo "  The app will work on this Mac. Gatekeeper will refuse it on any other."
+  echo "  Releases must be signed and notarised — see CONTRIBUTING.md."
+fi
+
+# LaunchServices caches bundle metadata by mtime; without this a rebuilt app
+# can keep being launched with the previous Info.plist.
 touch "$DEST"
 
 echo "Built $DEST"

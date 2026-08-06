@@ -42,8 +42,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No Developer ID Application certificate exists on a GitHub runner and
+      # none is installed here on purpose: a release is signed on the release
+      # manager's machine, so the certificate never leaves it. What CI covers
+      # is the other branch — that the fallback still produces a bundle with a
+      # real identity, which is the one the app needs to be able to notify.
       - name: Assemble Standfast.app
         run: ./Scripts/build-app.sh
+
+      # The guard that stops an unsigned bundle from being uploaded to Apple.
+      # It is the only part of the release path CI can exercise, and the part
+      # whose failure is most expensive: without it a release built on a
+      # machine whose certificate had expired would be submitted, rejected
+      # minutes later, and the reason would have to be dug out of a log.
+      - name: The release script refuses to notarise an ad-hoc bundle
+        run: |
+          if ./Scripts/notarize.sh; then
+            echo "::error::notarize.sh accepted a bundle with no Developer ID"
+            exit 1
+          fi
+          echo "refused, as it should"
 
       - name: Validate Info.plist
         run: |
