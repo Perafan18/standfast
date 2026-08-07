@@ -39,6 +39,13 @@ private func echoes(
   }
 }
 
+private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] {
+  presentation.items.compactMap {
+    guard case .discovery(let line) = $0 else { return nil }
+    return line
+  }
+}
+
 // MARK: - Runner echoes
 
 @Test func anEmptyFleetCollapsesToItsAggregateAndFixedRows() {
@@ -151,7 +158,84 @@ private func echoes(
       "actions.runner.acme-widget.stopped", "actions.runner.acme-widget.unknown",
       "actions.runner.acme-widget.offline",
     ])
-  #expect(menu.items.first == .fleet(L10n.quickMenuMoreRunners(3)))
+  guard case .fleet(let fleetLine) = menu.items.first else {
+    Issue.record("The fixed fleet row is missing")
+    return
+  }
+  #expect(fleetLine.contains(L10n.quickMenuMoreRunners(3)))
+  #expect(fleetLine != L10n.quickMenuMoreRunners(3))
+}
+
+@Test func oneBusyOverflowKeepsTheBusyAggregateAndUsesNeutralSingularCopy() {
+  // Replacing the aggregate with overflow copy labels an ordinary fourth busy
+  // runner as needing attention and hides the state carried by the fleet icon.
+  let menu = quickMenu(
+    (1...4).map { quickSnapshot("busy-\($0)", .resolved(.busy)) })
+
+  guard case .fleet(let fleetLine) = menu.items.first else {
+    Issue.record("The fixed fleet row is missing")
+    return
+  }
+  #expect(fleetLine.contains(L10n.stateBusy))
+  #expect(fleetLine.contains(L10n.quickMenuMoreRunners(1)))
+  #expect(echoes(in: menu).count == 3)
+}
+
+@Test func pluralOverflowKeepsTheAggregateInsideTheSameBoundedFleetRow() {
+  // Appending a separate overflow row would break the hard menu-height budget;
+  // replacing the fleet copy would repeat the original state-loss bug.
+  let menu = quickMenu(
+    (1...6).map { quickSnapshot("busy-\($0)", .resolved(.busy)) })
+
+  guard case .fleet(let fleetLine) = menu.items.first else {
+    Issue.record("The fixed fleet row is missing")
+    return
+  }
+  #expect(fleetLine.contains(L10n.stateBusy))
+  #expect(fleetLine.contains(L10n.quickMenuMoreRunners(3)))
+  #expect(menu.namedRowCount == 9)
+}
+
+// MARK: - Discovery summaries
+
+@Test func realNoRunnerNoticeDoesNotRepeatTheFleetState() throws {
+  let notice = try #require(
+    FleetNotice.resolving(runners: [], unreadable: []))
+
+  let menu = quickMenu([], notice: notice)
+
+  #expect(discoveryLines(in: menu) == [])
+  #expect(menu.namedRowCount == 6)
+}
+
+@Test func realLaunchAgentsFailureNamesItsDirectoryOnOneLine() throws {
+  let directory = URL(fileURLWithPath: "/tmp/LaunchAgents")
+  let notice = try #require(
+    FleetNotice.resolving(
+      runners: [], unreadable: [],
+      failure: .launchAgentsUnreadable(directory)))
+
+  let menu = quickMenu([], notice: notice)
+
+  #expect(
+    discoveryLines(in: menu)
+      == [L10n.launchAgentsUnreadable + " /tmp/LaunchAgents"])
+}
+
+@Test func realUnreadableRunnerNoticeNamesAPathAndCompactlySignalsMore() throws {
+  let first = URL(fileURLWithPath: "/tmp/actions.runner.a.plist")
+  let second = URL(fileURLWithPath: "/tmp/actions.runner.b.plist")
+  let notice = try #require(
+    FleetNotice.resolving(runners: [], unreadable: [first, second]))
+
+  let menu = quickMenu([], notice: notice)
+
+  #expect(
+    discoveryLines(in: menu)
+      == [
+        L10n.someRunnersUnreadable + " /tmp/actions.runner.a.plist "
+          + L10n.moreUnreadable
+      ])
 }
 
 // MARK: - Bounded shape

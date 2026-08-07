@@ -14,10 +14,15 @@ struct ControlCenterView: View {
   var body: some View {
     let cards = fleet.controlCenterCards()
     if cards.isEmpty {
+      let empty = ControlCenterEmptyPresentation.building(notice: fleet.notice)
       ContentUnavailableView {
-        Label(L10n.noRunnersFound, systemImage: FleetSummary.noRunnersSymbolName)
+        Label(empty.title, systemImage: empty.symbolName)
       } description: {
-        Text(L10n.controlCenterNoRunnersDescription)
+        VStack {
+          ForEach(empty.detailLines.indices, id: \.self) { index in
+            Text(empty.detailLines[index])
+          }
+        }
       } actions: {
         Button(L10n.refreshNow) { fleet.refresh() }
       }

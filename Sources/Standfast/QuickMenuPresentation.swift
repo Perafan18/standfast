@@ -92,17 +92,17 @@ extension QuickMenuPresentation {
       .prefix(Self.runnerEchoLimit)
       .map { runnerEcho(for: $0.snapshot) }
 
-    let fleetLine =
-      candidates.count > Self.runnerEchoLimit
-      ? L10n.quickMenuMoreRunners(candidates.count - Self.runnerEchoLimit)
-      : L10n.quickMenuFleet(
-        FleetSummary.accessibilityValue(
-          for: FleetSummary.summarising(snapshots.map(\.display)))
-      )
+    let fleetState = FleetSummary.accessibilityValue(
+      for: FleetSummary.summarising(snapshots.map(\.display)))
+    let fleetLine = L10n.quickMenuFleet(
+      fleetState,
+      overflowCount: max(0, candidates.count - Self.runnerEchoLimit))
 
     var items: [Item] = [.fleet(fleetLine)]
     items += echoes.map(Item.runner)
-    if let notice { items.append(.discovery(discoverySummary(for: notice))) }
+    if let notice, let discovery = discoverySummary(for: notice) {
+      items.append(.discovery(discovery))
+    }
     items += thermalLines.prefix(Self.thermalLinesShown).map(Item.thermal)
     items += [
       .freshness(FleetStatus.lastCheckedLine(readAt: readAt, now: now)),
@@ -127,8 +127,23 @@ extension QuickMenuPresentation {
   /// One discovery item must remain one rendered line. The detailed paths are
   /// still available in the Control Center; putting them here recreates the
   /// unbounded menu this type replaces.
-  private static func discoverySummary(for notice: FleetNotice) -> String {
-    notice.lines.first ?? ""
+  private static func discoverySummary(for notice: FleetNotice) -> String? {
+    switch notice {
+    case .noRunnersInstalled:
+      return nil
+    case .launchAgentsUnreadable(let directory):
+      return [L10n.launchAgentsUnreadable, PathText.abbreviated(directory)]
+        .joined(separator: " ")
+    case .unreadable(let paths):
+      guard let first = paths.first else { return nil }
+      return [
+        L10n.someRunnersUnreadable,
+        PathText.abbreviated(first),
+        paths.count > 1 ? L10n.moreUnreadable : nil,
+      ]
+      .compactMap { $0 }
+      .joined(separator: " ")
+    }
   }
 
   private static func echoCandidate(for snapshot: RunnerSnapshot) -> EchoPriority? {

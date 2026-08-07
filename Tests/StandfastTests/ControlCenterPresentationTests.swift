@@ -176,6 +176,34 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
       == L10n.openRunnerSettings)
 }
 
+// MARK: - Empty fleet
+
+@Test func emptyControlCenterUsesInstallGuidanceOnlyForANoRunnerNotice() {
+  #expect(
+    ControlCenterEmptyPresentation.building(notice: .noRunnersInstalled)
+      == .noRunnersInstalled)
+}
+
+@Test func emptyControlCenterCarriesTheUnavailableLaunchAgentsDirectory() {
+  #expect(
+    ControlCenterEmptyPresentation.building(
+      notice: .launchAgentsUnreadable(
+        URL(fileURLWithPath: "/tmp/Library/LaunchAgents")))
+      == .launchAgentsUnavailable(directory: "/tmp/Library/LaunchAgents"))
+}
+
+@Test func emptyControlCenterCarriesEveryUnreadableRunnerPath() {
+  #expect(
+    ControlCenterEmptyPresentation.building(
+      notice: .unreadable([
+        URL(fileURLWithPath: "/tmp/actions.runner.a.plist"),
+        URL(fileURLWithPath: "/tmp/actions.runner.b.plist"),
+      ]))
+      == .unreadableRunners(paths: [
+        "/tmp/actions.runner.a.plist", "/tmp/actions.runner.b.plist",
+      ]))
+}
+
 // MARK: - Fleet lifecycle and side effects
 
 @Test @MainActor func anEmptyFleetBuildsNoCards() async throws {

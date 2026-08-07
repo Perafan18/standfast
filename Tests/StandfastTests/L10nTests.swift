@@ -116,7 +116,8 @@ private func speaking(_ localization: String) throws -> Bundle {
   let reached = Set(
     [
       "menu.start", "menu.stop", "menu.restart", "menu.openOnGitHub",
-      "menu.fleet", "menu.moreRunners", "menu.controlCenter", "menu.settings",
+      "menu.fleet", "menu.fleetOverflow", "menu.moreRunners.one",
+      "menu.moreRunners", "menu.controlCenter", "menu.settings",
       "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
       "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
       "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
@@ -213,7 +214,8 @@ private func speaking(_ localization: String) throws -> Bundle {
   #expect(
     L10n.cleanupLogsEffect(1, in: [english])
       == "1 file nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history this menu shows.")
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.")
   #expect(
     L10n.cleanupLogsTitle(1, "/tmp/runner", in: [spanish])
       == "¿Borrar 1 archivo de log antiguo de /tmp/runner?")
@@ -221,7 +223,42 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.cleanupLogsEffect(1, in: [spanish])
       == "1 archivo en el que nadie escribe desde hace más de una semana. El log que "
       + "el runner está escribiendo ahora nunca se borra, ni tampoco el historial que "
-      + "muestra este menú.")
+      + "muestra el Centro de control de Standfast.")
+}
+
+@Test func pluralLogCleanupAlsoNamesTheControlCenterInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.cleanupLogsEffect(4, in: [english])
+      == "4 files nothing has written to in over a week. The log the runner is "
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.")
+  #expect(
+    L10n.cleanupLogsEffect(4, in: [spanish])
+      == "4 archivos en los que nadie escribe desde hace más de una semana. El log "
+      + "que el runner está escribiendo ahora nunca se borra, ni tampoco el historial "
+      + "que muestra el Centro de control de Standfast.")
+}
+
+@Test func overflowCopyIsNeutralAndGrammaticalInBothLanguages() throws {
+  let spanish = try speaking("es")
+  let englishOne = L10n.quickMenuMoreRunners(1, in: [])
+  let englishMany = L10n.quickMenuMoreRunners(3, in: [])
+
+  #expect(englishOne == "1 more runner update")
+  #expect(englishMany == "3 more runner updates")
+  #expect(
+    L10n.quickMenuFleet("Running a job", overflowCount: 1, in: [])
+      == "Fleet — Running a job — 1 more runner update")
+  #expect(
+    L10n.quickMenuFleet("Running a job", overflowCount: 3, in: [])
+      == "Fleet — Running a job — 3 more runner updates")
+  #expect(L10n.quickMenuMoreRunners(1, in: [spanish]) == "1 runner más con novedades")
+  #expect(
+    L10n.quickMenuMoreRunners(3, in: [spanish])
+      == "3 runners más con novedades")
 }
 
 @Test func everyUnknownReasonTellsTheUserWhatToDo() {
@@ -253,7 +290,7 @@ private func speaking(_ localization: String) throws -> Bundle {
   // — the job's name, how long it has been going, or what it usually takes —
   // and `String(format:)` will not say a word about it.
   let expected = [
-    "menu.fleet": 1, "menu.moreRunners": 1,
+    "menu.fleet": 1, "menu.fleetOverflow": 2, "menu.moreRunners": 1,
     "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
     "job.rowNoDuration": 2, "state.checkedAgo": 1,
     // A banner is read out of the corner of an eye. A translation that dropped

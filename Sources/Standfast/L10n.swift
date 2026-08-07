@@ -158,12 +158,23 @@ enum L10n {
     String(format: t("menu.runnerRow"), name, state)
   }
 
-  static func quickMenuFleet(_ state: String) -> String {
-    String(format: t("menu.fleet"), state)
+  static func quickMenuFleet(
+    _ state: String, overflowCount: Int = 0,
+    in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    guard overflowCount > 0 else {
+      return String(format: t("menu.fleet", in: bundles), state)
+    }
+    return String(
+      format: t("menu.fleetOverflow", in: bundles), state,
+      quickMenuMoreRunners(overflowCount, in: bundles))
   }
 
-  static func quickMenuMoreRunners(_ count: Int) -> String {
-    String(format: t("menu.moreRunners"), String(count))
+  static func quickMenuMoreRunners(
+    _ count: Int, in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    guard count != 1 else { return t("menu.moreRunners.one", in: bundles) }
+    return String(format: t("menu.moreRunners", in: bundles), String(count))
   }
 
   /// The job in flight and how long it has been going.
@@ -377,7 +388,9 @@ enum L10n {
     "menu.refreshNow": "Refresh now",
     "menu.quit": "Quit",
     "menu.fleet": "Fleet — %@",
-    "menu.moreRunners": "%@ more runners need attention",
+    "menu.fleetOverflow": "Fleet — %@ — %@",
+    "menu.moreRunners.one": "1 more runner update",
+    "menu.moreRunners": "%@ more runner updates",
     "menu.controlCenter": "Open Standfast",
     "menu.settings": "Settings",
     "menu.recentJobs": "Recent jobs",
@@ -442,10 +455,12 @@ enum L10n {
     "cleanup.logs.title": "Delete %d old log files from %@?",
     "cleanup.logs.effect.one":
       "%d file nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history this menu shows.",
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.",
     "cleanup.logs.effect":
       "%d files nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history this menu shows.",
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.",
     "cleanup.refused": "Cleanup stopped: %@ picked up work",
     "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
     "cleanup.partiallyFailed":

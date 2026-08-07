@@ -19,7 +19,8 @@ notification authorization when you enable one. Standfast:
   `/usr/local/bin/gh`. The first resolves through your `PATH` so a `gh` installed and
   configured through mise, nix, asdf or another chosen toolchain is respected; whichever
   executable runs receives the inherited environment described below;
-- opens the configured runner's GitHub settings URL in your default browser when you ask;
+- opens GitHub workflow runs for repository-scoped runners, or the runner settings page
+  for organization- and enterprise-scoped runners, in your default browser when you ask;
 - stores notification and sleep-prevention switches in `UserDefaults`, asks macOS to
   register or unregister its login item when you change that switch, and posts the
   notifications you enable;

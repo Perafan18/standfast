@@ -30,6 +30,54 @@ enum GitHubDestination: Equatable {
   }
 }
 
+/// What an empty Control Center means after discovery has answered.
+///
+/// The payload is semantic rather than view-shaped: a clean empty machine gets
+/// installation guidance, while discovery failures retain the exact paths the
+/// user can inspect. The view renders this value and makes no discovery choice.
+enum ControlCenterEmptyPresentation: Equatable {
+  case noRunnersInstalled
+  case launchAgentsUnavailable(directory: String)
+  case unreadableRunners(paths: [String])
+
+  static func building(notice: FleetNotice?) -> Self {
+    switch notice {
+    case nil, .noRunnersInstalled:
+      .noRunnersInstalled
+    case .launchAgentsUnreadable(let directory):
+      .launchAgentsUnavailable(directory: PathText.abbreviated(directory))
+    case .unreadable(let paths):
+      .unreadableRunners(paths: paths.map(PathText.abbreviated))
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .noRunnersInstalled: L10n.noRunnersFound
+    case .launchAgentsUnavailable: L10n.launchAgentsUnreadable
+    case .unreadableRunners: L10n.someRunnersUnreadable
+    }
+  }
+
+  var detailLines: [String] {
+    switch self {
+    case .noRunnersInstalled:
+      [L10n.controlCenterNoRunnersDescription]
+    case .launchAgentsUnavailable(let directory):
+      [directory]
+    case .unreadableRunners(let paths):
+      paths
+    }
+  }
+
+  var symbolName: String {
+    switch self {
+    case .noRunnersInstalled: FleetSummary.noRunnersSymbolName
+    case .launchAgentsUnavailable, .unreadableRunners: "exclamationmark.triangle"
+    }
+  }
+}
+
 /// One runner's complete, read-only Control Center projection.
 ///
 /// The view receives no raw machine state. Service capabilities, operation
