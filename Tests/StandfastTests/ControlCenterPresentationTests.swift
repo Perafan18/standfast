@@ -52,7 +52,8 @@ private func presentationModel(
       delivery: FakeNotificationDelivery(), defaults: scratchDefaults()),
     sleep: SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults()),
     housekeeping: housekeeping, versions: sandbox.versions, releases: sandbox.releases,
-    opener: FakeURLOpener(), refreshInterval: nil)
+    opener: FakeURLOpener(), serviceConfirmation: RejectingServiceConfirmation(),
+    refreshInterval: nil)
 }
 
 private struct PresentationUntouchableFiles: DestructiveFileOperations {

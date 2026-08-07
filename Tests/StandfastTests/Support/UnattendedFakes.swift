@@ -3,6 +3,11 @@ import RunnerKit
 
 @testable import Standfast
 
+@MainActor
+struct RejectingServiceConfirmation: ServiceActionConfirming {
+  func confirm(_ prompt: ServiceActionPrompt) async -> Bool { false }
+}
+
 /// The banners this app tried to put on screen, and the permission it asked
 /// for. Nothing here touches `UNUserNotificationCenter`, which reads the running
 /// application's bundle and raises when there is not one — and which would

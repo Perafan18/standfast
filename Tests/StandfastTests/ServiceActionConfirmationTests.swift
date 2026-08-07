@@ -6,6 +6,57 @@ import Testing
 
 private let promptMoment = Date(timeIntervalSince1970: 1_785_962_174)
 
+@MainActor
+final class FakeServiceAlertPresentation: ServiceAlertPresentation {
+  private(set) var dismissals = 0
+
+  func dismiss() { dismissals += 1 }
+}
+
+@MainActor
+final class FakeServiceAlertPresenter: ServiceAlertPresenting {
+  private(set) var prompts: [ServiceActionPrompt] = []
+  private(set) var presentations: [FakeServiceAlertPresentation] = []
+  private var completions: [@MainActor (Bool) -> Void] = []
+  var canPresent = true
+
+  func present(
+    _ prompt: ServiceActionPrompt,
+    completion: @escaping @MainActor (Bool) -> Void
+  ) -> (any ServiceAlertPresentation)? {
+    guard canPresent else { return nil }
+    let presentation = FakeServiceAlertPresentation()
+    prompts.append(prompt)
+    presentations.append(presentation)
+    completions.append(completion)
+    return presentation
+  }
+
+  func finish(_ accepted: Bool, presentation index: Int = 0) {
+    completions[index](accepted)
+  }
+}
+
+@MainActor
+private final class ServiceAlertResultProbe {
+  var answer: Bool?
+}
+
+private enum ServiceAlertTestFailure: Error {
+  case presentationNeverStarted
+}
+
+@MainActor
+private func waitForServiceAlert(
+  _ condition: @escaping @MainActor () -> Bool
+) async throws {
+  for _ in 0..<200 {
+    if condition() { return }
+    try await Task.sleep(for: .milliseconds(1))
+  }
+  throw ServiceAlertTestFailure.presentationNeverStarted
+}
+
 private func promptSnapshot(
   display: DisplayState = .resolved(.busy),
   runner: DiscoveredRunner? = nil,
@@ -146,4 +197,111 @@ private func promptSnapshot(
 @Test func serviceAlertKeysMakeEscapeCancelAndReturnConfirmNothing() {
   #expect(ServiceConfirmationKeys.cancel == "\u{1B}")
   #expect(ServiceConfirmationKeys.confirm == "")
+}
+
+@Test @MainActor
+func serviceAlertConfirmationSuspendsAndLetsMainActorRefreshWhileOpen() async throws {
+  let presenter = FakeServiceAlertPresenter()
+  let confirmation = ServiceAlertConfirmation(presenter: presenter)
+  let prompt = try #require(
+    ServiceActionPrompt(action: .stop, snapshot: promptSnapshot(), bundles: []))
+  let result = ServiceAlertResultProbe()
+
+  let task = Task { @MainActor in
+    let answer = await confirmation.confirm(prompt)
+    result.answer = answer
+    return answer
+  }
+  try await waitForServiceAlert { presenter.prompts.count == 1 }
+
+  var refreshes = 0
+  await Task { @MainActor in refreshes += 1 }.value
+
+  #expect(refreshes == 1)
+  #expect(result.answer == nil)
+  presenter.finish(true)
+  #expect(await task.value)
+}
+
+@Test @MainActor func serviceAlertConfirmationReturnsTheSheetAnswer() async throws {
+  let prompt = try #require(
+    ServiceActionPrompt(action: .stop, snapshot: promptSnapshot(), bundles: []))
+
+  for answer in [true, false] {
+    let presenter = FakeServiceAlertPresenter()
+    let confirmation = ServiceAlertConfirmation(presenter: presenter)
+    let task = Task { @MainActor in await confirmation.confirm(prompt) }
+    try await waitForServiceAlert { presenter.prompts.count == 1 }
+
+    presenter.finish(answer)
+
+    #expect(await task.value == answer)
+  }
+}
+
+@Test @MainActor func aMissingAlertParentFailsClosed() async throws {
+  let presenter = FakeServiceAlertPresenter()
+  presenter.canPresent = false
+  let confirmation = ServiceAlertConfirmation(presenter: presenter)
+  let prompt = try #require(
+    ServiceActionPrompt(action: .stop, snapshot: promptSnapshot(), bundles: []))
+
+  #expect(await confirmation.confirm(prompt) == false)
+  #expect(presenter.presentations.isEmpty)
+}
+
+@Test @MainActor func cancellationBeforeConfirmationStartsNeverPresents() async throws {
+  let presenter = FakeServiceAlertPresenter()
+  let confirmation = ServiceAlertConfirmation(presenter: presenter)
+  let prompt = try #require(
+    ServiceActionPrompt(action: .stop, snapshot: promptSnapshot(), bundles: []))
+
+  // This test retains the MainActor until cancellation, so the task body
+  // deterministically observes cancellation before it can call the presenter.
+  let task = Task { @MainActor in await confirmation.confirm(prompt) }
+  task.cancel()
+
+  #expect(await task.value == false)
+  #expect(presenter.prompts.isEmpty)
+}
+
+@Test @MainActor func cancellationWhileTheSheetIsVisibleDismissesAndReturnsFalse()
+  async throws
+{
+  let presenter = FakeServiceAlertPresenter()
+  let confirmation = ServiceAlertConfirmation(presenter: presenter)
+  let prompt = try #require(
+    ServiceActionPrompt(action: .stop, snapshot: promptSnapshot(), bundles: []))
+  let task = Task { @MainActor in await confirmation.confirm(prompt) }
+  try await waitForServiceAlert { presenter.prompts.count == 1 }
+
+  task.cancel()
+  // Leave the task a bounded opportunity to run its cancellation handler, but
+  // finish the fake afterwards so a cancellation-unaware mutation cannot hang
+  // the suite and instead fails on both observable outcomes below.
+  try await Task.sleep(for: .milliseconds(10))
+  let dismissalsBeforeCompletion = presenter.presentations[0].dismissals
+  presenter.finish(true)
+
+  #expect(dismissalsBeforeCompletion == 1)
+  #expect(await task.value == false)
+  #expect(presenter.presentations[0].dismissals == 1)
+}
+
+@Test @MainActor func sheetCompletionWinningTheCancellationRaceResumesOnce()
+  async throws
+{
+  let presenter = FakeServiceAlertPresenter()
+  let confirmation = ServiceAlertConfirmation(presenter: presenter)
+  let prompt = try #require(
+    ServiceActionPrompt(action: .stop, snapshot: promptSnapshot(), bundles: []))
+  let task = Task { @MainActor in await confirmation.confirm(prompt) }
+  try await waitForServiceAlert { presenter.prompts.count == 1 }
+
+  presenter.finish(true)
+  task.cancel()
+  presenter.finish(false)
+
+  #expect(await task.value)
+  #expect(presenter.presentations[0].dismissals == 0)
 }

@@ -94,6 +94,16 @@ private final class RecordingServiceConfirmation: ServiceActionConfirming {
   }
 }
 
+@MainActor
+private final class CountingServiceConfirmation: ServiceActionConfirming {
+  private(set) var calls = 0
+
+  func confirm(_ prompt: ServiceActionPrompt) async -> Bool {
+    calls += 1
+    return false
+  }
+}
+
 /// A filesystem that does nothing at all, so nothing in this file can remove a
 /// directory even if every guard above it were wrong at once.
 private struct UntouchableFileOperations: DestructiveFileOperations {
@@ -966,6 +976,52 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   fleet.perform(.openOnGitHub, on: staleRunner)
 
   #expect(opener.urls.isEmpty)
+}
+
+@Test @MainActor func deinitBeforeTheConfirmationTaskStartsNeverCallsTheConfirmer()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let confirmation = CountingServiceConfirmation()
+  var fleet: RunnerFleetModel? = model(box, serviceConfirmation: confirmation)
+  await fleet?.quiesce()
+
+  fleet?.stop(try #require(fleet?.snapshots[0].runner))
+  fleet = nil
+  await Task.yield()
+
+  #expect(confirmation.calls == 0)
+}
+
+@Test @MainActor func modelDeinitDismissesAnOpenServiceAlert() async throws {
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let presenter = FakeServiceAlertPresenter()
+  var fleet: RunnerFleetModel? = model(
+    box,
+    serviceConfirmation: ServiceAlertConfirmation(presenter: presenter))
+  await fleet?.quiesce()
+
+  fleet?.stop(try #require(fleet?.snapshots[0].runner))
+  try await waitUntil { presenter.prompts.count == 1 }
+  weak var releasedFleet: RunnerFleetModel?
+  releasedFleet = fleet
+  fleet = nil
+  try await waitUntil { presenter.presentations[0].dismissals == 1 }
+
+  #expect(releasedFleet == nil)
+  #expect(presenter.presentations[0].dismissals == 1)
 }
 
 @Test @MainActor func oneRunnerAcceptsOnlyOneServiceActionAtATime() async throws {

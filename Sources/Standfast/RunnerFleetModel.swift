@@ -202,7 +202,7 @@ final class RunnerFleetModel: ObservableObject {
     versions: any RunnerVersionReading = RunnerVersionReader(),
     releases: any RunnerReleaseChecking = GHCommandLineClient(),
     opener: any URLOpening = WorkspaceURLOpener(),
-    serviceConfirmation: any ServiceActionConfirming = ServiceAlertConfirmation(),
+    serviceConfirmation: any ServiceActionConfirming,
     clock: @escaping @Sendable () -> Date = Date.init,
     probeDelay: TimeInterval = 2,
     // 15s: fast enough that "did my build start?" is answered by looking up,
@@ -759,6 +759,7 @@ final class RunnerFleetModel: ObservableObject {
     let confirmation = serviceConfirmation
     let id = UUID()
     serviceConfirmationTasks[id] = Task { [weak self, confirmation] in
+      guard !Task.isCancelled else { return }
       let accepted = await confirmation.confirm(prompt)
       guard let self else { return }
       finishServiceConfirmation(

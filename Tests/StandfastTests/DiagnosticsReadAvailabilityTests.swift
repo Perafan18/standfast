@@ -20,7 +20,8 @@ private func diagnosticsModel(
       housekeeper: Housekeeper(files: DiagnosticsUntouchableFiles()),
       confirmation: DiagnosticsRefusingConfirmation(), probe: { _ in .busy }),
     versions: sandbox.versions, releases: sandbox.releases,
-    opener: FakeURLOpener(), probeDelay: 0, refreshInterval: nil)
+    opener: FakeURLOpener(), serviceConfirmation: RejectingServiceConfirmation(),
+    probeDelay: 0, refreshInterval: nil)
 }
 
 @MainActor

@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct StandfastApp: App {
-  @StateObject private var fleet = RunnerFleetModel()
+  @StateObject private var fleet = RunnerFleetModel(
+    serviceConfirmation: ServiceAlertConfirmation())
   @StateObject private var loginItem = LoginItem()
   @StateObject private var thermal = ThermalMonitor()
   @StateObject private var sceneActivation = SceneActivationCoordinator.live()

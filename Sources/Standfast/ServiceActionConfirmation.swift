@@ -83,10 +83,139 @@ protocol ServiceActionConfirming {
   func confirm(_ prompt: ServiceActionPrompt) async -> Bool
 }
 
+@MainActor
+protocol ServiceAlertPresentation: AnyObject {
+  func dismiss()
+}
+
+@MainActor
+protocol ServiceAlertPresenting: AnyObject {
+  func present(
+    _ prompt: ServiceActionPrompt,
+    completion: @escaping @MainActor (Bool) -> Void
+  ) -> (any ServiceAlertPresentation)?
+}
+
 struct ServiceAlertConfirmation: ServiceActionConfirming {
+  private let presenter: any ServiceAlertPresenting
+
+  init(presenter: any ServiceAlertPresenting = NativeServiceAlertPresenter()) {
+    self.presenter = presenter
+  }
+
   func confirm(_ prompt: ServiceActionPrompt) async -> Bool {
-    // Standfast is an accessory app. Without activation, a modal alert can
-    // appear behind the current app with no Dock icon available to recover it.
+    guard !Task.isCancelled else { return false }
+    let session = ServiceAlertAwaitingSession()
+    return await withTaskCancellationHandler {
+      await session.present(prompt, using: presenter)
+    } onCancel: {
+      Task { @MainActor in session.cancel() }
+    }
+  }
+}
+
+@MainActor
+private final class ServiceAlertAwaitingSession {
+  private var continuation: CheckedContinuation<Bool, Never>?
+  private var presentation: (any ServiceAlertPresentation)?
+  private var result: Bool?
+
+  func present(
+    _ prompt: ServiceActionPrompt, using presenter: any ServiceAlertPresenting
+  ) async -> Bool {
+    await withCheckedContinuation { continuation in
+      if let result {
+        continuation.resume(returning: result)
+        return
+      }
+      self.continuation = continuation
+      guard !Task.isCancelled else {
+        complete(false, dismissing: true)
+        return
+      }
+      guard
+        let presentation = presenter.present(
+          prompt,
+          completion: { [weak self] accepted in
+            self?.complete(accepted, dismissing: false)
+          })
+      else {
+        complete(false, dismissing: false)
+        return
+      }
+      // A presenter is allowed to complete synchronously. The native sheet
+      // does not, but making this bridge robust to either ordering keeps a
+      // test double or future AppKit adapter from leaving a returned session
+      // alive after its continuation has already resumed.
+      guard result == nil else {
+        presentation.dismiss()
+        return
+      }
+      self.presentation = presentation
+      if Task.isCancelled { cancel() }
+    }
+  }
+
+  func cancel() {
+    complete(false, dismissing: true)
+  }
+
+  private func complete(_ accepted: Bool, dismissing: Bool) {
+    guard result == nil else { return }
+    result = accepted
+    let presentation = presentation
+    self.presentation = nil
+    let continuation = continuation
+    self.continuation = nil
+    if dismissing { presentation?.dismiss() }
+    continuation?.resume(returning: accepted)
+  }
+}
+
+@MainActor
+private final class NativeServiceAlertPresentation: ServiceAlertPresentation {
+  private let alert: NSAlert
+  private var isFinished = false
+
+  init(alert: NSAlert) {
+    self.alert = alert
+  }
+
+  func didFinish() {
+    isFinished = true
+  }
+
+  func dismiss() {
+    guard !isFinished else { return }
+    isFinished = true
+    guard let parent = alert.window.sheetParent else { return }
+    parent.endSheet(alert.window, returnCode: .alertFirstButtonReturn)
+  }
+}
+
+@MainActor
+private final class NativeServiceAlertPresenter: ServiceAlertPresenting {
+  private let parentWindow: @MainActor () -> NSWindow?
+
+  init(
+    parentWindow: @escaping @MainActor () -> NSWindow? = {
+      NSApp.keyWindow ?? NSApp.mainWindow
+    }
+  ) {
+    self.parentWindow = parentWindow
+  }
+
+  func present(
+    _ prompt: ServiceActionPrompt,
+    completion: @escaping @MainActor (Bool) -> Void
+  ) -> (any ServiceAlertPresentation)? {
+    guard let parent = parentWindow(), parent.isVisible, parent.canBecomeKey,
+      parent.sheetParent == nil, parent.attachedSheet == nil
+    else { return nil }
+
+    // Standfast is an accessory app. Without activation, even a sheet can be
+    // hidden behind the application the user was looking at, with no Dock icon
+    // available to recover it.
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     alert.alertStyle = .warning
@@ -101,7 +230,16 @@ struct ServiceAlertConfirmation: ServiceActionConfirming {
     alert.addButton(withTitle: prompt.confirm)
     alert.buttons.first?.keyEquivalent = ServiceConfirmationKeys.cancel
     alert.buttons.last?.keyEquivalent = ServiceConfirmationKeys.confirm
-    return alert.runModal() == .alertSecondButtonReturn
+    // Preserve the first (Cancel) button's default visual treatment while
+    // preventing Return from invoking the window's default button cell.
+    alert.window.disableKeyEquivalentForDefaultButtonCell()
+
+    let presentation = NativeServiceAlertPresentation(alert: alert)
+    alert.beginSheetModal(for: parent) { [weak presentation] response in
+      presentation?.didFinish()
+      completion(response == .alertSecondButtonReturn)
+    }
+    return presentation
   }
 }
 
