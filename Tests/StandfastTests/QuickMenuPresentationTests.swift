@@ -112,6 +112,33 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
     ])
 }
 
+@Test func qualifiedRunnersUseTheScopedPresentationFormatter() {
+  let formatting = QuickMenuPresentation.RunnerIdentityFormatting(
+    runner: { name, state in "two<\(name)|\(state)>" },
+    runnerInScope: { name, scope, state in
+      "three<\(name)|\(scope)|\(state)>"
+    },
+    scopeWithID: { scope, id in "identity<\(scope)|\(id)>" })
+  let menu = QuickMenuPresentation.building(
+    snapshots: [
+      quickSnapshot("solo", .resolved(.idle)),
+      quickSnapshot(
+        "build", .resolved(.idle),
+        scope: .repository(owner: "acme", name: "widget")),
+      quickSnapshot(
+        "build", .resolved(.stopped),
+        scope: .repository(owner: "acme", name: "gadget")),
+    ], notice: nil, thermalLines: [], readAt: nil, now: quickMenuNow,
+    identityFormatting: formatting)
+
+  #expect(
+    echoes(in: menu).map(\.title) == [
+      "two<solo|\(L10n.stateReadyShort)>",
+      "three<build|widget|\(L10n.stateReadyShort)>",
+      "three<build|gadget|\(L10n.stateStoppedShort)>",
+    ])
+}
+
 @Test func aRepeatedFullScopeUsesTheStableGitHubRunnerID() {
   let first = quickSnapshot(
     "mac-mini-m4", .resolved(.idle),

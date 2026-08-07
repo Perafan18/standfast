@@ -32,6 +32,19 @@ struct QuickMenuPresentation: Equatable {
     let canStart: Bool
   }
 
+  struct RunnerIdentityFormatting: Sendable {
+    let runner: @Sendable (String, String) -> String
+    let runnerInScope: @Sendable (String, String, String) -> String
+    let scopeWithID: @Sendable (String, Int) -> String
+
+    static var localized: Self {
+      Self(
+        runner: { L10n.quickMenuRunner($0, $1) },
+        runnerInScope: { L10n.quickMenuRunnerInScope($0, $1, $2) },
+        scopeWithID: { L10n.quickMenuScopeWithID($0, $1) })
+    }
+  }
+
   /// The native top-level elements the menu view emits. Runner state,
   /// progress, operation feedback, and Start live inside one submenu instead
   /// of becoming sibling menu rows.
@@ -75,11 +88,16 @@ struct QuickMenuPresentation: Equatable {
 extension QuickMenuPresentation {
   static func building(
     snapshots: [RunnerSnapshot], notice: FleetNotice?, thermalLines: [String],
-    readAt: Date?, now: Date
+    readAt: Date?, now: Date,
+    identityFormatting: RunnerIdentityFormatting = .localized
   ) -> Self {
-    let identities = runnerIdentities(for: snapshots)
+    let identities = runnerIdentities(
+      for: snapshots, identityFormatting: identityFormatting)
     var items = zip(snapshots, identities).map { snapshot, identity in
-      Item.runner(runnerEcho(for: snapshot, identity: identity))
+      Item.runner(
+        runnerEcho(
+          for: snapshot, identity: identity,
+          identityFormatting: identityFormatting))
     }
     if let notice, let discovery = discoverySummary(for: notice) {
       items.append(.discovery(discovery))
@@ -97,18 +115,28 @@ extension QuickMenuPresentation {
     var qualifier: String?
     var discriminators: [Int] = []
 
-    var rendered: String {
-      let base = qualifier.map { L10n.quickMenuRunner(name, $0) } ?? name
-      return discriminators.reduce(base) { identity, discriminator in
-        L10n.quickMenuScopeWithID(identity, discriminator)
+    func rendered(
+      state: String, identityFormatting: RunnerIdentityFormatting
+    ) -> String {
+      if let qualifier {
+        let qualified = discriminators.reduce(qualifier) { scope, discriminator in
+          identityFormatting.scopeWithID(scope, discriminator)
+        }
+        return identityFormatting.runnerInScope(name, qualified, state)
       }
+      let qualified = discriminators.reduce(name) { identity, discriminator in
+        identityFormatting.scopeWithID(identity, discriminator)
+      }
+      return identityFormatting.runner(qualified, state)
     }
   }
 
   private static let thermalLinesShown = 2
+  private static let collisionStatePlaceholder = "\u{0}standfast-state\u{0}"
 
   private static func runnerIdentities(
-    for snapshots: [RunnerSnapshot]
+    for snapshots: [RunnerSnapshot],
+    identityFormatting: RunnerIdentityFormatting
   ) -> [RunnerIdentity] {
     var identities = snapshots.map {
       RunnerIdentity(name: $0.runner.displayName, qualifier: nil)
@@ -134,27 +162,16 @@ extension QuickMenuPresentation {
           identities[index].qualifier = snapshots[index].runner.scope.displayName
         }
       }
-
-      let remainingCollisions = Dictionary(
-        grouping: indices, by: { identities[$0].qualifier! })
-      for collision in remainingCollisions.values where collision.count > 1 {
-        let agentIDs = collision.map { snapshots[$0].runner.agentId }
-        let discriminators: [Int]
-        if Set(agentIDs).count == collision.count {
-          discriminators = agentIDs
-        } else {
-          discriminators = Array(1...collision.count)
-        }
-        for (index, discriminator) in zip(collision, discriminators) {
-          identities[index].qualifier = L10n.quickMenuScopeWithID(
-            identities[index].qualifier!, discriminator)
-        }
-      }
     }
 
     while true {
       let collisions = Dictionary(
-        grouping: identities.indices, by: { identities[$0].rendered }
+        grouping: identities.indices,
+        by: {
+          identities[$0].rendered(
+            state: collisionStatePlaceholder,
+            identityFormatting: identityFormatting)
+        }
       ).values.filter { $0.count > 1 }
       guard !collisions.isEmpty else { break }
 
@@ -172,11 +189,14 @@ extension QuickMenuPresentation {
   }
 
   private static func runnerEcho(
-    for snapshot: RunnerSnapshot, identity: RunnerIdentity
+    for snapshot: RunnerSnapshot, identity: RunnerIdentity,
+    identityFormatting: RunnerIdentityFormatting
   ) -> RunnerEcho {
     return RunnerEcho(
       id: snapshot.id,
-      title: L10n.quickMenuRunner(identity.rendered, snapshot.display.shortSummary),
+      title: identity.rendered(
+        state: snapshot.display.shortSummary,
+        identityFormatting: identityFormatting),
       longState: snapshot.display.summary,
       progress: snapshot.jobProgress?.line, operation: snapshot.operation?.presentation,
       canStart: snapshot.display == .resolved(.stopped) && !snapshot.isServiceActionReserved
