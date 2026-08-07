@@ -126,6 +126,7 @@ final class RunnerFleetModel: ObservableObject {
   private let versions: any RunnerVersionReading
   private let releases: any RunnerReleaseChecking
   private let opener: any URLOpening
+  private let serviceConfirmation: any ServiceActionConfirming
   private let releaseInterval: TimeInterval
   /// When GitHub was last asked what the newest runner is, and nil until it
   /// has been. Held here rather than beside the answer because a question that
@@ -147,6 +148,13 @@ final class RunnerFleetModel: ObservableObject {
   /// Actions still running, each removing itself when it finishes. Kept only
   /// so `quiesce()` has something to wait on.
   private var actions: [UUID: Task<Void, Never>] = [:]
+  /// Dialogues waiting for a decision. Separate from command actions because
+  /// no operation or reservation exists until an accepted prompt is
+  /// revalidated against the latest snapshot.
+  private var serviceConfirmationTasks: [UUID: Task<Void, Never>] = [:]
+  /// Labels with a prompt already open. A second click is rejected before it
+  /// can open another prompt for the same machine state.
+  private var serviceConfirmationsInFlight: Set<String> = []
   /// A service mutation owns its runner until a conclusive post-completion
   /// launchd probe has been applied. Labels, rather than one fleet-wide flag,
   /// keep independent runners independent while making contradictory clicks
@@ -194,6 +202,7 @@ final class RunnerFleetModel: ObservableObject {
     versions: any RunnerVersionReading = RunnerVersionReader(),
     releases: any RunnerReleaseChecking = GHCommandLineClient(),
     opener: any URLOpening = WorkspaceURLOpener(),
+    serviceConfirmation: any ServiceActionConfirming,
     clock: @escaping @Sendable () -> Date = Date.init,
     probeDelay: TimeInterval = 2,
     // 15s: fast enough that "did my build start?" is answered by looking up,
@@ -215,6 +224,7 @@ final class RunnerFleetModel: ObservableObject {
     self.versions = versions
     self.releases = releases
     self.opener = opener
+    self.serviceConfirmation = serviceConfirmation
     self.clock = clock
     self.probeDelay = probeDelay
     self.refreshInterval = refreshInterval
@@ -234,7 +244,10 @@ final class RunnerFleetModel: ObservableObject {
     }
   }
 
-  deinit { ticker?.cancel() }
+  deinit {
+    ticker?.cancel()
+    for task in serviceConfirmationTasks.values { task.cancel() }
+  }
 
   // MARK: - Reading
 
@@ -307,6 +320,10 @@ final class RunnerFleetModel: ObservableObject {
   /// needs this — it watches `@Published` — but a test does.
   func quiesce() async {
     while true {
+      if let confirmation = serviceConfirmationTasks.values.first {
+        await confirmation.value
+        continue
+      }
       if let action = actions.values.first {
         await action.value
         continue
@@ -556,13 +573,18 @@ final class RunnerFleetModel: ObservableObject {
 
   // MARK: - Presenting
 
+  /// The one fleet-level readiness value every app surface consumes.
+  var overview: FleetOverviewPresentation {
+    .building(snapshots: snapshots, notice: notice)
+  }
+
   /// The bounded menu projection, built only from values the latest scan has
   /// already read.
   func quickMenuPresentation(
     thermalLines: [String], now: Date = Date()
   ) -> QuickMenuPresentation {
     QuickMenuPresentation.building(
-      snapshots: snapshots, notice: notice, thermalLines: thermalLines,
+      snapshots: snapshots, overview: overview, thermalLines: thermalLines,
       readAt: lastReadAt, now: now)
   }
 
@@ -576,6 +598,18 @@ final class RunnerFleetModel: ObservableObject {
         isMaintenanceWorking: housekeeping.isWorking(on: snapshot.runner),
         maintenanceNotice: housekeeping.notice(for: snapshot.runner), now: now)
     }
+  }
+
+  /// The complete Control Center projection. Like the card compatibility
+  /// accessor above, this reads only values already held by the model.
+  func controlCenterPresentation(now: Date = Date()) -> ControlCenterPresentation {
+    let cards = controlCenterCards(now: now)
+    let overview = overview
+    return ControlCenterPresentation(
+      header: .building(overview: overview, readAt: lastReadAt, now: now),
+      cards: cards,
+      empty: cards.isEmpty ? .building(overview: overview) : nil,
+      notice: cards.isEmpty ? nil : .building(overview: overview))
   }
 
   // MARK: - Acting
@@ -603,20 +637,24 @@ final class RunnerFleetModel: ObservableObject {
   /// The one way the menu acts on a runner, so the view has nothing to wire
   /// up wrongly.
   func perform(_ kind: RunnerRow.Action.Kind, on runner: DiscoveredRunner) {
-    switch kind {
-    case .start: start(runner)
-    case .stop: stop(runner)
-    case .restart: restart(runner)
-    case .openOnGitHub: openOnGitHub(runner)
-    }
+    perform(kind, onRunnerID: runner.label)
   }
 
   /// Presentation rows carry durable runner identifiers rather than mutable
-  /// machine values. Resolve the current snapshot at the action boundary so a
-  /// card removed by a newer scan cannot act on stale data.
+  /// machine values. Every route, including Start and navigation, resolves the
+  /// latest snapshot and rechecks its model-owned capability here.
   func perform(_ kind: RunnerRow.Action.Kind, onRunnerID id: String) {
-    guard let runner = snapshots.first(where: { $0.id == id })?.runner else { return }
-    perform(kind, on: runner)
+    guard let snapshot = snapshots.first(where: { $0.id == id }) else { return }
+    perform(kind, on: snapshot)
+  }
+
+  private func perform(_ kind: RunnerRow.Action.Kind, on snapshot: RunnerSnapshot) {
+    switch kind {
+    case .start: start(snapshot)
+    case .stop: stop(snapshot)
+    case .restart: restart(snapshot)
+    case .openOnGitHub: openOnGitHub(snapshot)
+    }
   }
 
   func performMaintenance(_ kind: MaintenanceOffer.Kind, onRunnerID id: String) {
@@ -629,16 +667,34 @@ final class RunnerFleetModel: ObservableObject {
   /// blocking call needs is the callee's business, not something each caller
   /// has to remember.
   func start(_ runner: DiscoveredRunner) {
-    guard acquireServiceAction(for: runner.label) else { return }
-    perform(action: .start, on: runner, thenSettles: true) { controller, directory in
+    perform(.start, onRunnerID: runner.label)
+  }
+
+  private func start(_ snapshot: RunnerSnapshot) {
+    guard canPerformServiceAction(.start, on: snapshot),
+      acquireServiceAction(for: snapshot.runner.label)
+    else { return }
+    dispatchStart(on: snapshot.runner)
+  }
+
+  private func dispatchStart(on runner: DiscoveredRunner) {
+    perform(action: .start, on: runner, thenSettles: true) {
+      controller, directory in
       try await controller.start(in: directory)
     }
   }
 
   func stop(_ runner: DiscoveredRunner) {
+    perform(.stop, onRunnerID: runner.label)
+  }
+
+  private func stop(_ snapshot: RunnerSnapshot) {
+    requestDisruptiveAction(.stop, on: snapshot)
+  }
+
+  private func dispatchStop(on runner: DiscoveredRunner) {
     // Acquired before either side effect: an ignored overlapping Stop must not
     // close another action's settling window or mint a stop intent of its own.
-    guard acquireServiceAction(for: runner.label) else { return }
     settling.close(for: runner.label)
     // Told before the command runs rather than after it returns: `svc.sh stop`
     // takes a moment and a scan can land inside it, and a stop this app ordered
@@ -652,7 +708,14 @@ final class RunnerFleetModel: ObservableObject {
   }
 
   func restart(_ runner: DiscoveredRunner) {
-    guard acquireServiceAction(for: runner.label) else { return }
+    perform(.restart, onRunnerID: runner.label)
+  }
+
+  private func restart(_ snapshot: RunnerSnapshot) {
+    requestDisruptiveAction(.restart, on: snapshot)
+  }
+
+  private func dispatchRestart(on runner: DiscoveredRunner) {
     // A restart takes the service down first, so it looks exactly like a stop
     // to anything reading `launchctl` in the 1.5s gap.
     let expectedStop = watcher.expectStop(
@@ -664,7 +727,105 @@ final class RunnerFleetModel: ObservableObject {
   }
 
   func openOnGitHub(_ runner: DiscoveredRunner) {
-    opener.open(runner.scope.preferredGitHubURL)
+    perform(.openOnGitHub, onRunnerID: runner.label)
+  }
+
+  private func openOnGitHub(_ snapshot: RunnerSnapshot) {
+    guard snapshot.row.action(.openOnGitHub)?.isEnabled == true else { return }
+    opener.open(snapshot.runner.scope.preferredGitHubURL)
+  }
+
+  private func canPerformServiceAction(
+    _ action: ServiceOperationAction, on snapshot: RunnerSnapshot
+  ) -> Bool {
+    let kind: RunnerRow.Action.Kind =
+      switch action {
+      case .start: .start
+      case .stop: .stop
+      case .restart: .restart
+      }
+    let label = snapshot.runner.label
+    return snapshot.row.action(kind)?.isEnabled == true
+      && !serviceActionsInFlight.contains(label)
+      && !serviceConfirmationsInFlight.contains(label)
+  }
+
+  private func requestDisruptiveAction(
+    _ action: ServiceOperationAction, on snapshot: RunnerSnapshot
+  ) {
+    guard canPerformServiceAction(action, on: snapshot) else { return }
+    guard let prompt = ServiceActionPrompt(action: action, snapshot: snapshot) else {
+      guard acquireServiceAction(for: snapshot.runner.label) else { return }
+      dispatch(action, on: snapshot.runner)
+      return
+    }
+
+    let label = snapshot.runner.label
+    guard serviceConfirmationsInFlight.insert(label).inserted else { return }
+    let confirmation = serviceConfirmation
+    let id = UUID()
+    serviceConfirmationTasks[id] = Task { [weak self, confirmation] in
+      guard !Task.isCancelled else { return }
+      let result = await confirmation.confirm(prompt)
+      guard let self else { return }
+      finishServiceConfirmation(
+        id: id, label: label, prompt: prompt, result: result)
+    }
+  }
+
+  private func finishServiceConfirmation(
+    id: UUID, label: String, prompt: ServiceActionPrompt,
+    result: ServiceActionConfirmationResult
+  ) {
+    defer {
+      serviceConfirmationsInFlight.remove(label)
+      serviceConfirmationTasks[id] = nil
+    }
+    guard !Task.isCancelled,
+      let snapshot = snapshots.first(where: { $0.id == label }),
+      prompt.stillMatches(snapshot),
+      canPerformServiceActionIgnoringConfirmation(prompt.action, on: snapshot)
+    else { return }
+    switch result {
+    case .cancelled:
+      return
+    case .unavailable:
+      publishOperation(
+        .init(
+          action: prompt.action, phase: .failed(.confirmationUnavailable),
+          changedAt: clock()),
+        for: label)
+      return
+    case .accepted:
+      guard acquireServiceAction(for: label) else { return }
+    }
+    // Main-actor code from the latest lookup through acquisition and dispatch:
+    // no suspension or re-entrancy point can invalidate the checked snapshot.
+    dispatch(prompt.action, on: snapshot.runner)
+  }
+
+  private func canPerformServiceActionIgnoringConfirmation(
+    _ action: ServiceOperationAction, on snapshot: RunnerSnapshot
+  ) -> Bool {
+    let kind: RunnerRow.Action.Kind =
+      switch action {
+      case .start: .start
+      case .stop: .stop
+      case .restart: .restart
+      }
+    let label = snapshot.runner.label
+    return snapshot.row.action(kind)?.isEnabled == true
+      && !serviceActionsInFlight.contains(label)
+  }
+
+  private func dispatch(
+    _ action: ServiceOperationAction, on runner: DiscoveredRunner
+  ) {
+    switch action {
+    case .start: dispatchStart(on: runner)
+    case .stop: dispatchStop(on: runner)
+    case .restart: dispatchRestart(on: runner)
+    }
   }
 
   private func perform(

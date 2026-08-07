@@ -244,7 +244,7 @@ uploads `_diag` contents and stores no credentials of its own; see
 ## Building from source
 
 ```sh
-swift package clean && swift test  # 617 tests; no installed runner required
+swift package clean && swift test  # 623 tests; no installed runner required
 make app                           # assembles .build/Standfast.app
 make check                         # strict local bundle, menu and window/AX lifecycle check
 ```

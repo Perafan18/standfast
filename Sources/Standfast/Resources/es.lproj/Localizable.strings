@@ -6,9 +6,23 @@
 "controlCenter.service" = "Servicio del runner";
 "controlCenter.openWorkflowRuns" = "Abrir ejecuciones de workflows";
 "controlCenter.openRunnerSettings" = "Abrir configuración del runner";
+"controlCenter.attention.one" = "%lld runner requiere atención";
+"controlCenter.attention" = "%lld runners requieren atención";
+"controlCenter.viewRuns" = "Ver ejecuciones";
+"controlCenter.viewSettings" = "Ver configuración";
+"controlCenter.history.empty" = "Sin trabajos registrados";
+"controlCenter.history.unavailable" = "Historial no disponible";
+"controlCenter.maintenance.compact" = "Sin medir";
+"controlCenter.action.start" = "Arrancar %@";
+"controlCenter.action.stop" = "Parar %@";
+"controlCenter.action.restart" = "Reiniciar %@";
 "settings.notifications" = "Notificaciones";
 "settings.power" = "Energía";
 "settings.startup" = "Inicio";
+"settings.notifications.footer" = "Las alertas usan las notificaciones del sistema.";
+"settings.power.footer" = "Cerrar la tapa la sigue durmiendo.";
+"settings.startup.footer" = "Standfast puede abrirse automáticamente al iniciar sesión.";
+"settings.version" = "Standfast%@";
 
 "menu.start" = "Arrancar";
 "menu.stop" = "Parar";
@@ -16,10 +30,6 @@
 "menu.openOnGitHub" = "Abrir en GitHub";
 "menu.refreshNow" = "Actualizar ahora";
 "menu.quit" = "Salir";
-"menu.fleet" = "Flota — %@";
-"menu.fleetOverflow" = "Flota — %@ — %@";
-"menu.moreRunners.one" = "1 runner más con novedades";
-"menu.moreRunners" = "%@ runners más con novedades";
 "menu.controlCenter" = "Abrir Standfast";
 "menu.settings" = "Configuración";
 "menu.recentJobs" = "Trabajos recientes";
@@ -48,6 +58,9 @@
 
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
+"menu.quickRunner" = "%@ · %@";
+"menu.quickRunnerScoped" = "%@ · %@ · %@";
+"menu.quickRunnerScopeID" = "%@ · #%lld";
 
 "disk.toolCache" = "Caché de herramientas — %@";
 "disk.actionCache" = "Acciones descargadas — %@";
@@ -66,6 +79,13 @@
 "cleanup.confirm.body" = "Esto libera %@ en %@.";
 "cleanup.confirm.delete" = "Borrar";
 "cleanup.confirm.cancel" = "Cancelar";
+"service.confirm.stop.title" = "¿Parar %@?";
+"service.confirm.restart.title" = "¿Reiniciar %@?";
+"service.confirm.stop.busy" = "%@ en %@ está ejecutando “%@”. Pararlo interrumpe este job.";
+"service.confirm.restart.busy" = "%@ en %@ está ejecutando “%@”. Reiniciarlo interrumpe este job. Si Arrancar falla después de Parar, el runner puede quedar detenido.";
+"service.confirm.stop.uncertain" = "%@ en %@ puede tener trabajo en curso. Pararlo puede interrumpir ese trabajo.";
+"service.confirm.restart.uncertain" = "%@ en %@ puede tener trabajo en curso. Reiniciarlo puede interrumpir ese trabajo. Si Arrancar falla después de Parar, el runner puede quedar detenido.";
+"service.confirm.cancel" = "Cancelar";
 "cleanup.toolCache.effect" = "La caché de herramientas guarda lo que descargaron los pasos de setup. El siguiente job que necesite una la vuelve a descargar.";
 "cleanup.actionCache.effect" = "Son las acciones que usan tus workflows, clonadas aquí. El runner recupera las que no encuentre.";
 "cleanup.standfastTrash.title" = "¿Borrar los restos de limpieza de Standfast de %@?";
@@ -79,6 +99,7 @@
 "cleanup.partiallyFailed" = "Es posible que se hayan borrado algunos archivos, pero la limpieza no terminó; comprueba que se puede escribir en %@";
 
 "state.noRunners" = "No hay runners instalados en esta Mac";
+"state.checking" = "Consultando runners";
 "state.launchAgentsUnreadable" = "No se pudo leer el directorio LaunchAgents:";
 "state.unreadable" = "No se pudieron leer algunos archivos de runner:";
 "state.unreadable.more" = "…y más";
@@ -88,6 +109,12 @@
 "state.disconnected" = "Corriendo en local, pero GitHub no lo ve";
 "state.stopped" = "Detenido";
 "state.starting" = "Arrancando — esperando a que GitHub lo vea";
+"state.short.ready" = "Listo";
+"state.short.running" = "Ejecutando";
+"state.short.disconnected" = "Desconectado";
+"state.short.stopped" = "Detenido";
+"state.short.starting" = "Arrancando";
+"state.short.unknown" = "Desconocido";
 
 "state.unknown.noCLI" = "Desconocido — instala la CLI de GitHub (gh)";
 "state.unknown.notAuthenticated" = "Desconocido — ejecuta gh auth login en una terminal";
@@ -120,6 +147,8 @@
 "operation.couldNotLaunch.detail" = "Revisa el directorio del runner y luego prueba %@ otra vez.";
 "operation.unexpectedFailure.title" = "Falló la solicitud de %@";
 "operation.unexpectedFailure.detail" = "Revisa los archivos del runner y luego prueba %@ otra vez.";
+"operation.confirmationUnavailable.title" = "Confirmación de %@ no disponible";
+"operation.confirmationUnavailable.detail" = "Abre el Centro de control de Standfast y luego prueba %@ otra vez.";
 "operation.restartStartFailed.title" = "Reiniciar detuvo el runner, pero no pudo arrancarlo";
 "operation.restartStartFailed.detail" = "Revisa los archivos del runner y luego prueba Arrancar.";
 "operation.restartStartTimedOut.title" = "Reiniciar detuvo el runner, pero arrancar agotó el tiempo";

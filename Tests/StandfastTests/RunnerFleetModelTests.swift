@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import RunnerKit
@@ -14,6 +15,10 @@ private func model(
   // and a permission CI cannot grant, and a power assertion would be taken out
   // on whatever machine runs the suite.
   notifications: NotificationSettings? = nil, sleep: SleepGuard? = nil,
+  // Never the real service confirmer. It opens a modal NSAlert on the machine
+  // running the suite; accepting here preserves the pre-confirmation semantics
+  // of tests that are about the command lifecycle rather than the prompt.
+  serviceConfirmation: any ServiceActionConfirming = AcceptingServiceConfirmation(),
   // Nor this one. The real opener hands the URL to the user's browser, so a
   // suite that reaches it buries whoever ran it in tabs pointed at a fixture.
   opener: FakeURLOpener = FakeURLOpener(),
@@ -43,6 +48,7 @@ private func model(
     versions: sandbox.versions,
     releases: sandbox.releases,
     opener: opener,
+    serviceConfirmation: serviceConfirmation,
     clock: clock, probeDelay: probeDelay, refreshInterval: refreshInterval,
     releaseInterval: releaseInterval)
 }
@@ -63,6 +69,42 @@ private func unattendedHousekeeping() -> HousekeepingModel {
 @MainActor
 private struct RefusingConfirmation: CleanupConfirming {
   func confirm(_ prompt: CleanupPrompt) -> Bool { false }
+}
+
+@MainActor
+private struct AcceptingServiceConfirmation: ServiceActionConfirming {
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
+    .accepted
+  }
+}
+
+@MainActor
+private final class RecordingServiceConfirmation: ServiceActionConfirming {
+  private(set) var prompts: [ServiceActionPrompt] = []
+  private var answers: [CheckedContinuation<ServiceActionConfirmationResult, Never>] = []
+  private let immediateAnswer: Bool?
+
+  init(immediateAnswer: Bool? = nil) { self.immediateAnswer = immediateAnswer }
+
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
+    prompts.append(prompt)
+    if let immediateAnswer { return immediateAnswer ? .accepted : .cancelled }
+    return await withCheckedContinuation { answers.append($0) }
+  }
+
+  func answer(_ accepted: Bool) {
+    answers.removeFirst().resume(returning: accepted ? .accepted : .cancelled)
+  }
+}
+
+@MainActor
+private final class CountingServiceConfirmation: ServiceActionConfirming {
+  private(set) var calls = 0
+
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
+    calls += 1
+    return .cancelled
+  }
 }
 
 /// A filesystem that does nothing at all, so nothing in this file can remove a
@@ -465,12 +507,13 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
 }
 
 @Test @MainActor func stoppingARunnerEndsItsSettlingWindow() async throws {
-  let box = try FleetSandbox(serviceRunning: true)
+  let box = try FleetSandbox(serviceRunning: false)
   defer { box.cleanUp() }
   try box.addRunner()
   let fleet = model(box)
   await fleet.quiesce()
 
+  box.set(serviceRunning: true)
   box.set(remote: .success(RemoteStatus(online: false, busy: false)))
   fleet.start(fleet.snapshots[0].runner)
   await fleet.quiesce()
@@ -543,13 +586,14 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   // stops being discovered leaves one behind with nothing left to clear it.
   // Uninstall and reinstall inside the window and the new runner would inherit
   // the old one's benefit of the doubt.
-  let box = try FleetSandbox(serviceRunning: true)
+  let box = try FleetSandbox(serviceRunning: false)
   defer { box.cleanUp() }
   try box.addRunner()
-  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
   let fleet = model(box)
   await fleet.quiesce()
 
+  box.set(serviceRunning: true)
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
   fleet.start(fleet.snapshots[0].runner)
   await fleet.quiesce()
   #expect(fleet.snapshots.map(\.display) == [.starting])
@@ -650,6 +694,382 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
 
 // MARK: - Acting on one runner, not on the machine
 
+@Test @MainActor func rejectingBusyStopRunsNothingAndPublishesNoReceipt() async throws {
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = RecordingCommandRunner()
+  let confirmation = RecordingServiceConfirmation(immediateAnswer: false)
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  await fleet.quiesce()
+
+  #expect(confirmation.prompts.count == 1)
+  #expect(commands.invocations.isEmpty)
+  #expect(fleet.operations[runner.label] == nil)
+  #expect(!fleet.snapshots[0].isServiceActionReserved)
+}
+
+@Test @MainActor
+func unavailableBusyStopRunsNothingAndPublishesTerminalFeedback() async throws {
+  for invalidRegistry in [false, true] {
+    let box = try FleetSandbox(
+      serviceRunning: true, remote: .init(online: true, busy: true))
+    defer { box.cleanUp() }
+    let directory = try box.addRunner()
+    try box.writeListenerLog(
+      in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+      finished: nil)
+    let registry = SceneWindowRegistry()
+    let invalidWindow = NSWindow()
+    if invalidRegistry {
+      registry.register(invalidWindow, for: .controlCenter)
+      invalidWindow.setAccessibilityIdentifier("wrong-scene")
+    }
+    let commands = RecordingCommandRunner()
+    let fleet = model(
+      box, commands: commands,
+      serviceConfirmation: ServiceAlertConfirmation(
+        parentWindow:
+          ServiceAlertConfirmation.controlCenterParentWindow(in: registry)))
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.stop(runner)
+    await fleet.quiesce()
+
+    #expect(commands.invocations.isEmpty)
+    #expect(
+      fleet.operations[runner.label]?.phase == .failed(.confirmationUnavailable))
+    #expect(
+      fleet.snapshots[0].operation?.phase == .failed(.confirmationUnavailable))
+    #expect(!fleet.snapshots[0].isServiceActionReserved)
+  }
+}
+
+@Test @MainActor func acceptingUnchangedBusyStopInvokesTheControllerOnce() async throws {
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = RecordingCommandRunner()
+  let confirmation = RecordingServiceConfirmation(immediateAnswer: true)
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  await fleet.quiesce()
+
+  #expect(confirmation.prompts.count == 1)
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+  #expect(fleet.operations[runner.label]?.action == .stop)
+}
+
+@Test @MainActor func acceptingUnchangedBusyRestartKeepsStopThenStartInsideController()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = RecordingCommandRunner()
+  let confirmation = RecordingServiceConfirmation(immediateAnswer: true)
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(confirmation.prompts.count == 1)
+  #expect(commands.invocations.compactMap(\.last) == ["stop", "start"])
+}
+
+@Test @MainActor func idleStopAndRestartAndStoppedStartNeverPrompt() async throws {
+  for (running, action, verbs) in [
+    (true, RunnerRow.Action.Kind.stop, ["stop"]),
+    (true, .restart, ["stop", "start"]),
+    (false, .start, ["start"]),
+  ] {
+    let box = try FleetSandbox(serviceRunning: running)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let commands = RecordingCommandRunner()
+    let confirmation = RecordingServiceConfirmation(immediateAnswer: false)
+    let fleet = model(
+      box, commands: commands, serviceConfirmation: confirmation)
+    await fleet.quiesce()
+
+    fleet.perform(action, on: fleet.snapshots[0].runner)
+    await fleet.quiesce()
+
+    #expect(confirmation.prompts.isEmpty)
+    #expect(commands.invocations.compactMap(\.last) == verbs)
+  }
+}
+
+@Test @MainActor func aDisplayChangeWhileConfirmationWaitsRunsNothing() async throws {
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = RecordingCommandRunner()
+  let confirmation = RecordingServiceConfirmation()
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await waitUntil { confirmation.prompts.count == 1 }
+  box.set(remote: .success(RemoteStatus(online: true, busy: false)))
+  fleet.refresh()
+  try await waitUntil { fleet.snapshots[0].display == .resolved(.idle) }
+
+  confirmation.answer(true)
+  await fleet.quiesce()
+
+  #expect(commands.invocations.isEmpty)
+  #expect(fleet.operations.isEmpty)
+}
+
+@Test @MainActor func aDifferentRunningJobWhileConfirmationWaitsRunsNothing()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = RecordingCommandRunner()
+  let confirmation = RecordingServiceConfirmation()
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await waitUntil { confirmation.prompts.count == 1 }
+  try box.appendJob(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: nil)
+  fleet.refresh()
+  try await waitUntil { fleet.snapshots[0].jobs.running?.name == "deploy" }
+
+  confirmation.answer(true)
+  await fleet.quiesce()
+
+  #expect(commands.invocations.isEmpty)
+  #expect(fleet.operations.isEmpty)
+}
+
+@Test @MainActor func sameNamedJobWithANewerStartWhileConfirmationWaitsRunsNothing()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = RecordingCommandRunner()
+  let confirmation = RecordingServiceConfirmation()
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+  let originalStart = try #require(fleet.snapshots[0].jobs.running?.startedAt)
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await waitUntil { confirmation.prompts.count == 1 }
+  try box.appendJob(
+    in: directory, job: "testflight", startedAt: "2026-08-05 21:00:00Z",
+    finished: nil)
+  fleet.refresh()
+  try await waitUntil {
+    fleet.snapshots[0].jobs.running?.startedAt != originalStart
+  }
+
+  confirmation.answer(true)
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].jobs.running?.name == "testflight")
+  #expect(commands.invocations.isEmpty)
+  #expect(fleet.operations.isEmpty)
+}
+
+@Test @MainActor func aReservedRunnerOpensNoSecondPromptAndRunsNoSecondCommand()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let confirmation = RecordingServiceConfirmation(immediateAnswer: true)
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  #expect(fleet.snapshots[0].isServiceActionReserved)
+  fleet.restart(runner)
+  await Task.yield()
+
+  #expect(confirmation.prompts.count == 1)
+  #expect(commands.invocations.count == 1)
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func simultaneousDisruptiveClicksProduceOnePromptAndOneAction()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let commands = RecordingCommandRunner()
+  let confirmation = RecordingServiceConfirmation()
+  let fleet = model(
+    box, commands: commands, serviceConfirmation: confirmation)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await waitUntil { confirmation.prompts.count == 1 }
+  fleet.restart(runner)
+  await Task.yield()
+  #expect(confirmation.prompts.count == 1)
+
+  confirmation.answer(true)
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+}
+
+@Test @MainActor func staleServiceCapabilitiesCannotActThroughTheModel() async throws {
+  for (initiallyRunning, action) in [
+    (false, RunnerRow.Action.Kind.start),
+    (true, .stop),
+    (true, .restart),
+  ] {
+    let box = try FleetSandbox(serviceRunning: initiallyRunning)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let commands = RecordingCommandRunner()
+    let fleet = model(box, commands: commands)
+    await fleet.quiesce()
+    let staleRunner = fleet.snapshots[0].runner
+
+    box.set(serviceRunning: !initiallyRunning)
+    fleet.refresh()
+    await fleet.quiesce()
+    fleet.perform(action, on: staleRunner)
+    await fleet.quiesce()
+
+    #expect(commands.invocations.isEmpty)
+    #expect(fleet.operations.isEmpty)
+  }
+}
+
+@Test @MainActor func staleNavigationCannotOpenAfterItsRunnerDisappears() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let opener = FakeURLOpener()
+  let fleet = model(box, opener: opener)
+  await fleet.quiesce()
+  let staleRunner = fleet.snapshots[0].runner
+
+  try box.removeRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+  fleet.perform(.openOnGitHub, on: staleRunner)
+
+  #expect(opener.urls.isEmpty)
+}
+
+@Test @MainActor func deinitBeforeTheConfirmationTaskStartsNeverCallsTheConfirmer()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let confirmation = CountingServiceConfirmation()
+  var fleet: RunnerFleetModel? = model(box, serviceConfirmation: confirmation)
+  await fleet?.quiesce()
+
+  let snapshot = fleet?.snapshots.first
+  let unwrappedSnapshot = try #require(snapshot)
+  let runner = unwrappedSnapshot.runner
+  fleet?.stop(runner)
+  fleet = nil
+  await Task.yield()
+
+  #expect(confirmation.calls == 0)
+}
+
+@Test @MainActor func modelDeinitDismissesAnOpenServiceAlert() async throws {
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let presenter = FakeServiceAlertPresenter()
+  var fleet: RunnerFleetModel? = model(
+    box,
+    serviceConfirmation: ServiceAlertConfirmation(presenter: presenter))
+  await fleet?.quiesce()
+
+  let snapshot = fleet?.snapshots.first
+  let unwrappedSnapshot = try #require(snapshot)
+  let runner = unwrappedSnapshot.runner
+  fleet?.stop(runner)
+  try await waitUntil { presenter.prompts.count == 1 }
+  weak var releasedFleet: RunnerFleetModel?
+  releasedFleet = fleet
+  fleet = nil
+  try await waitUntil { presenter.presentations[0].dismissals == 1 }
+
+  #expect(releasedFleet == nil)
+  #expect(presenter.presentations[0].dismissals == 1)
+}
+
 @Test @MainActor func oneRunnerAcceptsOnlyOneServiceActionAtATime() async throws {
   // Hold Start inside svc.sh, then press every service button again. All three
   // overlap the same label and therefore belong to the one ignored group.
@@ -691,12 +1111,12 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
 
   fleet.start(runners["build-mac"]!)
   try await commands.waitForInvocationCount(1)
-  fleet.stop(runners["release-mac"]!)
+  fleet.start(runners["release-mac"]!)
   try await commands.waitForInvocationCount(2)
   commands.release(10)
   await fleet.quiesce()
 
-  #expect(Set(commands.invocations.compactMap(\.last)) == ["start", "stop"])
+  #expect(commands.invocations.compactMap(\.last) == ["start", "start"])
 }
 
 @Test @MainActor func openingGitHubIsNotBlockedByAServiceAction() async throws {
@@ -787,7 +1207,7 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
 @Test @MainActor func everyActionIsFollowedByAFreshProbe() async throws {
   // `svc.sh` exits 0 whatever happened underneath, so re-reading the machine
   // is the only honest feedback an action ever gets.
-  let box = try FleetSandbox(serviceRunning: false)
+  let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
   let fleet = model(box)
@@ -830,7 +1250,7 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
     (RunnerRow.Action.Kind.start, ServiceOperationAction.start),
     (.stop, .stop), (.restart, .restart),
   ] {
-    let box = try FleetSandbox(serviceRunning: false)
+    let box = try FleetSandbox(serviceRunning: kind != .start)
     defer { box.cleanUp() }
     try box.addRunner()
     let fleet = model(box)
@@ -852,7 +1272,7 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
     (CouldNotLaunchCommandRunner(), .stop, .failed(.commandCouldNotLaunch)),
   ]
   for (commands, kind, phase) in cases {
-    let box = try FleetSandbox(serviceRunning: true)
+    let box = try FleetSandbox(serviceRunning: kind == .stop)
     defer { box.cleanUp() }
     try box.addRunner()
     let fleet = model(box, commands: commands)
@@ -933,6 +1353,9 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   await fleet.quiesce()
   #expect(fleet.operations[second.label]?.phase == .requestAccepted)
 
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
   fleet.start(first)
   try await commands.waitForInvocationCount(3)
   #expect(fleet.operations[first.label]?.phase == .inFlight)
@@ -971,9 +1394,9 @@ func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
 @Test @MainActor
 func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   // A terminal receipt in the nominal five-minute scan-wall-clock window may
-  // occupy a quick-menu echo, but it must not leave an otherwise idle runner
-  // there forever. The scan at 4m 59s retains it; the scan at exactly 5m
-  // removes it from every projection when the wall clock advances normally.
+  // add detail to a quick-menu runner, but it must not remain there forever.
+  // The scan at 4m 59s retains it; the scan at exactly 5m removes the receipt
+  // from every projection while the runner itself remains identifiable.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
@@ -1005,9 +1428,9 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   #expect(fleet.snapshots[0].operation == nil)
   #expect(fleet.controlCenterCards().first?.operation == nil)
   #expect(
-    !fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
+    fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
       guard case .runner(let echo) = item else { return false }
-      return echo.id == runner.label
+      return echo.id == runner.label && echo.operation == nil
     })
 }
 
@@ -1465,17 +1888,17 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   #expect(commands.invocations.compactMap(\.last) == ["stop"])
   #expect(delivery.posted.isEmpty)
 
-  fleet.restart(runner)
+  fleet.start(runner)
   await fleet.quiesce()
-  #expect(commands.invocations.compactMap(\.last) == ["stop", "stop", "start"])
+  #expect(commands.invocations.compactMap(\.last) == ["stop", "start"])
   #expect(delivery.posted.isEmpty)
 }
 
 @Test @MainActor func absenceAtTheCompletionClockCannotReleaseThatAction() async throws {
   // Discovery has already enumerated build-mac as absent, but a slow candidate
-  // keeps the call from returning until Start completes. A coarse clock gives
+  // keeps the call from returning until Stop completes. A coarse clock gives
   // both facts the same timestamp, so their ordering is ambiguous: applying
-  // the absence must not release Start's reservation. The listing failure that
+  // the absence must not release Stop's reservation. The listing failure that
   // follows is inconclusive too, so neither scan permits a second mutation.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
@@ -1495,7 +1918,7 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   fleet.refresh()
   try await staleDiscovery.waitUntilEntered()
 
-  fleet.start(runner)
+  fleet.stop(runner)
   try await waitUntil { commands.invocations.count == 1 }
   // Let the action resume from its off-pool command and record completedAt;
   // probeDelay keeps its own refresh from racing the stale scan below.
@@ -1504,10 +1927,10 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   try await waitUntil { fleet.lastReadAt != before }
 
   box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
-  fleet.start(runner)
+  fleet.stop(runner)
   await fleet.quiesce()
 
-  #expect(commands.invocations.compactMap(\.last) == ["start"])
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
 
   box.set(discoveryFailure: nil)
   try box.addRunner(name: "build-mac", scope: "widget")
@@ -1539,7 +1962,7 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   try await staleDiscovery.waitUntilEntered()
 
   clock.advance(1)
-  fleet.start(runner)
+  fleet.stop(runner)
   try await Task.sleep(for: .milliseconds(20))
   staleDiscovery.release()
   try await waitUntil { fleet.lastReadAt != before }
@@ -2402,6 +2825,9 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   await fleet.quiesce()
   #expect(commands.invocations.last == ["/bin/bash", script, "start"])
 
+  box.set(serviceRunning: true)
+  fleet.refresh()
+  await fleet.quiesce()
   fleet.perform(.stop, on: fleet.snapshots[0].runner)
   await fleet.quiesce()
   #expect(commands.invocations.last == ["/bin/bash", script, "stop"])

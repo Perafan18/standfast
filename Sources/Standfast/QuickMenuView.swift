@@ -6,6 +6,7 @@ import SwiftUI
 struct QuickMenuView: View {
   @ObservedObject var fleet: RunnerFleetModel
   @ObservedObject var thermal: ThermalMonitor
+  let sceneActivation: SceneActivationCoordinator
 
   @Environment(\.openWindow) private var openWindow
   @Environment(\.openSettings) private var openSettings
@@ -26,26 +27,32 @@ struct QuickMenuView: View {
     switch element {
     case .text(let line):
       Text(line)
-    case .runnerText(let runner):
-      Text(runner.title)
+        .accessibilityIdentifier("dev.standfast.quick-menu.static")
     case .runnerMenu(let runner):
       RunnerEchoMenu(runner: runner, fleet: fleet)
     case .refresh:
       Button(L10n.refreshNow) { fleet.refresh() }
+        .accessibilityIdentifier("dev.standfast.quick-menu.static")
     case .openControlCenter:
       Button(L10n.controlCenter) {
-        openWindow(id: "control-center")
-        NSApplication.shared.activate()
+        sceneActivation.openAndActivate(.controlCenter) {
+          openWindow(id: "control-center")
+        }
       }
+      .accessibilityIdentifier("dev.standfast.quick-menu.static")
     case .openSettings:
       Button(L10n.settings) {
-        openSettings()
-        NSApplication.shared.activate()
+        sceneActivation.openAndActivate(.settings) {
+          openSettings()
+        }
       }
+      .accessibilityIdentifier("dev.standfast.quick-menu.static")
     case .quit:
       Button(L10n.quit) { NSApplication.shared.terminate(nil) }
+        .accessibilityIdentifier("dev.standfast.quick-menu.static")
     }
   }
+
 }
 
 /// A runner echo with detail is one native menu element. Its secondary copy
@@ -57,6 +64,7 @@ private struct RunnerEchoMenu: View {
 
   var body: some View {
     Menu {
+      Text(runner.longState)
       if let progress = runner.progress { Text(progress) }
       if let operation = runner.operation {
         Label(operation.title, systemImage: operation.symbolName)
@@ -74,5 +82,8 @@ private struct RunnerEchoMenu: View {
     } label: {
       Text(runner.title)
     }
+    .accessibilityIdentifier("dev.standfast.quick-menu.runner")
+    .accessibilityLabel(runner.title)
+    .accessibilityValue(runner.longState)
   }
 }

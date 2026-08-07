@@ -23,6 +23,15 @@ private func speaking(_ localization: String) throws -> Bundle {
   return try #require(Bundle(path: path))
 }
 
+private func l10nSource() -> String {
+  let repository = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+  let source = repository.appendingPathComponent("Sources/Standfast/L10n.swift")
+  return (try? String(contentsOf: source, encoding: .utf8)) ?? ""
+}
+
 // MARK: - The floor
 
 @Test func everyStringSurvivesHavingNoCatalogueAtAll() {
@@ -43,8 +52,7 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
   let everyString = [
     L10n.start, L10n.stop, L10n.restart, L10n.openOnGitHub, L10n.refreshNow,
-    L10n.quit, L10n.quickMenuFleet(L10n.stateIdle), L10n.quickMenuMoreRunners(1),
-    L10n.controlCenter, L10n.settings, L10n.recentJobs, L10n.openAtLogin,
+    L10n.quit, L10n.controlCenter, L10n.settings, L10n.recentJobs, L10n.openAtLogin,
     L10n.openAtLoginFailed,
     L10n.openAtLoginNeedsApproval, L10n.openAtLoginUnavailable,
     L10n.notifyMe, L10n.notifyJobFailed, L10n.notifyDisconnected, L10n.notifyStopped,
@@ -53,14 +61,19 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.notificationJobFailedTitle, L10n.notificationDisconnectedTitle,
     L10n.notificationStoppedTitle, L10n.notificationJobFailedBody("a", "b"),
     L10n.notificationDisconnectedBody("a"), L10n.notificationStoppedBody("a"),
-    L10n.noRunnersFound, L10n.launchAgentsUnreadable, L10n.someRunnersUnreadable,
+    L10n.noRunnersFound, L10n.checkingRunners, L10n.launchAgentsUnreadable,
+    L10n.someRunnersUnreadable,
     L10n.moreUnreadable,
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
     L10n.stateUnknownNoAnswer, L10n.stateUnknownNoLocalAnswer,
+    L10n.stateReadyShort, L10n.stateRunningShort, L10n.stateDisconnectedShort,
+    L10n.stateStoppedShort, L10n.stateStartingShort, L10n.stateUnknownShort,
     L10n.checkedJustNow, L10n.checkedNever, L10n.jobSucceeded, L10n.jobFailed,
     L10n.jobCanceled, L10n.jobInterrupted,
     L10n.runnerRow("a", "b"), L10n.runnerInScope("a", "b"),
+    L10n.quickMenuRunner("a", "b"), L10n.quickMenuRunnerInScope("a", "b", "c"),
+    L10n.quickMenuScopeWithID("a", 1),
     L10n.jobRunning("a", "b"), L10n.jobRunningWithTypical("a", "b", "c"),
     L10n.jobRow("a", "b", "c"), L10n.jobRowNoDuration("a", "b"), L10n.checkedAgo("a"),
     L10n.durationHoursMinutes(1, 2), L10n.durationMinutesSeconds(1, 2),
@@ -80,6 +93,12 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.cleanupLogsTitle(2, "a"), L10n.cleanupLogsEffect(1),
     L10n.cleanupLogsEffect(2), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
     L10n.cleanupPartiallyFailed("a"),
+    L10n.serviceConfirmStopTitle("a"), L10n.serviceConfirmRestartTitle("a"),
+    L10n.serviceConfirmStopBusy("a", "b", "c"),
+    L10n.serviceConfirmRestartBusy("a", "b", "c"),
+    L10n.serviceConfirmStopUncertain("a", "b"),
+    L10n.serviceConfirmRestartUncertain("a", "b"),
+    L10n.serviceConfirmCancel(),
     L10n.serviceOperationInFlightTitle("a"), L10n.serviceOperationInFlightDetail("a"),
     L10n.serviceOperationAcceptedTitle("a"), L10n.serviceOperationAcceptedDetail("a"),
     L10n.serviceOperationTimedOutTitle("a"), L10n.serviceOperationTimedOutDetail("a"),
@@ -89,6 +108,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.serviceOperationCouldNotLaunchDetail("a"),
     L10n.serviceOperationUnexpectedFailureTitle("a"),
     L10n.serviceOperationUnexpectedFailureDetail("a"),
+    L10n.serviceOperationConfirmationUnavailableTitle("a"),
+    L10n.serviceOperationConfirmationUnavailableDetail("a"),
     L10n.serviceOperationRestartStartFailedTitle,
     L10n.serviceOperationRestartStartFailedDetail,
     L10n.serviceOperationRestartStartTimedOutTitle,
@@ -97,7 +118,13 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.controlCenterNoRunnersDescription, L10n.controlCenterScope,
     L10n.controlCenterStatus, L10n.controlCenterService,
     L10n.openWorkflowRuns, L10n.openRunnerSettings,
+    L10n.runnerAttention(1), L10n.runnerAttention(2), L10n.viewRuns(),
+    L10n.viewSettings(), L10n.historyEmpty(), L10n.historyUnavailable(),
+    L10n.maintenanceCompact(), L10n.startRunner("a"), L10n.stopRunner("a"),
+    L10n.restartRunner("a"),
     L10n.settingsNotifications, L10n.settingsPower, L10n.settingsStartup,
+    L10n.settingsNotificationsFooter, L10n.settingsPowerFooter,
+    L10n.settingsStartupFooter, L10n.settingsVersion(" 0.5.0 (5)"),
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -116,11 +143,11 @@ private func speaking(_ localization: String) throws -> Bundle {
   let reached = Set(
     [
       "menu.start", "menu.stop", "menu.restart", "menu.openOnGitHub",
-      "menu.fleet", "menu.fleetOverflow", "menu.moreRunners.one",
-      "menu.moreRunners", "menu.controlCenter", "menu.settings",
+      "menu.controlCenter", "menu.settings",
       "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
       "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
       "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
+      "menu.quickRunner", "menu.quickRunnerScoped", "menu.quickRunnerScopeID",
       "menu.notify", "menu.notify.jobFailed", "menu.notify.disconnected",
       "menu.notify.stopped", "menu.notify.blocked", "menu.preventSleep",
       "menu.preventSleep.lid", "thermal.serious", "thermal.critical",
@@ -128,9 +155,12 @@ private func speaking(_ localization: String) throws -> Bundle {
       "notification.jobFailed.body", "notification.disconnected.title",
       "notification.disconnected.body", "notification.stopped.title",
       "notification.stopped.body",
-      "state.noRunners", "state.launchAgentsUnreadable", "state.unreadable",
+      "state.noRunners", "state.checking", "state.launchAgentsUnreadable",
+      "state.unreadable",
       "state.unreadable.more", "state.idle",
       "state.busy", "state.disconnected", "state.stopped", "state.starting",
+      "state.short.ready", "state.short.running", "state.short.disconnected",
+      "state.short.stopped", "state.short.starting", "state.short.unknown",
       "state.unknown.noCLI", "state.unknown.notAuthenticated",
       "state.unknown.noAnswer", "state.unknown.noLocalAnswer", "state.checkedAgo",
       "state.checkedJustNow", "state.checkedNever", "job.running",
@@ -152,20 +182,85 @@ private func speaking(_ localization: String) throws -> Bundle {
       "cleanup.standfastTrash.effect", "cleanup.logs.title.one", "cleanup.logs.title",
       "cleanup.logs.effect.one", "cleanup.logs.effect",
       "cleanup.refused", "cleanup.failed", "cleanup.partiallyFailed",
+      "service.confirm.stop.title", "service.confirm.restart.title",
+      "service.confirm.stop.busy", "service.confirm.restart.busy",
+      "service.confirm.stop.uncertain", "service.confirm.restart.uncertain",
+      "service.confirm.cancel",
       "operation.inFlight.title", "operation.inFlight.detail",
       "operation.accepted.title", "operation.accepted.detail",
       "operation.timedOut.title", "operation.timedOut.detail",
       "operation.scriptMissing.title", "operation.scriptMissing.detail",
       "operation.couldNotLaunch.title", "operation.couldNotLaunch.detail",
       "operation.unexpectedFailure.title", "operation.unexpectedFailure.detail",
+      "operation.confirmationUnavailable.title",
+      "operation.confirmationUnavailable.detail",
       "operation.restartStartFailed.title", "operation.restartStartFailed.detail",
       "operation.restartStartTimedOut.title", "operation.restartStartTimedOut.detail",
       "app.statusItem", "controlCenter.title", "controlCenter.noRunners.description",
       "controlCenter.scope", "controlCenter.status", "controlCenter.service",
       "controlCenter.openWorkflowRuns", "controlCenter.openRunnerSettings",
+      "controlCenter.attention.one", "controlCenter.attention",
+      "controlCenter.viewRuns", "controlCenter.viewSettings",
+      "controlCenter.history.empty", "controlCenter.history.unavailable",
+      "controlCenter.maintenance.compact", "controlCenter.action.start",
+      "controlCenter.action.stop", "controlCenter.action.restart",
       "settings.notifications", "settings.power", "settings.startup",
+      "settings.notifications.footer", "settings.power.footer",
+      "settings.startup.footer", "settings.version",
     ])
   #expect(everyKey == reached)
+}
+
+@Test func confirmationUnavailableFeedbackHasEnglishSpanishAndFallbackParity() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableTitle(
+      "Stop", in: [english]) == "Stop confirmation unavailable")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableDetail(
+      "Stop", in: [english])
+      == "Open the Standfast Control Center, then try Stop again.")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableTitle(
+      "Detener", in: [spanish]) == "Confirmación de Detener no disponible")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableDetail(
+      "Detener", in: [spanish])
+      == "Abre el Centro de control de Standfast y luego prueba Detener otra vez.")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableTitle(
+      "Stop", in: []) == "Stop confirmation unavailable")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableDetail(
+      "Stop", in: [])
+      == "Open the Standfast Control Center, then try Stop again.")
+}
+
+@Test func obsoleteFleetOverflowLocalizationIsAbsentEverywhere() throws {
+  let forbiddenKeys: Set<String> = [
+    "menu.fleet", "menu.fleetOverflow", "menu.moreRunners.one",
+    "menu.moreRunners",
+  ]
+  let forbiddenSymbols = ["quickMenuFleet", "quickMenuMoreRunners"]
+
+  #expect(forbiddenKeys.isDisjoint(with: L10n.english.keys))
+  for language in ["en", "es"] {
+    #expect(forbiddenKeys.isDisjoint(with: try catalogue(language).keys))
+  }
+  for symbol in forbiddenSymbols {
+    #expect(!l10nSource().contains(symbol))
+  }
+}
+
+@Test func checkingRunnerCopyIsAtomicInEnglishSpanishAndFallback() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(L10n.t("state.checking", in: [english]) == "Checking runners")
+  #expect(L10n.t("state.checking", in: [spanish]) == "Consultando runners")
+  #expect(L10n.t("state.checking", in: []) == "Checking runners")
 }
 
 @Test func aBundleThatCannotBeFoundIsNotAnError() {
@@ -191,6 +286,53 @@ private func speaking(_ localization: String) throws -> Bundle {
   let spanish = try catalogue("es")
   #expect(Set(spanish.keys) == Set(L10n.english.keys))
   #expect(!spanish.values.contains(""))
+}
+
+@Test func settingsPermanentCopyAndVersionFormatAreExactInBothLanguages() throws {
+  let english = try catalogue("en")
+  let spanish = try catalogue("es")
+
+  #expect(
+    english["settings.notifications.footer"]
+      == "Alerts use system notifications.")
+  #expect(
+    english["settings.power.footer"]
+      == "Closing the lid still puts this Mac to sleep.")
+  #expect(
+    english["settings.startup.footer"]
+      == "Standfast can open automatically when you log in.")
+  #expect(english["settings.version"] == "Standfast%@")
+
+  #expect(
+    spanish["settings.notifications.footer"]
+      == "Las alertas usan las notificaciones del sistema.")
+  #expect(
+    spanish["settings.power.footer"]
+      == "Cerrar la tapa la sigue durmiendo.")
+  #expect(
+    spanish["settings.startup.footer"]
+      == "Standfast puede abrirse automáticamente al iniciar sesión.")
+  #expect(spanish["settings.version"] == "Standfast%@")
+
+  #expect(
+    L10n.settingsVersion(" 0.5.0 (5)", in: [try speaking("en")])
+      == "Standfast 0.5.0 (5)")
+  #expect(
+    L10n.settingsVersion(" 0.5.0 (5)", in: [try speaking("es")])
+      == "Standfast 0.5.0 (5)")
+}
+
+@Test func cataloguesNeverMapAKeyToItself() throws {
+  let rawKeyPattern = #"(^| — )(menu|state|job|duration|thermal|notification)\."#
+  for language in ["en", "es"] {
+    let entries = try catalogue(language)
+    for (key, value) in entries {
+      #expect(value != key, "\(language): \(key)")
+      #expect(
+        value.range(of: rawKeyPattern, options: .regularExpression) == nil,
+        "\(language): \(key) → \(value)")
+    }
+  }
 }
 
 @Test func theCatalogueIsWhatTheLookupReads() throws {
@@ -242,23 +384,76 @@ private func speaking(_ localization: String) throws -> Bundle {
       + "que muestra el Centro de control de Standfast.")
 }
 
-@Test func overflowCopyIsNeutralAndGrammaticalInBothLanguages() throws {
+@Test func premiumCompactVocabularyIsExactInBothLanguages() throws {
+  let english = try speaking("en")
   let spanish = try speaking("es")
-  let englishOne = L10n.quickMenuMoreRunners(1, in: [])
-  let englishMany = L10n.quickMenuMoreRunners(3, in: [])
 
-  #expect(englishOne == "1 more runner update")
-  #expect(englishMany == "3 more runner updates")
+  #expect(L10n.t("state.short.ready", in: [english]) == "Ready")
+  #expect(L10n.t("state.short.running", in: [english]) == "Running")
+  #expect(L10n.t("state.short.disconnected", in: [english]) == "Disconnected")
+  #expect(L10n.t("state.short.stopped", in: [english]) == "Stopped")
+  #expect(L10n.t("state.short.starting", in: [english]) == "Starting")
+  #expect(L10n.t("state.short.unknown", in: [english]) == "Unknown")
+  #expect(L10n.t("state.short.ready", in: [spanish]) == "Listo")
+  #expect(L10n.t("state.short.running", in: [spanish]) == "Ejecutando")
+  #expect(L10n.t("state.short.disconnected", in: [spanish]) == "Desconectado")
+  #expect(L10n.t("state.short.stopped", in: [spanish]) == "Detenido")
+  #expect(L10n.t("state.short.starting", in: [spanish]) == "Arrancando")
+  #expect(L10n.t("state.short.unknown", in: [spanish]) == "Desconocido")
+
+  #expect(L10n.runnerAttention(1, in: [english]) == "1 runner needs attention")
+  #expect(L10n.runnerAttention(3, in: [english]) == "3 runners need attention")
+  #expect(L10n.runnerAttention(1, in: [spanish]) == "1 runner requiere atención")
+  #expect(L10n.runnerAttention(3, in: [spanish]) == "3 runners requieren atención")
+  #expect(L10n.viewRuns(in: [english]) == "View runs")
+  #expect(L10n.viewRuns(in: [spanish]) == "Ver ejecuciones")
+  #expect(L10n.viewSettings(in: [english]) == "View settings")
+  #expect(L10n.viewSettings(in: [spanish]) == "Ver configuración")
+  #expect(L10n.historyEmpty(in: [english]) == "No jobs recorded")
+  #expect(L10n.historyEmpty(in: [spanish]) == "Sin trabajos registrados")
+  #expect(L10n.historyUnavailable(in: [english]) == "Job history unavailable")
+  #expect(L10n.historyUnavailable(in: [spanish]) == "Historial no disponible")
+  #expect(L10n.maintenanceCompact(in: [english]) == "Not measured")
+  #expect(L10n.maintenanceCompact(in: [spanish]) == "Sin medir")
+  #expect(L10n.startRunner("build-mac", in: [english]) == "Start build-mac")
+  #expect(L10n.startRunner("build-mac", in: [spanish]) == "Arrancar build-mac")
+  #expect(L10n.stopRunner("build-mac", in: [english]) == "Stop build-mac")
+  #expect(L10n.stopRunner("build-mac", in: [spanish]) == "Parar build-mac")
+  #expect(L10n.restartRunner("build-mac", in: [english]) == "Restart build-mac")
+  #expect(L10n.restartRunner("build-mac", in: [spanish]) == "Reiniciar build-mac")
+}
+
+@Test func disruptiveServiceConfirmationCopyIsExactInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(L10n.serviceConfirmStopTitle("build-mac", in: [english]) == "Stop build-mac?")
   #expect(
-    L10n.quickMenuFleet("Running a job", overflowCount: 1, in: [])
-      == "Fleet — Running a job — 1 more runner update")
+    L10n.serviceConfirmRestartTitle("build-mac", in: [spanish])
+      == "¿Reiniciar build-mac?")
   #expect(
-    L10n.quickMenuFleet("Running a job", overflowCount: 3, in: [])
-      == "Fleet — Running a job — 3 more runner updates")
-  #expect(L10n.quickMenuMoreRunners(1, in: [spanish]) == "1 runner más con novedades")
+    L10n.serviceConfirmStopBusy(
+      "build-mac", "acme/widget", "testflight", in: [english])
+      == "build-mac in acme/widget is running “testflight”. "
+      + "Stopping it interrupts this job.")
   #expect(
-    L10n.quickMenuMoreRunners(3, in: [spanish])
-      == "3 runners más con novedades")
+    L10n.serviceConfirmRestartBusy(
+      "build-mac", "acme/widget", "testflight", in: [spanish])
+      == "build-mac en acme/widget está ejecutando “testflight”. "
+      + "Reiniciarlo interrumpe este job. Si Arrancar falla después de Parar, "
+      + "el runner puede quedar detenido.")
+  #expect(
+    L10n.serviceConfirmStopUncertain("build-mac", "acme/widget", in: [spanish])
+      == "build-mac en acme/widget puede tener trabajo en curso. "
+      + "Pararlo puede interrumpir ese trabajo.")
+  #expect(
+    L10n.serviceConfirmRestartUncertain(
+      "build-mac", "acme/widget", in: [english])
+      == "build-mac in acme/widget may have work in progress. "
+      + "Restarting can interrupt that work. If Start fails after Stop, the runner "
+      + "can remain stopped.")
+  #expect(L10n.serviceConfirmCancel(in: [english]) == "Cancel")
+  #expect(L10n.serviceConfirmCancel(in: [spanish]) == "Cancelar")
 }
 
 @Test func everyUnknownReasonTellsTheUserWhatToDo() {
@@ -285,12 +480,35 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
 }
 
+@Test func quickMenuRunnerIdentityFormatsAreExactInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.quickMenuRunner("build-mac", "Ready", in: [english])
+      == "build-mac · Ready")
+  #expect(
+    L10n.quickMenuRunnerInScope(
+      "mac-mini-m4", "nest-rules-app", "Ready", in: [english])
+      == "mac-mini-m4 · nest-rules-app · Ready")
+  #expect(
+    L10n.quickMenuRunnerInScope(
+      "mac-mini-m4", "acme/standfast", "Running", in: [english])
+      == "mac-mini-m4 · acme/standfast · Running")
+  #expect(
+    L10n.quickMenuScopeWithID("acme/standfast", 123, in: [english])
+      == "acme/standfast · #123")
+  #expect(
+    L10n.quickMenuRunnerInScope(
+      "mac-mini-m4", "acme/standfast", "Ejecutando", in: [spanish])
+      == "mac-mini-m4 · acme/standfast · Ejecutando")
+}
+
 @Test func everyFormatKeepsThePlaceholdersItsCallSitePasses() throws {
   // A translation that dropped one silently erases whichever fact it stood for
   // — the job's name, how long it has been going, or what it usually takes —
   // and `String(format:)` will not say a word about it.
   let expected = [
-    "menu.fleet": 1, "menu.fleetOverflow": 2, "menu.moreRunners": 1,
     "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
     "job.rowNoDuration": 2, "state.checkedAgo": 1,
     // A banner is read out of the corner of an eye. A translation that dropped
@@ -313,12 +531,22 @@ private func speaking(_ localization: String) throws -> Bundle {
     "disk.standfastTrash": 1, "disk.logs": 1,
     "disk.measuredAgo": 1,
     "menu.runnerVersion": 1, "menu.runnerVersion.update": 2,
+    "menu.quickRunner": 2, "menu.quickRunnerScoped": 3,
+    "menu.quickRunnerScopeID": 1,
     "operation.inFlight.title": 1, "operation.inFlight.detail": 1,
     "operation.accepted.title": 1, "operation.accepted.detail": 1,
     "operation.timedOut.title": 1, "operation.timedOut.detail": 1,
     "operation.scriptMissing.title": 1, "operation.scriptMissing.detail": 1,
     "operation.couldNotLaunch.title": 1, "operation.couldNotLaunch.detail": 1,
     "operation.unexpectedFailure.title": 1, "operation.unexpectedFailure.detail": 1,
+    "operation.confirmationUnavailable.title": 1,
+    "operation.confirmationUnavailable.detail": 1,
+    "controlCenter.action.start": 1, "controlCenter.action.stop": 1,
+    "controlCenter.action.restart": 1,
+    "service.confirm.stop.title": 1, "service.confirm.restart.title": 1,
+    "service.confirm.stop.busy": 3, "service.confirm.restart.busy": 3,
+    "service.confirm.stop.uncertain": 2,
+    "service.confirm.restart.uncertain": 2,
   ]
   for language in ["en", "es"] {
     let catalogue = try catalogue(language)

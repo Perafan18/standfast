@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 617 tests, ~1s
+make test      # 623 tests, ~1s
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
@@ -70,6 +70,12 @@ If it survives, the test is decorative. Two real examples from this codebase:
 - The assertion for "discovery does not block the wrong thread pool" only checked it was
   off the main thread — which was already true and was the wrong condition. It missed the
   bug entirely.
+
+The watchdog regression deliberately stalls the global dispatch pool, so it stays out of
+the normal parallel suite. Run `Tests/Scripts/RunWatchdogRegression.sh` after changing
+`ProcessCommandRunner`, its timeout scheduler, or the dedicated blocking-thread boundary.
+The wrapper also fails when its Swift test filter matches zero tests; do not replace it
+with a bare `swift test --filter` command.
 
 ## Traps
 
@@ -146,9 +152,11 @@ satisfied by a delete that failed as well as by one that never ran, and only one
 the code working. The suite runs on machines with a real runner on them, and the difference
 between the two is one wrong string.
 
-## Packaging changes
+## Packaging and scene-lifecycle changes
 
-If you touch `Scripts/build-app.sh` or `Resources/Info.plist`, run the packaging check:
+Run the strict packaging/lifecycle check if you touch `Scripts/build-app.sh`,
+`Scripts/check-app-ax.sh`, `Resources/Info.plist`, the scenes in `App.swift`, the menu
+handlers in `QuickMenuView.swift`, or the Control Center/Settings window roots:
 
 ```sh
 make check          # swift test, then the script below

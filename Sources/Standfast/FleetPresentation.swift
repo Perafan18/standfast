@@ -1,6 +1,10 @@
 import Foundation
 import RunnerKit
 
+enum StateTone: Equatable, Sendable {
+  case healthy, active, attention, stopped, neutral
+}
+
 // Everything the menu shows, as values a test can read: one runner's state,
 // one runner's row, the notice's lines, and the single state the icon carries.
 // The views in `App.swift` render these and decide nothing.
@@ -26,6 +30,33 @@ enum DisplayState: Equatable, Sendable {
 }
 
 extension DisplayState {
+  var shortSummary: String {
+    switch self {
+    case .resolved(.idle): L10n.stateReadyShort
+    case .resolved(.busy): L10n.stateRunningShort
+    case .resolved(.disconnected): L10n.stateDisconnectedShort
+    case .resolved(.stopped): L10n.stateStoppedShort
+    case .resolved(.unknown): L10n.stateUnknownShort
+    case .starting: L10n.stateStartingShort
+    }
+  }
+
+  var tone: StateTone {
+    switch self {
+    case .resolved(.idle): .healthy
+    case .resolved(.busy), .starting: .active
+    case .resolved(.disconnected), .resolved(.unknown): .attention
+    case .resolved(.stopped): .stopped
+    }
+  }
+
+  var needsAttention: Bool {
+    switch self {
+    case .resolved(.disconnected), .resolved(.unknown): true
+    default: false
+    }
+  }
+
   /// The icon carries the state, because that is the whole point of living in
   /// the menu bar: the answer should be readable without a click.
   var symbolName: String {
@@ -233,6 +264,131 @@ extension FleetNotice {
           PathText.abbreviated($0)
         }
         + (paths.count > Self.pathsShown ? [L10n.moreUnreadable] : [])
+    }
+  }
+}
+
+/// The recovery fact discovery found, independent of whether valid runner
+/// cards were found beside it.
+enum FleetRecoveryPresentation: Equatable {
+  case launchAgentsUnavailable(directory: String)
+  case unreadableRunners(paths: [String])
+
+  static func building(_ notice: FleetNotice?) -> Self? {
+    switch notice {
+    case .launchAgentsUnreadable(let directory):
+      .launchAgentsUnavailable(directory: PathText.abbreviated(directory))
+    case .unreadable(let paths):
+      .unreadableRunners(paths: paths.map(PathText.abbreviated))
+    case nil, .noRunnersInstalled:
+      nil
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .launchAgentsUnavailable: L10n.launchAgentsUnreadable
+    case .unreadableRunners: L10n.someRunnersUnreadable
+    }
+  }
+
+  var detailLines: [String] {
+    switch self {
+    case .launchAgentsUnavailable(let directory): [directory]
+    case .unreadableRunners(let paths): paths
+    }
+  }
+
+  var quickMenuLine: String {
+    switch self {
+    case .launchAgentsUnavailable(let directory):
+      [title, directory].joined(separator: " ")
+    case .unreadableRunners(let paths):
+      [title, paths.first, paths.count > 1 ? L10n.moreUnreadable : nil]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+  }
+}
+
+/// One fleet-level truth shared by the status item, quick menu, and Control
+/// Center. Empty snapshots alone are not an answer: only a conclusive notice
+/// may turn them into "no runners" or a recovery state.
+struct FleetOverviewPresentation: Equatable {
+  enum State: Equatable {
+    case checking
+    case noRunnersInstalled
+    case unavailable
+    case fleet(DisplayState)
+  }
+
+  let state: State
+  let recovery: FleetRecoveryPresentation?
+  let attention: String?
+
+  static func building(
+    snapshots: [RunnerSnapshot], notice: FleetNotice?
+  ) -> Self {
+    let recovery = FleetRecoveryPresentation.building(notice)
+    let state: State
+    if let aggregate = FleetSummary.summarising(snapshots.map(\.display)) {
+      state = .fleet(aggregate)
+    } else if recovery != nil {
+      state = .unavailable
+    } else if notice == .noRunnersInstalled {
+      state = .noRunnersInstalled
+    } else {
+      // A nil notice is inconclusive and must not invent a clean empty result.
+      state = .checking
+    }
+    let attentionCount = snapshots.count { $0.display.needsAttention }
+    return Self(
+      state: state, recovery: recovery,
+      attention: attentionCount == 0 ? nil : L10n.runnerAttention(attentionCount))
+  }
+
+  var summary: String {
+    switch state {
+    case .checking: L10n.checkingRunners
+    case .noRunnersInstalled: L10n.noRunnersFound
+    case .unavailable: recovery?.title ?? L10n.checkingRunners
+    case .fleet(let display): display.summary
+    }
+  }
+
+  var shortSummary: String {
+    switch state {
+    case .fleet(let display): display.shortSummary
+    case .checking, .noRunnersInstalled, .unavailable: summary
+    }
+  }
+
+  var symbolName: String {
+    switch state {
+    case .checking: "arrow.triangle.2.circlepath"
+    case .noRunnersInstalled: FleetSummary.noRunnersSymbolName
+    case .unavailable: "exclamationmark.triangle"
+    case .fleet(let display): display.symbolName
+    }
+  }
+
+  var tone: StateTone {
+    switch state {
+    case .checking: .active
+    case .noRunnersInstalled: .neutral
+    case .unavailable: .attention
+    case .fleet(let display): display.tone
+    }
+  }
+
+  var quickMenuDiscoveryLine: String? {
+    switch state {
+    case .fleet:
+      recovery?.quickMenuLine
+    case .unavailable:
+      recovery?.quickMenuLine ?? summary
+    case .checking, .noRunnersInstalled:
+      summary
     }
   }
 }

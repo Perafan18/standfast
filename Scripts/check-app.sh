@@ -148,7 +148,7 @@ esac
 # build that is rejected is a real problem, and that one does fail.
 echo "==> Gatekeeper's assessment"
 assessment="$(spctl --assess --type install -vv "$APP" 2>&1 || true)"
-echo "$assessment" | sed 's/^/    /'
+printf '    %s\n' "${assessment//$'\n'/$'\n    '}"
 case "$signature" in
   *"Authority=Developer ID Application:"*)
     case "$assessment" in
@@ -163,6 +163,7 @@ for language in en es; do
   plist "CFBundleLocalizations" | grep -qx "    $language" \
     || fail "$language is not declared in CFBundleLocalizations"
 done
+"$ROOT/Scripts/check-localization-catalogues.sh" "$ROOT" "$APP"
 
 echo "==> Deleting the build tree the app was compiled in"
 rm -rf "$ROOT/.build"

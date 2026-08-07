@@ -6,9 +6,23 @@
 "controlCenter.service" = "Runner service";
 "controlCenter.openWorkflowRuns" = "Open workflow runs";
 "controlCenter.openRunnerSettings" = "Open runner settings";
+"controlCenter.attention.one" = "%lld runner needs attention";
+"controlCenter.attention" = "%lld runners need attention";
+"controlCenter.viewRuns" = "View runs";
+"controlCenter.viewSettings" = "View settings";
+"controlCenter.history.empty" = "No jobs recorded";
+"controlCenter.history.unavailable" = "Job history unavailable";
+"controlCenter.maintenance.compact" = "Not measured";
+"controlCenter.action.start" = "Start %@";
+"controlCenter.action.stop" = "Stop %@";
+"controlCenter.action.restart" = "Restart %@";
 "settings.notifications" = "Notifications";
 "settings.power" = "Power";
 "settings.startup" = "Startup";
+"settings.notifications.footer" = "Alerts use system notifications.";
+"settings.power.footer" = "Closing the lid still puts this Mac to sleep.";
+"settings.startup.footer" = "Standfast can open automatically when you log in.";
+"settings.version" = "Standfast%@";
 
 "menu.start" = "Start";
 "menu.stop" = "Stop";
@@ -16,10 +30,6 @@
 "menu.openOnGitHub" = "Open on GitHub";
 "menu.refreshNow" = "Refresh now";
 "menu.quit" = "Quit";
-"menu.fleet" = "Fleet — %@";
-"menu.fleetOverflow" = "Fleet — %@ — %@";
-"menu.moreRunners.one" = "1 more runner update";
-"menu.moreRunners" = "%@ more runner updates";
 "menu.controlCenter" = "Open Standfast";
 "menu.settings" = "Settings";
 "menu.recentJobs" = "Recent jobs";
@@ -48,6 +58,9 @@
 
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
+"menu.quickRunner" = "%@ · %@";
+"menu.quickRunnerScoped" = "%@ · %@ · %@";
+"menu.quickRunnerScopeID" = "%@ · #%lld";
 
 "disk.toolCache" = "Tool cache — %@";
 "disk.actionCache" = "Downloaded actions — %@";
@@ -66,6 +79,13 @@
 "cleanup.confirm.body" = "This frees %@ on %@.";
 "cleanup.confirm.delete" = "Delete";
 "cleanup.confirm.cancel" = "Cancel";
+"service.confirm.stop.title" = "Stop %@?";
+"service.confirm.restart.title" = "Restart %@?";
+"service.confirm.stop.busy" = "%@ in %@ is running “%@”. Stopping it interrupts this job.";
+"service.confirm.restart.busy" = "%@ in %@ is running “%@”. Restarting interrupts this job. If Start fails after Stop, the runner can remain stopped.";
+"service.confirm.stop.uncertain" = "%@ in %@ may have work in progress. Stopping it can interrupt that work.";
+"service.confirm.restart.uncertain" = "%@ in %@ may have work in progress. Restarting can interrupt that work. If Start fails after Stop, the runner can remain stopped.";
+"service.confirm.cancel" = "Cancel";
 "cleanup.toolCache.effect" = "The tool cache holds the toolchains that setup steps downloaded. The next job that needs one downloads it again.";
 "cleanup.actionCache.effect" = "These are the actions your workflows use, checked out here. The runner fetches back any it cannot find.";
 "cleanup.standfastTrash.title" = "Delete Standfast cleanup leftovers from %@?";
@@ -79,6 +99,7 @@
 "cleanup.partiallyFailed" = "Some files may have been deleted, but cleanup did not finish; check that %@ is writable";
 
 "state.noRunners" = "No runners installed on this Mac";
+"state.checking" = "Checking runners";
 "state.launchAgentsUnreadable" = "The LaunchAgents directory could not be read:";
 "state.unreadable" = "Some runner files could not be read:";
 "state.unreadable.more" = "…and more";
@@ -88,6 +109,12 @@
 "state.disconnected" = "Running locally, but GitHub cannot see it";
 "state.stopped" = "Stopped";
 "state.starting" = "Starting — waiting for GitHub to see it";
+"state.short.ready" = "Ready";
+"state.short.running" = "Running";
+"state.short.disconnected" = "Disconnected";
+"state.short.stopped" = "Stopped";
+"state.short.starting" = "Starting";
+"state.short.unknown" = "Unknown";
 
 "state.unknown.noCLI" = "Unknown — install the GitHub CLI (gh)";
 "state.unknown.notAuthenticated" = "Unknown — run gh auth login in a terminal";
@@ -120,6 +147,8 @@
 "operation.couldNotLaunch.detail" = "Check the runner directory, then try %@ again.";
 "operation.unexpectedFailure.title" = "%@ request failed";
 "operation.unexpectedFailure.detail" = "Check the runner files, then try %@ again.";
+"operation.confirmationUnavailable.title" = "%@ confirmation unavailable";
+"operation.confirmationUnavailable.detail" = "Open the Standfast Control Center, then try %@ again.";
 "operation.restartStartFailed.title" = "Restart stopped the runner, but could not start it";
 "operation.restartStartFailed.detail" = "Check the runner files, then try Start.";
 "operation.restartStartTimedOut.title" = "Restart stopped the runner, but start timed out";

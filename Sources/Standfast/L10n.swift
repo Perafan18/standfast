@@ -17,6 +17,15 @@ enum L10n {
   static let settingsNotifications = t("settings.notifications")
   static let settingsPower = t("settings.power")
   static let settingsStartup = t("settings.startup")
+  static let settingsNotificationsFooter = t("settings.notifications.footer")
+  static let settingsPowerFooter = t("settings.power.footer")
+  static let settingsStartupFooter = t("settings.startup.footer")
+
+  static func settingsVersion(
+    _ suffix: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("settings.version", in: bundles), suffix)
+  }
 
   static let start = t("menu.start")
   static let stop = t("menu.stop")
@@ -63,6 +72,7 @@ enum L10n {
   static let cleanupStandfastTrashEffect = t("cleanup.standfastTrash.effect")
 
   static let noRunnersFound = t("state.noRunners")
+  static let checkingRunners = t("state.checking")
   static let launchAgentsUnreadable = t("state.launchAgentsUnreadable")
   static let someRunnersUnreadable = t("state.unreadable")
   static let moreUnreadable = t("state.unreadable.more")
@@ -72,6 +82,57 @@ enum L10n {
   static let stateDisconnected = t("state.disconnected")
   static let stateStopped = t("state.stopped")
   static let stateStarting = t("state.starting")
+  static let stateReadyShort = t("state.short.ready")
+  static let stateRunningShort = t("state.short.running")
+  static let stateDisconnectedShort = t("state.short.disconnected")
+  static let stateStoppedShort = t("state.short.stopped")
+  static let stateStartingShort = t("state.short.starting")
+  static let stateUnknownShort = t("state.short.unknown")
+
+  static func runnerAttention(
+    _ count: Int, in bundles: [Bundle]? = nil
+  ) -> String {
+    let key = count == 1 ? "controlCenter.attention.one" : "controlCenter.attention"
+    return String(format: t(key, in: bundles), Int64(count))
+  }
+
+  static func viewRuns(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.viewRuns", in: bundles)
+  }
+
+  static func viewSettings(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.viewSettings", in: bundles)
+  }
+
+  static func historyEmpty(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.history.empty", in: bundles)
+  }
+
+  static func historyUnavailable(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.history.unavailable", in: bundles)
+  }
+
+  static func maintenanceCompact(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.maintenance.compact", in: bundles)
+  }
+
+  static func startRunner(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("controlCenter.action.start", in: bundles), runner)
+  }
+
+  static func stopRunner(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("controlCenter.action.stop", in: bundles), runner)
+  }
+
+  static func restartRunner(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("controlCenter.action.restart", in: bundles), runner)
+  }
 
   // One line per `UnknownReason`, because each one has a different next step
   // and "unknown" on its own has none. This is the likeliest thing a new user
@@ -110,6 +171,52 @@ enum L10n {
   static func serviceOperationInFlightTitle(_ action: String) -> String {
     String(format: t("operation.inFlight.title"), action)
   }
+
+  static func serviceConfirmStopTitle(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("service.confirm.stop.title", in: bundles), runner)
+  }
+
+  static func serviceConfirmRestartTitle(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("service.confirm.restart.title", in: bundles), runner)
+  }
+
+  static func serviceConfirmStopBusy(
+    _ runner: String, _ scope: String, _ job: String,
+    in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.stop.busy", in: bundles), runner, scope, job)
+  }
+
+  static func serviceConfirmRestartBusy(
+    _ runner: String, _ scope: String, _ job: String,
+    in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.restart.busy", in: bundles), runner, scope, job)
+  }
+
+  static func serviceConfirmStopUncertain(
+    _ runner: String, _ scope: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.stop.uncertain", in: bundles), runner, scope)
+  }
+
+  static func serviceConfirmRestartUncertain(
+    _ runner: String, _ scope: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.restart.uncertain", in: bundles), runner, scope)
+  }
+
+  static func serviceConfirmCancel(in bundles: [Bundle]? = nil) -> String {
+    t("service.confirm.cancel", in: bundles)
+  }
   static func serviceOperationInFlightDetail(_ action: String) -> String {
     String(format: t("operation.inFlight.detail"), action)
   }
@@ -143,6 +250,18 @@ enum L10n {
   static func serviceOperationUnexpectedFailureDetail(_ action: String) -> String {
     String(format: t("operation.unexpectedFailure.detail"), action)
   }
+  static func serviceOperationConfirmationUnavailableTitle(
+    _ action: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("operation.confirmationUnavailable.title", in: bundles), action)
+  }
+  static func serviceOperationConfirmationUnavailableDetail(
+    _ action: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("operation.confirmationUnavailable.detail", in: bundles), action)
+  }
   static let serviceOperationRestartStartFailedTitle = t(
     "operation.restartStartFailed.title")
   static let serviceOperationRestartStartFailedDetail = t(
@@ -158,23 +277,23 @@ enum L10n {
     String(format: t("menu.runnerRow"), name, state)
   }
 
-  static func quickMenuFleet(
-    _ state: String, overflowCount: Int = 0,
-    in bundles: [Bundle] = L10n.bundles
+  static func quickMenuRunner(
+    _ name: String, _ state: String, in bundles: [Bundle]? = nil
   ) -> String {
-    guard overflowCount > 0 else {
-      return String(format: t("menu.fleet", in: bundles), state)
-    }
-    return String(
-      format: t("menu.fleetOverflow", in: bundles), state,
-      quickMenuMoreRunners(overflowCount, in: bundles))
+    String(format: t("menu.quickRunner", in: bundles), name, state)
   }
 
-  static func quickMenuMoreRunners(
-    _ count: Int, in bundles: [Bundle] = L10n.bundles
+  static func quickMenuRunnerInScope(
+    _ name: String, _ scope: String, _ state: String,
+    in bundles: [Bundle]? = nil
   ) -> String {
-    guard count != 1 else { return t("menu.moreRunners.one", in: bundles) }
-    return String(format: t("menu.moreRunners", in: bundles), String(count))
+    String(format: t("menu.quickRunnerScoped", in: bundles), name, scope, state)
+  }
+
+  static func quickMenuScopeWithID(
+    _ scope: String, _ id: Int, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("menu.quickRunnerScopeID", in: bundles), scope, Int64(id))
   }
 
   /// The job in flight and how long it has been going.
@@ -323,7 +442,7 @@ enum L10n {
   }
 
   static func cleanupLogsTitle(
-    _ count: Int, _ path: String, in bundles: [Bundle] = L10n.bundles
+    _ count: Int, _ path: String, in bundles: [Bundle]? = nil
   ) -> String {
     if count == 1 {
       return String(format: t("cleanup.logs.title.one", in: bundles), count, path)
@@ -332,7 +451,7 @@ enum L10n {
   }
 
   static func cleanupLogsEffect(
-    _ count: Int, in bundles: [Bundle] = L10n.bundles
+    _ count: Int, in bundles: [Bundle]? = nil
   ) -> String {
     let key = count == 1 ? "cleanup.logs.effect.one" : "cleanup.logs.effect"
     return String(format: t(key, in: bundles), count)
@@ -378,19 +497,30 @@ enum L10n {
     "controlCenter.service": "Runner service",
     "controlCenter.openWorkflowRuns": "Open workflow runs",
     "controlCenter.openRunnerSettings": "Open runner settings",
+    "controlCenter.attention.one": "%lld runner needs attention",
+    "controlCenter.attention": "%lld runners need attention",
+    "controlCenter.viewRuns": "View runs",
+    "controlCenter.viewSettings": "View settings",
+    "controlCenter.history.empty": "No jobs recorded",
+    "controlCenter.history.unavailable": "Job history unavailable",
+    "controlCenter.maintenance.compact": "Not measured",
+    "controlCenter.action.start": "Start %@",
+    "controlCenter.action.stop": "Stop %@",
+    "controlCenter.action.restart": "Restart %@",
     "settings.notifications": "Notifications",
     "settings.power": "Power",
     "settings.startup": "Startup",
+    "settings.notifications.footer": "Alerts use system notifications.",
+    "settings.power.footer": "Closing the lid still puts this Mac to sleep.",
+    "settings.startup.footer":
+      "Standfast can open automatically when you log in.",
+    "settings.version": "Standfast%@",
     "menu.start": "Start",
     "menu.stop": "Stop",
     "menu.restart": "Restart",
     "menu.openOnGitHub": "Open on GitHub",
     "menu.refreshNow": "Refresh now",
     "menu.quit": "Quit",
-    "menu.fleet": "Fleet — %@",
-    "menu.fleetOverflow": "Fleet — %@ — %@",
-    "menu.moreRunners.one": "1 more runner update",
-    "menu.moreRunners": "%@ more runner updates",
     "menu.controlCenter": "Open Standfast",
     "menu.settings": "Settings",
     "menu.recentJobs": "Recent jobs",
@@ -422,6 +552,9 @@ enum L10n {
     "menu.runnerVersion.update": "Runner %@ — %@ is available",
     "menu.runnerRow": "%@ — %@",
     "menu.runnerInScope": "%@ (%@)",
+    "menu.quickRunner": "%@ · %@",
+    "menu.quickRunnerScoped": "%@ · %@ · %@",
+    "menu.quickRunnerScopeID": "%@ · #%lld",
     "disk.toolCache": "Tool cache — %@",
     "disk.actionCache": "Downloaded actions — %@",
     "disk.checkout": "Repository checkouts — %@",
@@ -438,6 +571,19 @@ enum L10n {
     "cleanup.confirm.body": "This frees %@ on %@.",
     "cleanup.confirm.delete": "Delete",
     "cleanup.confirm.cancel": "Cancel",
+    "service.confirm.stop.title": "Stop %@?",
+    "service.confirm.restart.title": "Restart %@?",
+    "service.confirm.stop.busy":
+      "%@ in %@ is running “%@”. Stopping it interrupts this job.",
+    "service.confirm.restart.busy":
+      "%@ in %@ is running “%@”. Restarting interrupts this job. "
+      + "If Start fails after Stop, the runner can remain stopped.",
+    "service.confirm.stop.uncertain":
+      "%@ in %@ may have work in progress. Stopping it can interrupt that work.",
+    "service.confirm.restart.uncertain":
+      "%@ in %@ may have work in progress. Restarting can interrupt that work. "
+      + "If Start fails after Stop, the runner can remain stopped.",
+    "service.confirm.cancel": "Cancel",
     "cleanup.toolCache.effect":
       "The tool cache holds the toolchains that setup steps downloaded. "
       + "The next job that needs one downloads it again.",
@@ -466,6 +612,7 @@ enum L10n {
     "cleanup.partiallyFailed":
       "Some files may have been deleted, but cleanup did not finish; check that %@ is writable",
     "state.noRunners": "No runners installed on this Mac",
+    "state.checking": "Checking runners",
     "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",
@@ -474,6 +621,12 @@ enum L10n {
     "state.disconnected": "Running locally, but GitHub cannot see it",
     "state.stopped": "Stopped",
     "state.starting": "Starting — waiting for GitHub to see it",
+    "state.short.ready": "Ready",
+    "state.short.running": "Running",
+    "state.short.disconnected": "Disconnected",
+    "state.short.stopped": "Stopped",
+    "state.short.starting": "Starting",
+    "state.short.unknown": "Unknown",
     "state.unknown.noCLI": "Unknown — install the GitHub CLI (gh)",
     "state.unknown.notAuthenticated": "Unknown — run gh auth login in a terminal",
     "state.unknown.noAnswer": "Unknown — gh got no answer; check your network",
@@ -503,6 +656,9 @@ enum L10n {
     "operation.couldNotLaunch.detail": "Check the runner directory, then try %@ again.",
     "operation.unexpectedFailure.title": "%@ request failed",
     "operation.unexpectedFailure.detail": "Check the runner files, then try %@ again.",
+    "operation.confirmationUnavailable.title": "%@ confirmation unavailable",
+    "operation.confirmationUnavailable.detail":
+      "Open the Standfast Control Center, then try %@ again.",
     "operation.restartStartFailed.title":
       "Restart stopped the runner, but could not start it",
     "operation.restartStartFailed.detail": "Check the runner files, then try Start.",
@@ -526,7 +682,8 @@ enum L10n {
     "duration.seconds": "%ds",
   ]
 
-  /// Looks the key up in the catalogues, and falls back to the English above.
+  /// Looks the key up in one complete language pack, and falls back to the
+  /// complete English table above.
   ///
   /// The fallback is not defensive padding: this app is assembled into its
   /// `.app` by a shell script, so the catalogues arriving in the wrong place —
@@ -534,20 +691,34 @@ enum L10n {
   /// to cost the user an untranslated menu, and never a blank one, a menu full
   /// of dotted keys, or a crash.
   ///
-  /// - Parameter bundles: where to look. Only a test passes this, and it is
-  ///   the one way to ask what the menu says with no catalogue whatsoever.
-  static func t(_ key: String, in bundles: [Bundle] = L10n.bundles) -> String {
-    for bundle in bundles {
-      // A sentinel rather than the key: `localizedString` echoes the key back
-      // when the lookup misses *and* when a catalogue genuinely maps the key
-      // to itself, and those need telling apart.
-      let found = bundle.localizedString(forKey: key, value: missing, table: nil)
-      if found != missing { return found }
-    }
-    return english[key] ?? key
+  /// A language is atomic here: lookups never fill holes in one `.lproj` from
+  /// a second bundle that may have negotiated a different language. A damaged
+  /// package therefore degrades wholly to built-in English instead of drawing
+  /// English actions beside Spanish state copy.
+  ///
+  /// - Parameter bundles: where to look. Only tests pass this; nil uses the one
+  ///   production pack selected at launch, while an empty array asks for the
+  ///   no-catalogue fallback explicitly.
+  static func t(_ key: String, in bundles: [Bundle]? = nil) -> String {
+    let catalogue = bundles.map(completeCatalogue(in:)) ?? activeCatalogue
+    return catalogue?[key] ?? english[key] ?? key
   }
 
-  private static let missing = "\u{0}no such key"
+  private static let activeCatalogue = completeCatalogue(in: bundles)
+
+  private static func completeCatalogue(in bundles: [Bundle]) -> [String: String]? {
+    bundles.lazy.compactMap(completeCatalogue(in:)).first
+  }
+
+  private static func completeCatalogue(in bundle: Bundle) -> [String: String]? {
+    guard
+      let path = bundle.path(forResource: "Localizable", ofType: "strings"),
+      let catalogue = NSDictionary(contentsOfFile: path) as? [String: String],
+      Set(catalogue.keys) == Set(english.keys),
+      catalogue.allSatisfy({ $0.key != $0.value })
+    else { return nil }
+    return catalogue
+  }
 
   /// SwiftPM's resource bundle, found by looking rather than by asking.
   ///

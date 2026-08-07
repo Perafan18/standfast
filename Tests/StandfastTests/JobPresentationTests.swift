@@ -171,6 +171,84 @@ private func snapshot(
   #expect(!line.contains("("))
 }
 
+@Test func aJobRowKeepsOutcomeDurationAndTimeAsSeparateValues() {
+  let startedAt = noon.addingTimeInterval(-3_600)
+  let finishedAt = startedAt.addingTimeInterval(167)
+  let subject = JobRow.building(
+    JobRecord(
+      name: "testflight", startedAt: startedAt, finishedAt: finishedAt,
+      result: .succeeded))
+
+  #expect(subject.id == JobRow.ID(startedAt: startedAt, occurrence: 0))
+  #expect(subject.name == "testflight")
+  #expect(subject.startedAt == startedAt)
+  #expect(subject.finishedAt == finishedAt)
+  #expect(subject.duration == "2m 47s")
+  #expect(subject.outcome.label == L10n.jobSucceeded)
+  #expect(subject.outcome.symbolName == "checkmark.circle.fill")
+  #expect(subject.outcome.tone == .healthy)
+}
+
+@Test func sameSecondJobRowsReceiveUniqueDeterministicOccurrences() {
+  let startedAt = noon.addingTimeInterval(-3_600)
+  let records = [
+    JobRecord(
+      name: "first", startedAt: startedAt,
+      finishedAt: startedAt.addingTimeInterval(10), result: .succeeded),
+    JobRecord(
+      name: "second", startedAt: startedAt,
+      finishedAt: startedAt.addingTimeInterval(20), result: .failed),
+  ]
+
+  let firstBuild = JobRow.building(records)
+  let secondBuild = JobRow.building(records)
+
+  #expect(firstBuild.map(\.id) == secondBuild.map(\.id))
+  #expect(Set(firstBuild.map(\.id)).count == 2)
+  #expect(firstBuild.map(\.id.occurrence) == [0, 1])
+  #expect(
+    firstBuild.map(\.text) == [
+      L10n.jobRow("first", L10n.jobSucceeded, "10s"),
+      L10n.jobRow("second", L10n.jobFailed, "20s"),
+    ])
+}
+
+@Test func unrelatedNewerJobsDoNotRenumberExistingRows() {
+  let sharedStart = noon.addingTimeInterval(-3_600)
+  let sameSecond = [
+    JobRecord(name: "first", startedAt: sharedStart, result: .succeeded),
+    JobRecord(name: "second", startedAt: sharedStart, result: .failed),
+  ]
+  let before = JobRow.building(sameSecond)
+  let unrelated = JobRecord(
+    name: "newer", startedAt: sharedStart.addingTimeInterval(60), result: .canceled)
+
+  let after = JobRow.building([unrelated] + sameSecond)
+
+  #expect(Array(after.dropFirst()).map(\.id) == before.map(\.id))
+}
+
+@Test func everyJobOutcomeKeepsItsOwnSemanticPresentation() {
+  let outcomes = [
+    JobRow.building(record("ok", ago: 60, lasting: 10, .succeeded)).outcome,
+    JobRow.building(record("bad", ago: 60, lasting: 10, .failed)).outcome,
+    JobRow.building(record("cancel", ago: 60, lasting: 10, .canceled)).outcome,
+    JobRow.building(record("lost", ago: 60, lasting: nil)).outcome,
+    JobRow.building(record("new", ago: 60, lasting: 10, .other("Skipped"))).outcome,
+  ]
+
+  #expect(
+    outcomes.map(\.label) == [
+      L10n.jobSucceeded, L10n.jobFailed, L10n.jobCanceled, L10n.jobInterrupted,
+      "Skipped",
+    ])
+  #expect(
+    outcomes.map(\.tone) == [
+      .healthy, .attention, .neutral, .attention, .neutral,
+    ])
+  #expect(!outcomes.contains { $0.symbolName.isEmpty })
+}
+
 // MARK: - How much of it the menu shows
 
 @Test func theHistoryStopsAtAHandfulOfRows() {

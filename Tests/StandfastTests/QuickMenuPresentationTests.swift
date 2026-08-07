@@ -6,27 +6,36 @@ import Testing
 
 private let quickMenuNow = Date(timeIntervalSince1970: 1_785_962_174)
 
-private func quickRunner(_ name: String) -> DiscoveredRunner {
+private func quickRunner(
+  _ name: String, scope: RunnerScope = .repository(owner: "acme", name: "widget"),
+  label: String? = nil, agentId: Int = 7
+) -> DiscoveredRunner {
   DiscoveredRunner(
-    label: "actions.runner.acme-widget.\(name)",
-    directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: 7,
-    agentName: name, scope: .repository(owner: "acme", name: "widget"))
+    label: label ?? "actions.runner.test.\(name)",
+    directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: agentId,
+    agentName: name, scope: scope)
 }
 
 private func quickSnapshot(
-  _ name: String, _ display: DisplayState, jobs: JobHistory = .empty,
+  _ name: String, _ display: DisplayState, scope: RunnerScope? = nil,
+  label: String? = nil, agentId: Int = 7, jobs: JobHistory = .empty,
   operation: ServiceOperation? = nil, isServiceActionReserved: Bool = false
 ) -> RunnerSnapshot {
   RunnerSnapshot(
-    runner: quickRunner(name), display: display, jobs: jobs, readAt: quickMenuNow,
+    runner: quickRunner(
+      name, scope: scope ?? .repository(owner: "acme", name: "widget"),
+      label: label, agentId: agentId),
+    display: display, jobs: jobs, readAt: quickMenuNow,
     isServiceActionReserved: isServiceActionReserved, operation: operation)
 }
 
 private func quickMenu(
   _ snapshots: [RunnerSnapshot], notice: FleetNotice? = nil, thermal: [String] = []
 ) -> QuickMenuPresentation {
-  QuickMenuPresentation.building(
-    snapshots: snapshots, notice: notice, thermalLines: thermal,
+  let overview = FleetOverviewPresentation.building(
+    snapshots: snapshots, notice: notice)
+  return QuickMenuPresentation.building(
+    snapshots: snapshots, overview: overview, thermalLines: thermal,
     readAt: nil, now: quickMenuNow)
 }
 
@@ -46,188 +55,278 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
   }
 }
 
-// MARK: - Runner echoes
+// MARK: - Stable runner identity
 
-@Test func anEmptyFleetCollapsesToItsAggregateAndFixedRows() {
-  // Removing the aggregate row would make an empty menu look like a loading
-  // failure rather than the true "nothing installed" state.
-  let menu = quickMenu([])
+@Test func oneRunnerUsesItsOwnNameAndShortState() {
+  let menu = quickMenu([quickSnapshot("build-mac", .resolved(.idle))])
 
   #expect(
-    menu.items == [
-      .fleet(L10n.quickMenuFleet(L10n.noRunnersFound)),
-      .freshness(L10n.checkedNever),
-      .refresh, .openControlCenter, .openSettings, .quit,
-    ])
+    echoes(in: menu).map(\.title)
+      == ["build-mac · \(L10n.stateReadyShort)"])
 }
 
-@Test func aHealthyIdleRunnerStaysInTheAggregate() {
-  // Treating ordinary idle as an echo turns every quiet multi-runner Mac into
-  // the long menu this projection exists to prevent.
-  let menu = quickMenu([quickSnapshot("idle", .resolved(.idle))])
-
-  #expect(echoes(in: menu).isEmpty)
-  #expect(menu.items.first == .fleet(L10n.quickMenuFleet(L10n.stateIdle)))
-}
-
-@Test func aBusyRunnerGetsOneProgressEcho() {
-  // Dropping busy runners would hide the one job somebody opened the menu to
-  // check; the running job is the observable reason the echo appears.
-  let job = JobRecord(name: "testflight", startedAt: quickMenuNow.addingTimeInterval(-80))
+@Test func duplicateRunnerNamesUseUniqueShortRepositoryNames() {
   let menu = quickMenu([
     quickSnapshot(
-      "busy", .resolved(.busy), jobs: JobHistory(records: [job], running: job))
-  ])
-
-  let busyEchoes = echoes(in: menu)
-  #expect(busyEchoes.count == 1)
-  let echo = busyEchoes[0]
-  #expect(echo.id == "actions.runner.acme-widget.busy")
-  #expect(echo.title == L10n.runnerRow("busy", L10n.stateBusy))
-  #expect(echo.progress?.contains("testflight") == true)
-  #expect(!echo.canStart)
-}
-
-@Test func stoppedAndDisconnectedRunnersEchoButOnlyStoppedCanStart() {
-  // A broad canStart flag would offer Start while a disconnected service is
-  // already running, which is a destructive duplicate operation.
-  let menu = quickMenu([
-    quickSnapshot("stopped", .resolved(.stopped)),
-    quickSnapshot("offline", .resolved(.disconnected)),
+      "mac-mini-m4", .resolved(.idle),
+      scope: .repository(owner: "acme", name: "widget")),
+    quickSnapshot(
+      "mac-mini-m4", .resolved(.stopped),
+      scope: .repository(owner: "acme", name: "gadget")),
   ])
 
   #expect(
-    echoes(in: menu).map(\.id) == [
-      "actions.runner.acme-widget.stopped", "actions.runner.acme-widget.offline",
+    echoes(in: menu).map(\.title) == [
+      "mac-mini-m4 · widget · \(L10n.stateReadyShort)",
+      "mac-mini-m4 · gadget · \(L10n.stateStoppedShort)",
     ])
-  #expect(echoes(in: menu).map(\.canStart) == [true, false])
 }
 
-@Test func unknownStartingAndOperationOutcomesRemainVisible() {
-  // Losing an operation outcome after the command returns turns the feedback
-  // into a silent action; starting must remain visible until GitHub confirms it.
-  let operation = ServiceOperation(
-    action: .start, phase: .requestAccepted, changedAt: quickMenuNow)
+@Test func sameRepositorySlugUnderDifferentOwnersUsesFullScopes() {
   let menu = quickMenu([
+    quickSnapshot(
+      "mac-mini-m4", .resolved(.idle),
+      scope: .repository(owner: "acme", name: "app")),
+    quickSnapshot(
+      "mac-mini-m4", .resolved(.stopped),
+      scope: .repository(owner: "other", name: "app")),
+  ])
+
+  #expect(
+    echoes(in: menu).map(\.title) == [
+      "mac-mini-m4 · acme/app · \(L10n.stateReadyShort)",
+      "mac-mini-m4 · other/app · \(L10n.stateStoppedShort)",
+    ])
+}
+
+@Test func organizationAndEnterpriseCollisionsUseTheirFullScopes() {
+  let menu = quickMenu([
+    quickSnapshot(
+      "mac-mini-m4", .resolved(.idle), scope: .organization("acme-org")),
+    quickSnapshot(
+      "mac-mini-m4", .resolved(.stopped), scope: .enterprise("acme-enterprise")),
+  ])
+
+  #expect(
+    echoes(in: menu).map(\.title) == [
+      "mac-mini-m4 · acme-org · \(L10n.stateReadyShort)",
+      "mac-mini-m4 · acme-enterprise · \(L10n.stateStoppedShort)",
+    ])
+}
+
+@Test func qualifiedRunnersUseTheScopedPresentationFormatter() {
+  let formatting = QuickMenuPresentation.RunnerIdentityFormatting(
+    runner: { name, state in "two<\(name)|\(state)>" },
+    runnerInScope: { name, scope, state in
+      "three<\(name)|\(scope)|\(state)>"
+    },
+    scopeWithID: { scope, id in "identity<\(scope)|\(id)>" })
+  let snapshots = [
+    quickSnapshot("solo", .resolved(.idle)),
+    quickSnapshot(
+      "build", .resolved(.idle),
+      scope: .repository(owner: "acme", name: "widget")),
+    quickSnapshot(
+      "build", .resolved(.stopped),
+      scope: .repository(owner: "acme", name: "gadget")),
+  ]
+  let menu = QuickMenuPresentation.building(
+    snapshots: snapshots,
+    overview: .building(snapshots: snapshots, notice: nil),
+    thermalLines: [], readAt: nil, now: quickMenuNow,
+    identityFormatting: formatting)
+
+  #expect(
+    echoes(in: menu).map(\.title) == [
+      "two<solo|\(L10n.stateReadyShort)>",
+      "three<build|widget|\(L10n.stateReadyShort)>",
+      "three<build|gadget|\(L10n.stateStoppedShort)>",
+    ])
+}
+
+@Test func aRepeatedFullScopeUsesTheStableGitHubRunnerID() {
+  let first = quickSnapshot(
+    "mac-mini-m4", .resolved(.idle),
+    scope: .repository(owner: "acme", name: "widget"),
+    label: "actions.runner.acme-widget.first", agentId: 123)
+  let second = quickSnapshot(
+    "mac-mini-m4", .resolved(.idle),
+    scope: .repository(owner: "acme", name: "widget"),
+    label: "actions.runner.acme-widget.second", agentId: 456)
+
+  #expect(
+    echoes(in: quickMenu([first, second])).map(\.title) == [
+      "mac-mini-m4 · acme/widget · #123 · \(L10n.stateReadyShort)",
+      "mac-mini-m4 · acme/widget · #456 · \(L10n.stateReadyShort)",
+    ])
+}
+
+@Test func corruptRepeatedGitHubIDsUseStableDiscoveryOrdinals() {
+  let first = quickSnapshot(
+    "mac-mini-m4", .resolved(.idle),
+    scope: .repository(owner: "acme", name: "widget"),
+    label: "actions.runner.acme-widget.first", agentId: 123)
+  let second = quickSnapshot(
+    "mac-mini-m4", .resolved(.idle),
+    scope: .repository(owner: "acme", name: "widget"),
+    label: "actions.runner.acme-widget.second", agentId: 123)
+
+  #expect(
+    echoes(in: quickMenu([first, second])).map(\.title) == [
+      "mac-mini-m4 · acme/widget · #1 · \(L10n.stateReadyShort)",
+      "mac-mini-m4 · acme/widget · #2 · \(L10n.stateReadyShort)",
+    ])
+}
+
+@Test func delimiterContainingNamesStayDistinctWhenStatesConverge() {
+  let separatedStates = [
+    quickSnapshot(
+      "build · widget", .resolved(.idle),
+      label: "actions.runner.test.delimited", agentId: 101),
+    quickSnapshot(
+      "build", .resolved(.stopped),
+      scope: .repository(owner: "acme", name: "widget"),
+      label: "actions.runner.test.widget", agentId: 102),
+    quickSnapshot(
+      "build", .resolved(.busy),
+      scope: .repository(owner: "acme", name: "gadget"),
+      label: "actions.runner.test.gadget", agentId: 103),
+  ]
+  let convergedStates = [
+    quickSnapshot(
+      "build · widget", .resolved(.idle),
+      label: "actions.runner.test.delimited", agentId: 101),
+    quickSnapshot(
+      "build", .resolved(.idle),
+      scope: .repository(owner: "acme", name: "widget"),
+      label: "actions.runner.test.widget", agentId: 102),
+    quickSnapshot(
+      "build", .resolved(.busy),
+      scope: .repository(owner: "acme", name: "gadget"),
+      label: "actions.runner.test.gadget", agentId: 103),
+  ]
+
+  #expect(
+    echoes(in: quickMenu(separatedStates)).map(\.title) == [
+      "build · widget · #101 · \(L10n.stateReadyShort)",
+      "build · widget · #102 · \(L10n.stateStoppedShort)",
+      "build · gadget · \(L10n.stateRunningShort)",
+    ])
+  #expect(
+    echoes(in: quickMenu(convergedStates)).map(\.title) == [
+      "build · widget · #101 · \(L10n.stateReadyShort)",
+      "build · widget · #102 · \(L10n.stateReadyShort)",
+      "build · gadget · \(L10n.stateRunningShort)",
+    ])
+}
+
+@Test func everyRunnerRemainsVisibleInDiscoveryOrderAcrossStates() {
+  let snapshots = [
+    quickSnapshot("ready", .resolved(.idle)),
+    quickSnapshot("starting", .starting),
+    quickSnapshot("stopped", .resolved(.stopped)),
+    quickSnapshot("running", .resolved(.busy)),
+    quickSnapshot("offline", .resolved(.disconnected)),
     quickSnapshot("unknown", .resolved(.unknown(.noAnswer))),
-    quickSnapshot("starting", .starting),
-    quickSnapshot("operation", .resolved(.idle), operation: operation),
-  ])
+  ]
 
   #expect(
-    echoes(in: menu).map(\.id) == [
-      "actions.runner.acme-widget.unknown", "actions.runner.acme-widget.operation",
-      "actions.runner.acme-widget.starting",
+    echoes(in: quickMenu(snapshots)).map(\.id) == [
+      "actions.runner.test.ready",
+      "actions.runner.test.starting",
+      "actions.runner.test.stopped",
+      "actions.runner.test.running",
+      "actions.runner.test.offline",
+      "actions.runner.test.unknown",
     ])
-  #expect(echoes(in: menu)[1].operation == operation.presentation)
 }
 
-@Test func anOperationOutcomeOutranksAnOtherwiseStartingRunner() {
-  // An operation is actionable feedback, unlike ordinary settling. Leaving it
-  // behind starting would hide the command result under a transient state.
+@Test func quickMenuHasNoAggregateFleetItem() {
+  let menu = quickMenu([quickSnapshot("ready", .resolved(.idle))])
+
+  guard case .runner(let runner) = menu.items.first else {
+    Issue.record("the discovered runner was not the first menu item")
+    return
+  }
+  #expect(runner.id == "actions.runner.test.ready")
+}
+
+// MARK: - Runner submenu content
+
+@Test func everyRunnerIsEmittedAsASubmenuEvenWhenIdle() {
+  let menu = quickMenu([quickSnapshot("ready", .resolved(.idle))])
+  let echo = echoes(in: menu).first
+
+  #expect(echo?.longState == L10n.stateIdle)
+  #expect(
+    menu.emission.elements.contains {
+      if case .runnerMenu = $0 { return true }
+      return false
+    })
+  #expect(menu.emission.elements.count == 6)
+}
+
+@Test func runnerSubmenuPreservesProgressOperationAndContextualStart() throws {
+  let job = JobRecord(name: "testflight", startedAt: quickMenuNow.addingTimeInterval(-80))
   let operation = ServiceOperation(
     action: .start, phase: .requestAccepted, changedAt: quickMenuNow)
   let menu = quickMenu([
-    quickSnapshot("starting", .starting, operation: operation),
-    quickSnapshot("busy", .resolved(.busy)),
-  ])
-
-  #expect(
-    echoes(in: menu).map(\.id) == [
-      "actions.runner.acme-widget.starting", "actions.runner.acme-widget.busy",
-    ])
-}
-
-@Test func threeRunnerBudgetKeepsAttentionBeforeWorkAndStarting() {
-  // Sorting by name or input alone would let an ordinary active job hide a
-  // disconnected runner, which is exactly the triage information this menu
-  // is meant to surface.
-  let operation = ServiceOperation(
-    action: .stop, phase: .requestAccepted, changedAt: quickMenuNow)
-  let menu = quickMenu([
-    quickSnapshot("starting", .starting),
-    quickSnapshot("busy", .resolved(.busy)),
+    quickSnapshot(
+      "busy", .resolved(.busy),
+      jobs: JobHistory(records: [job], running: job), operation: operation),
     quickSnapshot("stopped", .resolved(.stopped)),
-    quickSnapshot("unknown", .resolved(.unknown(.cliUnavailable))),
-    quickSnapshot("offline", .resolved(.disconnected)),
-    quickSnapshot("operation", .resolved(.idle), operation: operation),
+    quickSnapshot(
+      "reserved", .resolved(.stopped), isServiceActionReserved: true),
   ])
 
+  let runnerEchoes = echoes(in: menu)
+  #expect(runnerEchoes.count == 3)
+  #expect(runnerEchoes[0].progress?.contains("testflight") == true)
+  #expect(runnerEchoes[0].operation == operation.presentation)
+  #expect(runnerEchoes.map(\.canStart) == [false, true, false])
   #expect(
-    echoes(in: menu).map(\.id) == [
-      "actions.runner.acme-widget.stopped", "actions.runner.acme-widget.unknown",
-      "actions.runner.acme-widget.offline",
-    ])
-  guard case .fleet(let fleetLine) = menu.items.first else {
-    Issue.record("The fixed fleet row is missing")
-    return
-  }
-  #expect(fleetLine.contains(L10n.quickMenuMoreRunners(3)))
-  #expect(fleetLine != L10n.quickMenuMoreRunners(3))
-}
-
-@Test func oneBusyOverflowKeepsTheBusyAggregateAndUsesNeutralSingularCopy() {
-  // Replacing the aggregate with overflow copy labels an ordinary fourth busy
-  // runner as needing attention and hides the state carried by the fleet icon.
-  let menu = quickMenu(
-    (1...4).map { quickSnapshot("busy-\($0)", .resolved(.busy)) })
-
-  guard case .fleet(let fleetLine) = menu.items.first else {
-    Issue.record("The fixed fleet row is missing")
-    return
-  }
-  #expect(fleetLine.contains(L10n.stateBusy))
-  #expect(fleetLine.contains(L10n.quickMenuMoreRunners(1)))
-  #expect(echoes(in: menu).count == 3)
-}
-
-@Test func pluralOverflowKeepsTheAggregateInsideTheSameBoundedFleetRow() {
-  // Appending a separate overflow row would break the hard menu-height budget;
-  // replacing the fleet copy would repeat the original state-loss bug.
-  let menu = quickMenu(
-    (1...6).map { quickSnapshot("busy-\($0)", .resolved(.busy)) })
-
-  guard case .fleet(let fleetLine) = menu.items.first else {
-    Issue.record("The fixed fleet row is missing")
-    return
-  }
-  #expect(fleetLine.contains(L10n.stateBusy))
-  #expect(fleetLine.contains(L10n.quickMenuMoreRunners(3)))
-  #expect(menu.namedRowCount == 9)
+    menu.emission.elements.filter {
+      if case .runnerMenu = $0 { return true }
+      return false
+    }.count == 3)
 }
 
 // MARK: - Discovery summaries
 
-@Test func realNoRunnerNoticeDoesNotRepeatTheFleetState() throws {
-  let notice = try #require(
-    FleetNotice.resolving(runners: [], unreadable: []))
-
+@Test func conclusiveEmptyDiscoveryShowsNoRunnersDirectly() throws {
+  let notice = try #require(FleetNotice.resolving(runners: [], unreadable: []))
   let menu = quickMenu([], notice: notice)
 
-  #expect(discoveryLines(in: menu) == [])
-  #expect(menu.namedRowCount == 6)
+  #expect(discoveryLines(in: menu) == [L10n.noRunnersFound])
+  #expect(echoes(in: menu).isEmpty)
 }
 
-@Test func realLaunchAgentsFailureNamesItsDirectoryOnOneLine() throws {
+@Test func emptyUnresolvedDiscoverySaysItIsCheckingWithoutClaimingNoRunners() {
+  let menu = quickMenu([])
+
+  #expect(discoveryLines(in: menu) == [L10n.checkingRunners])
+  #expect(!menu.items.contains(.discovery(L10n.noRunnersFound)))
+}
+
+@Test func launchAgentsFailureReportsUnavailableAndNeverClaimsNoRunners() throws {
   let directory = URL(fileURLWithPath: "/tmp/LaunchAgents")
   let notice = try #require(
     FleetNotice.resolving(
       runners: [], unreadable: [],
       failure: .launchAgentsUnreadable(directory)))
-
   let menu = quickMenu([], notice: notice)
 
   #expect(
     discoveryLines(in: menu)
       == [L10n.launchAgentsUnreadable + " /tmp/LaunchAgents"])
+  #expect(!discoveryLines(in: menu).contains(L10n.noRunnersFound))
 }
 
-@Test func realUnreadableRunnerNoticeNamesAPathAndCompactlySignalsMore() throws {
+@Test func unreadableRunnerNoticeNamesAPathAndCompactlySignalsMore() throws {
   let first = URL(fileURLWithPath: "/tmp/actions.runner.a.plist")
   let second = URL(fileURLWithPath: "/tmp/actions.runner.b.plist")
   let notice = try #require(
     FleetNotice.resolving(runners: [], unreadable: [first, second]))
-
   let menu = quickMenu([], notice: notice)
 
   #expect(
@@ -236,117 +335,18 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
         L10n.someRunnersUnreadable + " /tmp/actions.runner.a.plist "
           + L10n.moreUnreadable
       ])
+  #expect(!discoveryLines(in: menu).contains(L10n.noRunnersFound))
 }
 
-// MARK: - Bounded shape
-
-@Test func normalQuickMenuNeverExceedsTenNamedRows() {
-  // A fourth echo must be summarized, not appended: a menu that needs a
-  // scrollbar has failed its three-second glance contract.
-  let menu = quickMenu([
-    quickSnapshot("one", .resolved(.stopped)),
-    quickSnapshot("two", .resolved(.disconnected)),
-    quickSnapshot("three", .resolved(.unknown(.noAnswer))),
-    quickSnapshot("four", .starting),
-  ])
-
-  #expect(menu.namedRowCount <= 10)
-  #expect(menu.namedRowCount == 9)
-}
-
-@Test func discoveryAndTwoThermalLinesStayWithinTheAlertBudget() {
-  // Discovery and thermal information are the only alert rows allowed to add
-  // to the normal budget; counting each unreadable path here would overflow it.
+@Test func thermalLinesRemainCappedWithoutHidingRunners() {
   let menu = quickMenu(
-    [
-      quickSnapshot("one", .resolved(.stopped)),
-      quickSnapshot("two", .resolved(.disconnected)),
-      quickSnapshot("three", .resolved(.unknown(.noAnswer))),
-      quickSnapshot("four", .starting),
-    ],
-    notice: .unreadable([
-      URL(fileURLWithPath: "/tmp/a"), URL(fileURLWithPath: "/tmp/b"),
-    ]),
-    thermal: [L10n.thermalSerious, L10n.thermalSlowingJobs])
+    (1...5).map { quickSnapshot("runner-\($0)", .resolved(.idle)) },
+    thermal: ["one", "two", "three"])
 
-  #expect(menu.namedRowCount <= 14)
-  #expect(
-    menu.items.filter {
-      if case .discovery = $0 { return true }
-      return false
-    }.count == 1)
+  #expect(echoes(in: menu).count == 5)
   #expect(
     menu.items.filter {
       if case .thermal = $0 { return true }
       return false
     }.count == 2)
-}
-
-@Test func operationBearingRunnersStayOneTopLevelElementEach() {
-  // Runner detail belongs inside one native submenu. Rendering its title,
-  // progress, operation feedback, and action as siblings would turn these
-  // nine/twelve top-level elements into eighteen/twenty-one menu rows.
-  let operation = ServiceOperation(
-    action: .start, phase: .requestAccepted, changedAt: quickMenuNow)
-  let snapshots = (1...3).map { index in
-    let job = JobRecord(
-      name: "build-\(index)", startedAt: quickMenuNow.addingTimeInterval(-80))
-    return quickSnapshot(
-      "runner-\(index)", .resolved(.busy),
-      jobs: JobHistory(records: [job], running: job), operation: operation)
-  }
-
-  let normal = quickMenu(snapshots)
-  let alerted = quickMenu(
-    snapshots,
-    notice: .unreadable([URL(fileURLWithPath: "/tmp/unreadable")]),
-    thermal: [L10n.thermalSerious, L10n.thermalSlowingJobs])
-  let runnerMenus: [QuickMenuPresentation.RunnerEcho] =
-    normal.emission.elements.compactMap { element in
-      guard case .runnerMenu(let runner) = element else { return nil }
-      return runner
-    }
-
-  #expect(echoes(in: normal).count == 3)
-  #expect(runnerMenus.count == 3)
-  #expect(runnerMenus.allSatisfy { $0.progress != nil && $0.operation != nil })
-  #expect(normal.emission.elements.count == 9)
-  #expect(normal.emission.elements.count <= 10)
-  #expect(alerted.emission.elements.count == 12)
-  #expect(alerted.emission.elements.count <= 14)
-}
-
-@Test func emittedItemsContainOnlyQuickActionsAndReadOnlyEchoes() {
-  // Reintroducing a row action, history, maintenance, preference toggle, or
-  // confirmation here would put a destructive or stateful control back in the
-  // menu instead of the Control Center or Settings.
-  let menu = quickMenu([
-    quickSnapshot(
-      "stopped", .resolved(.stopped), isServiceActionReserved: true),
-    quickSnapshot("busy", .resolved(.busy)),
-  ])
-
-  #expect(
-    menu.items == [
-      .fleet(L10n.quickMenuFleet(L10n.stateBusy)),
-      .runner(
-        .init(
-          id: "actions.runner.acme-widget.stopped",
-          title: L10n.runnerRow("stopped", L10n.stateStopped),
-          progress: nil,
-          operation: nil,
-          canStart: false)),
-      .runner(
-        .init(
-          id: "actions.runner.acme-widget.busy",
-          title: L10n.runnerRow("busy", L10n.stateBusy),
-          progress: nil,
-          operation: nil,
-          canStart: false)),
-      .freshness(L10n.checkedNever),
-      .refresh,
-      .openControlCenter,
-      .openSettings,
-      .quit,
-    ])
 }
