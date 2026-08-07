@@ -161,6 +161,52 @@ enum L10n {
   static func serviceOperationInFlightTitle(_ action: String) -> String {
     String(format: t("operation.inFlight.title"), action)
   }
+
+  static func serviceConfirmStopTitle(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("service.confirm.stop.title", in: bundles), runner)
+  }
+
+  static func serviceConfirmRestartTitle(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("service.confirm.restart.title", in: bundles), runner)
+  }
+
+  static func serviceConfirmStopBusy(
+    _ runner: String, _ scope: String, _ job: String,
+    in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.stop.busy", in: bundles), runner, scope, job)
+  }
+
+  static func serviceConfirmRestartBusy(
+    _ runner: String, _ scope: String, _ job: String,
+    in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.restart.busy", in: bundles), runner, scope, job)
+  }
+
+  static func serviceConfirmStopUncertain(
+    _ runner: String, _ scope: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.stop.uncertain", in: bundles), runner, scope)
+  }
+
+  static func serviceConfirmRestartUncertain(
+    _ runner: String, _ scope: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("service.confirm.restart.uncertain", in: bundles), runner, scope)
+  }
+
+  static func serviceConfirmCancel(in bundles: [Bundle]? = nil) -> String {
+    t("service.confirm.cancel", in: bundles)
+  }
   static func serviceOperationInFlightDetail(_ action: String) -> String {
     String(format: t("operation.inFlight.detail"), action)
   }
@@ -521,6 +567,19 @@ enum L10n {
     "cleanup.confirm.body": "This frees %@ on %@.",
     "cleanup.confirm.delete": "Delete",
     "cleanup.confirm.cancel": "Cancel",
+    "service.confirm.stop.title": "Stop %@?",
+    "service.confirm.restart.title": "Restart %@?",
+    "service.confirm.stop.busy":
+      "%@ in %@ is running “%@”. Stopping it interrupts this job.",
+    "service.confirm.restart.busy":
+      "%@ in %@ is running “%@”. Restarting interrupts this job. "
+      + "If Start fails after Stop, the runner can remain stopped.",
+    "service.confirm.stop.uncertain":
+      "%@ in %@ may have work in progress. Stopping it can interrupt that work.",
+    "service.confirm.restart.uncertain":
+      "%@ in %@ may have work in progress. Restarting can interrupt that work. "
+      + "If Start fails after Stop, the runner can remain stopped.",
+    "service.confirm.cancel": "Cancel",
     "cleanup.toolCache.effect":
       "The tool cache holds the toolchains that setup steps downloaded. "
       + "The next job that needs one downloads it again.",

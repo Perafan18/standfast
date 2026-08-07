@@ -84,6 +84,12 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.cleanupLogsTitle(2, "a"), L10n.cleanupLogsEffect(1),
     L10n.cleanupLogsEffect(2), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
     L10n.cleanupPartiallyFailed("a"),
+    L10n.serviceConfirmStopTitle("a"), L10n.serviceConfirmRestartTitle("a"),
+    L10n.serviceConfirmStopBusy("a", "b", "c"),
+    L10n.serviceConfirmRestartBusy("a", "b", "c"),
+    L10n.serviceConfirmStopUncertain("a", "b"),
+    L10n.serviceConfirmRestartUncertain("a", "b"),
+    L10n.serviceConfirmCancel(),
     L10n.serviceOperationInFlightTitle("a"), L10n.serviceOperationInFlightDetail("a"),
     L10n.serviceOperationAcceptedTitle("a"), L10n.serviceOperationAcceptedDetail("a"),
     L10n.serviceOperationTimedOutTitle("a"), L10n.serviceOperationTimedOutDetail("a"),
@@ -163,6 +169,10 @@ private func speaking(_ localization: String) throws -> Bundle {
       "cleanup.standfastTrash.effect", "cleanup.logs.title.one", "cleanup.logs.title",
       "cleanup.logs.effect.one", "cleanup.logs.effect",
       "cleanup.refused", "cleanup.failed", "cleanup.partiallyFailed",
+      "service.confirm.stop.title", "service.confirm.restart.title",
+      "service.confirm.stop.busy", "service.confirm.restart.busy",
+      "service.confirm.stop.uncertain", "service.confirm.restart.uncertain",
+      "service.confirm.cancel",
       "operation.inFlight.title", "operation.inFlight.detail",
       "operation.accepted.title", "operation.accepted.detail",
       "operation.timedOut.title", "operation.timedOut.detail",
@@ -329,6 +339,39 @@ private func speaking(_ localization: String) throws -> Bundle {
   #expect(L10n.restartRunner("build-mac", in: [spanish]) == "Reiniciar build-mac")
 }
 
+@Test func disruptiveServiceConfirmationCopyIsExactInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(L10n.serviceConfirmStopTitle("build-mac", in: [english]) == "Stop build-mac?")
+  #expect(
+    L10n.serviceConfirmRestartTitle("build-mac", in: [spanish])
+      == "¿Reiniciar build-mac?")
+  #expect(
+    L10n.serviceConfirmStopBusy(
+      "build-mac", "acme/widget", "testflight", in: [english])
+      == "build-mac in acme/widget is running “testflight”. "
+      + "Stopping it interrupts this job.")
+  #expect(
+    L10n.serviceConfirmRestartBusy(
+      "build-mac", "acme/widget", "testflight", in: [spanish])
+      == "build-mac en acme/widget está ejecutando “testflight”. "
+      + "Reiniciarlo interrumpe este job. Si Arrancar falla después de Parar, "
+      + "el runner puede quedar detenido.")
+  #expect(
+    L10n.serviceConfirmStopUncertain("build-mac", "acme/widget", in: [spanish])
+      == "build-mac en acme/widget puede tener trabajo en curso. "
+      + "Pararlo puede interrumpir ese trabajo.")
+  #expect(
+    L10n.serviceConfirmRestartUncertain(
+      "build-mac", "acme/widget", in: [english])
+      == "build-mac in acme/widget may have work in progress. "
+      + "Restarting can interrupt that work. If Start fails after Stop, the runner "
+      + "can remain stopped.")
+  #expect(L10n.serviceConfirmCancel(in: [english]) == "Cancel")
+  #expect(L10n.serviceConfirmCancel(in: [spanish]) == "Cancelar")
+}
+
 @Test func everyUnknownReasonTellsTheUserWhatToDo() {
   // The likeliest thing a new user ever sees. "Unknown" on its own leaves them
   // with nothing to try, so each line has to be the instruction.
@@ -415,6 +458,10 @@ private func speaking(_ localization: String) throws -> Bundle {
     "operation.unexpectedFailure.title": 1, "operation.unexpectedFailure.detail": 1,
     "controlCenter.action.start": 1, "controlCenter.action.stop": 1,
     "controlCenter.action.restart": 1,
+    "service.confirm.stop.title": 1, "service.confirm.restart.title": 1,
+    "service.confirm.stop.busy": 3, "service.confirm.restart.busy": 3,
+    "service.confirm.stop.uncertain": 2,
+    "service.confirm.restart.uncertain": 2,
   ]
   for language in ["en", "es"] {
     let catalogue = try catalogue(language)

@@ -79,6 +79,13 @@
 "cleanup.confirm.body" = "This frees %@ on %@.";
 "cleanup.confirm.delete" = "Delete";
 "cleanup.confirm.cancel" = "Cancel";
+"service.confirm.stop.title" = "Stop %@?";
+"service.confirm.restart.title" = "Restart %@?";
+"service.confirm.stop.busy" = "%@ in %@ is running “%@”. Stopping it interrupts this job.";
+"service.confirm.restart.busy" = "%@ in %@ is running “%@”. Restarting interrupts this job. If Start fails after Stop, the runner can remain stopped.";
+"service.confirm.stop.uncertain" = "%@ in %@ may have work in progress. Stopping it can interrupt that work.";
+"service.confirm.restart.uncertain" = "%@ in %@ may have work in progress. Restarting can interrupt that work. If Start fails after Stop, the runner can remain stopped.";
+"service.confirm.cancel" = "Cancel";
 "cleanup.toolCache.effect" = "The tool cache holds the toolchains that setup steps downloaded. The next job that needs one downloads it again.";
 "cleanup.actionCache.effect" = "These are the actions your workflows use, checked out here. The runner fetches back any it cannot find.";
 "cleanup.standfastTrash.title" = "Delete Standfast cleanup leftovers from %@?";

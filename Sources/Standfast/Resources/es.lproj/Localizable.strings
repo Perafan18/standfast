@@ -79,6 +79,13 @@
 "cleanup.confirm.body" = "Esto libera %@ en %@.";
 "cleanup.confirm.delete" = "Borrar";
 "cleanup.confirm.cancel" = "Cancelar";
+"service.confirm.stop.title" = "¿Parar %@?";
+"service.confirm.restart.title" = "¿Reiniciar %@?";
+"service.confirm.stop.busy" = "%@ en %@ está ejecutando “%@”. Pararlo interrumpe este job.";
+"service.confirm.restart.busy" = "%@ en %@ está ejecutando “%@”. Reiniciarlo interrumpe este job. Si Arrancar falla después de Parar, el runner puede quedar detenido.";
+"service.confirm.stop.uncertain" = "%@ en %@ puede tener trabajo en curso. Pararlo puede interrumpir ese trabajo.";
+"service.confirm.restart.uncertain" = "%@ en %@ puede tener trabajo en curso. Reiniciarlo puede interrumpir ese trabajo. Si Arrancar falla después de Parar, el runner puede quedar detenido.";
+"service.confirm.cancel" = "Cancelar";
 "cleanup.toolCache.effect" = "La caché de herramientas guarda lo que descargaron los pasos de setup. El siguiente job que necesite una la vuelve a descargar.";
 "cleanup.actionCache.effect" = "Son las acciones que usan tus workflows, clonadas aquí. El runner recupera las que no encuentre.";
 "cleanup.standfastTrash.title" = "¿Borrar los restos de limpieza de Standfast de %@?";
