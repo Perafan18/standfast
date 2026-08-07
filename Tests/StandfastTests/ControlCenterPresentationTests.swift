@@ -107,8 +107,36 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   let instant = Date(timeIntervalSinceReferenceDate: 123.5)
 
   #expect(
-    runner.job(instant)
-      == "dev.standfast.control-center.runner.612f62.jobs.job.405ee00000000000")
+    runner.job(JobRow.ID(startedAt: instant, occurrence: 0))
+      == "dev.standfast.control-center.runner.612f62.jobs.job.405ee00000000000.0")
+}
+
+@Test func sameSecondHistoryRowsKeepUniqueDeterministicAXIDs() {
+  let startedAt = controlCenterNow.addingTimeInterval(-3_600)
+  let records = [
+    JobRecord(
+      name: "first", startedAt: startedAt,
+      finishedAt: startedAt.addingTimeInterval(10), result: .succeeded),
+    JobRecord(
+      name: "second", startedAt: startedAt,
+      finishedAt: startedAt.addingTimeInterval(20), result: .failed),
+  ]
+  let firstCard = card(controlCenterSnapshot(jobs: JobHistory(records: records)))
+  let secondCard = card(controlCenterSnapshot(jobs: JobHistory(records: records)))
+  guard case .available(let firstRows, false) = firstCard.history,
+    case .available(let secondRows, false) = secondCard.history
+  else {
+    Issue.record("same-second jobs did not reach available history")
+    return
+  }
+  let identifiers = ControlCenterAccessibility.runner(firstCard.id)
+  let firstIDs = firstRows.map { identifiers.job($0.id) }
+  let secondIDs = secondRows.map { identifiers.job($0.id) }
+
+  #expect(firstRows.count == 2)
+  #expect(Set(firstRows.map(\.id)).count == 2)
+  #expect(Set(firstIDs).count == 2)
+  #expect(firstIDs == secondIDs)
 }
 
 @Test func controlCenterSourceRendersOnlyTheCompletePresentation() {
@@ -133,7 +161,28 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(
     source.contains(
       "L10n.runnerInScope(action.accessibilityLabel, card.title)"))
+  #expect(
+    source.contains(
+      ".accessibilityIdentifier(identifiers.maintenanceAction(offer.kind))"))
   #expect(!source.contains("detail: job.outcome.label"))
+}
+
+@Test func maintenanceActionsHaveDeterministicKindScopedAccessibilityIDs() {
+  let runner = ControlCenterAccessibility.runner("/Users/me/actions-runner")
+  let first = MaintenanceOffer.Kind.allCases.map(runner.maintenanceAction)
+  let second = MaintenanceOffer.Kind.allCases.map(runner.maintenanceAction)
+
+  #expect(
+    first
+      == [
+        "\(runner.maintenance).action.measure",
+        "\(runner.maintenance).action.clean-tool-cache",
+        "\(runner.maintenance).action.clean-action-cache",
+        "\(runner.maintenance).action.clean-standfast-trash",
+        "\(runner.maintenance).action.trim-logs",
+      ])
+  #expect(Set(first).count == MaintenanceOffer.Kind.allCases.count)
+  #expect(first == second)
 }
 
 @Test func controlCenterGeometryTokensAreWiredWithoutChangingItsSceneID() {
@@ -144,6 +193,23 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(app.contains("width: StandfastTheme.controlCenterDefaultWidth"))
   #expect(app.contains("height: StandfastTheme.controlCenterDefaultHeight"))
   #expect(controlCenter.contains("minWidth: StandfastTheme.controlCenterMinimumWidth"))
+}
+
+@Test func prominentRunnerActionsUseTheMeasuredButtonTextToken() {
+  let source = standfastSource("RunnerCardView.swift")
+  let foreground = ".foregroundStyle(palette.primaryButtonText.color)"
+
+  #expect(source.components(separatedBy: foreground).count - 1 == 2)
+  #expect(
+    source.contains(
+      "serviceButtonLabel(action)\n"
+        + "        \(foreground)\n"
+        + "        .buttonStyle(.borderedProminent)"))
+  #expect(
+    source.contains(
+      "navigationButton(action)\n"
+        + "          \(foreground)\n"
+        + "          .buttonStyle(.borderedProminent)"))
 }
 
 // MARK: - Card projection
@@ -551,6 +617,43 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
     fleet.controlCenterPresentation(now: controlCenterNow).empty
       == .noRunnersInstalled)
   #expect(fleet.controlCenterPresentation(now: controlCenterNow).notice == nil)
+}
+
+@Test @MainActor func unavailableLaunchAgentsHaveOneEmptyStateOwner() async throws {
+  let sandbox = try FleetSandbox()
+  defer { sandbox.cleanUp() }
+  sandbox.set(discoveryFailure: .launchAgentsUnreadable(sandbox.launchAgents))
+  let fleet = presentationModel(sandbox)
+
+  await fleet.quiesce()
+
+  let subject = fleet.controlCenterPresentation(now: controlCenterNow)
+  #expect(subject.cards.isEmpty)
+  #expect(
+    subject.empty
+      == .launchAgentsUnavailable(directory: sandbox.launchAgents.path))
+  #expect(subject.notice == nil)
+}
+
+@Test @MainActor func unreadableOnlyDiscoveryHasOneEmptyStateOwner() async throws {
+  let sandbox = try FleetSandbox()
+  defer { sandbox.cleanUp() }
+  let unreadable = sandbox.launchAgents.appendingPathComponent(
+    "actions.runner.broken.plist")
+  try Data("not a property list".utf8).write(to: unreadable)
+  let fleet = presentationModel(sandbox)
+
+  await fleet.quiesce()
+
+  let subject = fleet.controlCenterPresentation(now: controlCenterNow)
+  #expect(subject.cards.isEmpty)
+  guard case .unreadableRunners(let paths)? = subject.empty else {
+    Issue.record("unreadable-only discovery lost its empty recovery state")
+    return
+  }
+  #expect(paths.count == 1)
+  #expect(paths[0].hasSuffix("/LaunchAgents/actions.runner.broken.plist"))
+  #expect(subject.notice == nil)
 }
 
 @Test @MainActor func mixedDiscoveryKeepsRecoveryNoticeBesideValidCards() async throws {

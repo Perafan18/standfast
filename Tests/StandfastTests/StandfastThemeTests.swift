@@ -17,6 +17,26 @@ import Testing
   #expect(light.primaryButtonText.contrastRatio(against: light.primaryButton) >= 4.5)
 }
 
+@Test func contrastCompositesTransparentForegroundOverTheResolvedBackground() {
+  let white = StandfastSRGBColor(hex: 0xFFFFFF)
+  let transparentBlack = StandfastSRGBColor(hex: 0x000000, opacity: 0)
+  let halfBlack = StandfastSRGBColor(hex: 0x000000, opacity: 0.5)
+
+  #expect(transparentBlack.contrastRatio(against: white) == 1)
+  #expect(abs(halfBlack.contrastRatio(against: white) - 3.97665) < 0.00001)
+}
+
+@Test func contrastResolvesTransparentBackgroundOverAnOpaqueBacking() {
+  let black = StandfastSRGBColor(hex: 0x000000)
+  let white = StandfastSRGBColor(hex: 0xFFFFFF)
+  let transparentWhite = StandfastSRGBColor(hex: 0xFFFFFF, opacity: 0)
+
+  #expect(StandfastSRGBColor.defaultContrastBacking == white)
+  #expect(StandfastSRGBColor.defaultContrastBacking.opacity == 1)
+  #expect(black.contrastRatio(against: transparentWhite) == 21)
+  #expect(black.contrastRatio(against: transparentWhite, backing: black) == 1)
+}
+
 @Test func measuredPalettesKeepStructureAndControlsPerceivable() {
   let dark = StandfastTheme.palette(for: .dark)
   let light = StandfastTheme.palette(for: .light)

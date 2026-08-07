@@ -2,6 +2,8 @@ import Foundation
 import SwiftUI
 
 struct StandfastSRGBColor: Equatable, Sendable {
+  static let defaultContrastBacking = StandfastSRGBColor(hex: 0xFFFFFF)
+
   let red: Double
   let green: Double
   let blue: Double
@@ -14,14 +16,47 @@ struct StandfastSRGBColor: Equatable, Sendable {
     self.opacity = opacity
   }
 
+  private init(red: Double, green: Double, blue: Double, opacity: Double) {
+    self.red = red
+    self.green = green
+    self.blue = blue
+    self.opacity = opacity
+  }
+
   var color: Color {
     Color(.sRGB, red: red, green: green, blue: blue, opacity: opacity)
   }
 
-  func contrastRatio(against other: Self) -> Double {
-    let lighter = max(relativeLuminance, other.relativeLuminance)
-    let darker = min(relativeLuminance, other.relativeLuminance)
+  func contrastRatio(
+    against background: Self,
+    backing: Self = StandfastSRGBColor.defaultContrastBacking
+  ) -> Double {
+    precondition(backing.opacity == 1, "Contrast backing must be opaque")
+    let resolvedBackground = background.composited(over: backing)
+    let resolvedForeground = composited(over: resolvedBackground)
+    let lighter = max(
+      resolvedForeground.relativeLuminance,
+      resolvedBackground.relativeLuminance)
+    let darker = min(
+      resolvedForeground.relativeLuminance,
+      resolvedBackground.relativeLuminance)
     return (lighter + 0.05) / (darker + 0.05)
+  }
+
+  private func composited(over background: Self) -> Self {
+    let resolvedOpacity = opacity + background.opacity * (1 - opacity)
+    guard resolvedOpacity > 0 else {
+      return Self(red: 0, green: 0, blue: 0, opacity: 0)
+    }
+
+    return Self(
+      red: (red * opacity + background.red * background.opacity * (1 - opacity))
+        / resolvedOpacity,
+      green: (green * opacity + background.green * background.opacity * (1 - opacity))
+        / resolvedOpacity,
+      blue: (blue * opacity + background.blue * background.opacity * (1 - opacity))
+        / resolvedOpacity,
+      opacity: resolvedOpacity)
   }
 
   private var relativeLuminance: Double {
@@ -165,10 +200,22 @@ enum ControlCenterAccessibility {
     var jobs: String { "\(root).jobs" }
     var maintenance: String { "\(root).maintenance" }
 
-    func job(_ startedAt: Date) -> String {
+    func maintenanceAction(_ kind: MaintenanceOffer.Kind) -> String {
+      let stableKind =
+        switch kind {
+        case .measure: "measure"
+        case .cleanToolCache: "clean-tool-cache"
+        case .cleanActionCache: "clean-action-cache"
+        case .cleanStandfastTrash: "clean-standfast-trash"
+        case .trimLogs: "trim-logs"
+        }
+      return "\(maintenance).action.\(stableKind)"
+    }
+
+    func job(_ identity: JobRow.ID) -> String {
       let stableTime = String(
-        format: "%016llx", startedAt.timeIntervalSinceReferenceDate.bitPattern)
-      return "\(jobs).job.\(stableTime)"
+        format: "%016llx", identity.startedAt.timeIntervalSinceReferenceDate.bitPattern)
+      return "\(jobs).job.\(stableTime).\(identity.occurrence)"
     }
   }
 }

@@ -12,7 +12,12 @@ struct JobOutcomePresentation: Equatable, Sendable {
 }
 
 struct JobRow: Equatable, Identifiable, Sendable {
-  let id: Date
+  struct ID: Equatable, Hashable, Sendable {
+    let startedAt: Date
+    let occurrence: Int
+  }
+
+  let id: ID
   let name: String
   let outcome: JobOutcomePresentation
   let duration: String?
@@ -20,10 +25,25 @@ struct JobRow: Equatable, Identifiable, Sendable {
   let finishedAt: Date?
 
   static func building(_ record: JobRecord) -> Self {
+    building(record, occurrence: 0)
+  }
+
+  private static func building(_ record: JobRecord, occurrence: Int) -> Self {
     Self(
-      id: record.startedAt, name: record.name, outcome: record.outcomePresentation,
+      id: ID(startedAt: record.startedAt, occurrence: occurrence), name: record.name,
+      outcome: record.outcomePresentation,
       duration: record.duration.map(DurationText.precise),
       startedAt: record.startedAt, finishedAt: record.finishedAt)
+  }
+
+  static func building(_ records: [JobRecord]) -> [Self] {
+    var occurrences: [Date: Int] = [:]
+
+    return records.map { record in
+      let occurrence = occurrences[record.startedAt, default: 0]
+      occurrences[record.startedAt] = occurrence + 1
+      return building(record, occurrence: occurrence)
+    }
   }
 
   var text: String {

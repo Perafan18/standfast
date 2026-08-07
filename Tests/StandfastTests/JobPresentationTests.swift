@@ -179,7 +179,7 @@ private func snapshot(
       name: "testflight", startedAt: startedAt, finishedAt: finishedAt,
       result: .succeeded))
 
-  #expect(subject.id == startedAt)
+  #expect(subject.id == JobRow.ID(startedAt: startedAt, occurrence: 0))
   #expect(subject.name == "testflight")
   #expect(subject.startedAt == startedAt)
   #expect(subject.finishedAt == finishedAt)
@@ -187,6 +187,45 @@ private func snapshot(
   #expect(subject.outcome.label == L10n.jobSucceeded)
   #expect(subject.outcome.symbolName == "checkmark.circle.fill")
   #expect(subject.outcome.tone == .healthy)
+}
+
+@Test func sameSecondJobRowsReceiveUniqueDeterministicOccurrences() {
+  let startedAt = noon.addingTimeInterval(-3_600)
+  let records = [
+    JobRecord(
+      name: "first", startedAt: startedAt,
+      finishedAt: startedAt.addingTimeInterval(10), result: .succeeded),
+    JobRecord(
+      name: "second", startedAt: startedAt,
+      finishedAt: startedAt.addingTimeInterval(20), result: .failed),
+  ]
+
+  let firstBuild = JobRow.building(records)
+  let secondBuild = JobRow.building(records)
+
+  #expect(firstBuild.map(\.id) == secondBuild.map(\.id))
+  #expect(Set(firstBuild.map(\.id)).count == 2)
+  #expect(firstBuild.map(\.id.occurrence) == [0, 1])
+  #expect(
+    firstBuild.map(\.text) == [
+      L10n.jobRow("first", L10n.jobSucceeded, "10s"),
+      L10n.jobRow("second", L10n.jobFailed, "20s"),
+    ])
+}
+
+@Test func unrelatedNewerJobsDoNotRenumberExistingRows() {
+  let sharedStart = noon.addingTimeInterval(-3_600)
+  let sameSecond = [
+    JobRecord(name: "first", startedAt: sharedStart, result: .succeeded),
+    JobRecord(name: "second", startedAt: sharedStart, result: .failed),
+  ]
+  let before = JobRow.building(sameSecond)
+  let unrelated = JobRecord(
+    name: "newer", startedAt: sharedStart.addingTimeInterval(60), result: .canceled)
+
+  let after = JobRow.building([unrelated] + sameSecond)
+
+  #expect(Array(after.dropFirst()).map(\.id) == before.map(\.id))
 }
 
 @Test func everyJobOutcomeKeepsItsOwnSemanticPresentation() {

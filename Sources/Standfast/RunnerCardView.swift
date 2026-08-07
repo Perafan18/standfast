@@ -182,6 +182,7 @@ struct RunnerCardView: View {
   private func serviceButton(_ action: RunnerCardAction) -> some View {
     if action.isEnabled && action.emphasis == .prominent {
       serviceButtonLabel(action)
+        .foregroundStyle(palette.primaryButtonText.color)
         .buttonStyle(.borderedProminent)
         .tint(palette.primaryButton.color)
     } else {
@@ -208,6 +209,7 @@ struct RunnerCardView: View {
     if let action = card.action(.openOnGitHub) {
       if action.isEnabled && action.emphasis == .prominent {
         navigationButton(action)
+          .foregroundStyle(palette.primaryButtonText.color)
           .buttonStyle(.borderedProminent)
           .tint(palette.primaryButton.color)
       } else {
@@ -285,7 +287,7 @@ struct RunnerCardView: View {
       }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityIdentifier(identifiers.job(job.startedAt))
+    .accessibilityIdentifier(identifiers.job(job.id))
   }
 
   private var maintenance: some View {
@@ -333,6 +335,7 @@ struct RunnerCardView: View {
     .buttonStyle(.bordered)
     .disabled(!offer.isEnabled)
     .accessibilityLabel(L10n.runnerInScope(offer.label, card.title))
+    .accessibilityIdentifier(identifiers.maintenanceAction(offer.kind))
   }
 
   private func identifier(for kind: RunnerRow.Action.Kind) -> String {

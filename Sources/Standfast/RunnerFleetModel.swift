@@ -603,7 +603,7 @@ final class RunnerFleetModel: ObservableObject {
       header: .building(snapshots: snapshots, readAt: lastReadAt, now: now),
       cards: cards,
       empty: cards.isEmpty ? .building(notice: notice) : nil,
-      notice: .building(notice: notice))
+      notice: cards.isEmpty ? nil : .building(notice: notice))
   }
 
   // MARK: - Acting

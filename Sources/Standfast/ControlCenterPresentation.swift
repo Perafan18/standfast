@@ -175,7 +175,8 @@ extension RunnerCardPresentation {
     let row = snapshot.row
     let destination = GitHubDestination.forScope(snapshot.runner.scope)
     let pastRecords = snapshot.jobs.records.filter { $0 != snapshot.jobs.running }
-    let historyRows = pastRecords.prefix(RunnerRow.recentJobsShown).map(JobRow.building)
+    let visibleRecords = Array(pastRecords.prefix(RunnerRow.recentJobsShown))
+    let historyRows = JobRow.building(visibleRecords)
     let isHistoryTruncated = pastRecords.count > RunnerRow.recentJobsShown
     let operation = snapshot.operation?.presentation
     let focus: RunnerFocusPresentation
