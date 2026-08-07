@@ -43,10 +43,12 @@ installed but not authenticated* (run `gh auth login`), *it answered nothing use
 ## Quick menu, Control Center and Settings
 
 The quick menu is deliberately small. It shows one fleet summary, up to three runners that
-need attention or are doing work, any compact discovery or thermal warning, when Standfast
-last looked, and four fixed actions: Refresh, Open Standfast, Settings, and Quit. A
-conclusively stopped runner may offer Start inside its echo. Stop, Restart, history,
-maintenance, preferences and confirmations do not live there.
+need attention, are doing work or starting, or still carry an operation receipt; any compact
+discovery or thermal warning; when Standfast last looked; and four fixed actions: Refresh,
+Open Standfast, Settings, and Quit. This means an otherwise idle runner remains visible
+while its last operation still needs to be read. A conclusively stopped runner may offer
+Start inside its echo. Stop, Restart, history, maintenance, preferences and confirmations
+do not live there.
 
 **Open Standfast** brings forward one persistent, single-column Control Center. Each runner
 gets a card with its local and GitHub state, current job, Start/Stop/Restart controls, the
@@ -118,7 +120,7 @@ Measured 4m ago
 
 The breakdown is the point. 4.5 GB is a number to be alarmed by; 4.33 GB of *cache* is a
 number to press a button about. It is measured with `du` when you ask, never on a timer,
-and the submenu says how old the numbers are.
+and the runner card's Maintenance group says how old the numbers are.
 
 Standfast offers to delete exactly three things, and the shortness of that list is the
 feature:
@@ -153,36 +155,16 @@ registration rather than the state of the request — including the case where m
 the registration and the user has switched it off in System Settings, where nothing failed
 and the app still will not launch.
 
-## Install
+## Availability
 
-**Development status:** the v0.5.0 interface described here is still `Unreleased`. It has
-not been tagged, published to the tap, or made available as a v0.5.0 download. Signing,
-notarization, the final formula SHA and publication remain with the release manager. The
-install commands below refer to the currently published release, not this pending cut.
+No Standfast release or Homebrew tap has been published. The v0.5.0 interface described
+here remains `Unreleased`; there is no supported stable-install command or downloadable
+artifact yet. Tagging, signing, notarization, the final formula SHA, tap creation and
+publication remain with the release manager.
 
-```sh
-brew install perafan18/tap/standfast
-```
-
-The formula builds from source, so nothing arrives quarantined and there is no
-"unidentified developer" dialog to argue with.
-
-The tap is a separate repository and goes up with the first tagged release. Until then,
-this repository is itself a tap, and the formula in it installs the same thing from
-`main`:
-
-```sh
-brew tap perafan18/standfast https://github.com/Perafan18/standfast
-brew install --HEAD perafan18/standfast/standfast
-```
-
-(A formula file cannot be installed by path — Homebrew requires it to be in a tap.)
-
-Either way, link it where macOS expects to find applications:
-
-```sh
-ln -sfn "$(brew --prefix)/opt/standfast/Standfast.app" /Applications/Standfast.app
-```
+Contributors can assemble an ad-hoc local app from an existing checkout of this source
+state using the verified [building-from-source workflow](#building-from-source) below. That
+development bundle is not a published or distributable release.
 
 ### Requirements
 
@@ -227,8 +209,8 @@ These are real and deliberate, not oversights:
   workflow-runs page. Organization and enterprise runners have no honest cross-repository
   runs page, so their button opens runner settings instead.
 - **A half-uninstalled runner nags forever.** If a `.plist` is left behind without its
-  runner directory, the menu lists it as unreadable every time you open it. Delete the
-  stray `.plist` to clear it.
+  runner directory, the Control Center keeps it visible as unreadable and the quick menu
+  surfaces a compact discovery warning. Delete the stray `.plist` to clear it.
 - **A returned service command is not a proved state.** `svc.sh start` can exit 0 before
   launchd and GitHub agree on the result, so Standfast reports the request as accepted and
   lets the following probes establish the runner's state. A timeout remains explicitly
@@ -258,12 +240,9 @@ uploads `_diag` contents and stores no credentials of its own; see
 ## Building from source
 
 ```sh
-git clone https://github.com/Perafan18/standfast
-cd standfast
-make test      # 601 tests, none of which needs a runner installed
-make app       # assembles Standfast.app
-make run       # assembles and launches it
-make check     # the packaging check: assembles, deletes .build, launches
+swift package clean && swift test  # 601 tests; no installed runner required
+make app                           # assembles .build/Standfast.app
+make check                         # tests, isolates the bundle, then launches it
 ```
 
 The package is plain SwiftPM with no dependencies and no `.xcodeproj` — project files

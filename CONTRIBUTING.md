@@ -131,9 +131,9 @@ keeps `JobLogReader.retainedListenerLogs` of them, and that is `maxFiles + 1`. T
 looks like an off-by-one somebody left in and it is the opposite: `coldStart` reads the
 active log *and then* walks `maxFiles` further files back, so the reach is `maxFiles + 1`
 files and a floor of `maxFiles` deletes the one the walk ends on. What that costs is the
-menu's job history going short the next time the listener rotates — no crash, no error, five
-rows quietly becoming two — and the sweep is the last place anybody would look for the
-reason. It is also not an exotic case: on a laptop every sleep and wake rotates a log
+Control Center's job history going short the next time the listener rotates — no crash, no
+error, five rows quietly becoming two — and the sweep is the last place anybody would look
+for the reason. It is also not an exotic case: on a laptop every sleep and wake rotates a log
 without running a single job, so twenty-five rotations go by long before twenty jobs do.
 `aRotationTheReaderCanStillWalkBackThroughKeepsItsJobs` reads a real `_diag` on both sides
 of a sweep and is there to catch the revert.
