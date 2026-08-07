@@ -1,5 +1,5 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// The three things this app will interrupt somebody for, each its own switch.
 ///
