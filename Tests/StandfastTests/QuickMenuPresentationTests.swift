@@ -15,11 +15,11 @@ private func quickRunner(_ name: String) -> DiscoveredRunner {
 
 private func quickSnapshot(
   _ name: String, _ display: DisplayState, jobs: JobHistory = .empty,
-  operation: ServiceOperation? = nil
+  operation: ServiceOperation? = nil, isServiceActionReserved: Bool = false
 ) -> RunnerSnapshot {
   RunnerSnapshot(
     runner: quickRunner(name), display: display, jobs: jobs, readAt: quickMenuNow,
-    operation: operation)
+    isServiceActionReserved: isServiceActionReserved, operation: operation)
 }
 
 private func quickMenu(
@@ -203,17 +203,32 @@ private func echoes(
   // confirmation here would put a destructive or stateful control back in the
   // menu instead of the Control Center or Settings.
   let menu = quickMenu([
-    quickSnapshot("stopped", .resolved(.stopped)),
+    quickSnapshot(
+      "stopped", .resolved(.stopped), isServiceActionReserved: true),
     quickSnapshot("busy", .resolved(.busy)),
   ])
 
-  for item in menu.items {
-    switch item {
-    case .fleet, .runner, .discovery, .thermal, .freshness,
-      .refresh, .openControlCenter, .openSettings, .quit:
-      break
-    }
-  }
   #expect(
-    echoes(in: menu).allSatisfy { $0.canStart == ($0.title.contains(L10n.stateStopped)) })
+    menu.items == [
+      .fleet(L10n.quickMenuFleet(L10n.stateBusy)),
+      .runner(
+        .init(
+          id: "actions.runner.acme-widget.stopped",
+          title: L10n.runnerRow("stopped", L10n.stateStopped),
+          progress: nil,
+          operation: nil,
+          canStart: false)),
+      .runner(
+        .init(
+          id: "actions.runner.acme-widget.busy",
+          title: L10n.runnerRow("busy", L10n.stateBusy),
+          progress: nil,
+          operation: nil,
+          canStart: false)),
+      .freshness(L10n.checkedNever),
+      .refresh,
+      .openControlCenter,
+      .openSettings,
+      .quit,
+    ])
 }
