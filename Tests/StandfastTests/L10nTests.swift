@@ -23,6 +23,15 @@ private func speaking(_ localization: String) throws -> Bundle {
   return try #require(Bundle(path: path))
 }
 
+private func l10nSource() -> String {
+  let repository = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+  let source = repository.appendingPathComponent("Sources/Standfast/L10n.swift")
+  return (try? String(contentsOf: source, encoding: .utf8)) ?? ""
+}
+
 // MARK: - The floor
 
 @Test func everyStringSurvivesHavingNoCatalogueAtAll() {
@@ -43,8 +52,7 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
   let everyString = [
     L10n.start, L10n.stop, L10n.restart, L10n.openOnGitHub, L10n.refreshNow,
-    L10n.quit, L10n.quickMenuFleet(L10n.stateIdle), L10n.quickMenuMoreRunners(1),
-    L10n.controlCenter, L10n.settings, L10n.recentJobs, L10n.openAtLogin,
+    L10n.quit, L10n.controlCenter, L10n.settings, L10n.recentJobs, L10n.openAtLogin,
     L10n.openAtLoginFailed,
     L10n.openAtLoginNeedsApproval, L10n.openAtLoginUnavailable,
     L10n.notifyMe, L10n.notifyJobFailed, L10n.notifyDisconnected, L10n.notifyStopped,
@@ -53,7 +61,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.notificationJobFailedTitle, L10n.notificationDisconnectedTitle,
     L10n.notificationStoppedTitle, L10n.notificationJobFailedBody("a", "b"),
     L10n.notificationDisconnectedBody("a"), L10n.notificationStoppedBody("a"),
-    L10n.noRunnersFound, L10n.launchAgentsUnreadable, L10n.someRunnersUnreadable,
+    L10n.noRunnersFound, L10n.checkingRunners, L10n.launchAgentsUnreadable,
+    L10n.someRunnersUnreadable,
     L10n.moreUnreadable,
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
@@ -132,8 +141,7 @@ private func speaking(_ localization: String) throws -> Bundle {
   let reached = Set(
     [
       "menu.start", "menu.stop", "menu.restart", "menu.openOnGitHub",
-      "menu.fleet", "menu.fleetOverflow", "menu.moreRunners.one",
-      "menu.moreRunners", "menu.controlCenter", "menu.settings",
+      "menu.controlCenter", "menu.settings",
       "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
       "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
       "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
@@ -145,7 +153,8 @@ private func speaking(_ localization: String) throws -> Bundle {
       "notification.jobFailed.body", "notification.disconnected.title",
       "notification.disconnected.body", "notification.stopped.title",
       "notification.stopped.body",
-      "state.noRunners", "state.launchAgentsUnreadable", "state.unreadable",
+      "state.noRunners", "state.checking", "state.launchAgentsUnreadable",
+      "state.unreadable",
       "state.unreadable.more", "state.idle",
       "state.busy", "state.disconnected", "state.stopped", "state.starting",
       "state.short.ready", "state.short.running", "state.short.disconnected",
@@ -196,6 +205,31 @@ private func speaking(_ localization: String) throws -> Bundle {
       "settings.startup.footer", "settings.version",
     ])
   #expect(everyKey == reached)
+}
+
+@Test func obsoleteFleetOverflowLocalizationIsAbsentEverywhere() throws {
+  let forbiddenKeys: Set<String> = [
+    "menu.fleet", "menu.fleetOverflow", "menu.moreRunners.one",
+    "menu.moreRunners",
+  ]
+  let forbiddenSymbols = ["quickMenuFleet", "quickMenuMoreRunners"]
+
+  #expect(forbiddenKeys.isDisjoint(with: L10n.english.keys))
+  for language in ["en", "es"] {
+    #expect(forbiddenKeys.isDisjoint(with: try catalogue(language).keys))
+  }
+  for symbol in forbiddenSymbols {
+    #expect(!l10nSource().contains(symbol))
+  }
+}
+
+@Test func checkingRunnerCopyIsAtomicInEnglishSpanishAndFallback() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(L10n.t("state.checking", in: [english]) == "Checking runners")
+  #expect(L10n.t("state.checking", in: [spanish]) == "Consultando runners")
+  #expect(L10n.t("state.checking", in: []) == "Checking runners")
 }
 
 @Test func aBundleThatCannotBeFoundIsNotAnError() {
@@ -317,25 +351,6 @@ private func speaking(_ localization: String) throws -> Bundle {
       == "4 archivos en los que nadie escribe desde hace más de una semana. El log "
       + "que el runner está escribiendo ahora nunca se borra, ni tampoco el historial "
       + "que muestra el Centro de control de Standfast.")
-}
-
-@Test func overflowCopyIsNeutralAndGrammaticalInBothLanguages() throws {
-  let spanish = try speaking("es")
-  let englishOne = L10n.quickMenuMoreRunners(1, in: [])
-  let englishMany = L10n.quickMenuMoreRunners(3, in: [])
-
-  #expect(englishOne == "1 more runner update")
-  #expect(englishMany == "3 more runner updates")
-  #expect(
-    L10n.quickMenuFleet("Running a job", overflowCount: 1, in: [])
-      == "Fleet — Running a job — 1 more runner update")
-  #expect(
-    L10n.quickMenuFleet("Running a job", overflowCount: 3, in: [])
-      == "Fleet — Running a job — 3 more runner updates")
-  #expect(L10n.quickMenuMoreRunners(1, in: [spanish]) == "1 runner más con novedades")
-  #expect(
-    L10n.quickMenuMoreRunners(3, in: [spanish])
-      == "3 runners más con novedades")
 }
 
 @Test func premiumCompactVocabularyIsExactInBothLanguages() throws {
@@ -463,7 +478,6 @@ private func speaking(_ localization: String) throws -> Bundle {
   // — the job's name, how long it has been going, or what it usually takes —
   // and `String(format:)` will not say a word about it.
   let expected = [
-    "menu.fleet": 1, "menu.fleetOverflow": 2, "menu.moreRunners": 1,
     "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
     "job.rowNoDuration": 2, "state.checkedAgo": 1,
     // A banner is read out of the corner of an eye. A translation that dropped

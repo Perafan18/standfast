@@ -84,7 +84,7 @@ tell application "System Events"
       set targetMenu to menu 1 of statusItem
       set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
       if (count of visibleMenuItems) is 0 then error "exposed status menu has no visible items"
-      set records to {}
+      set menuRecords to {}
       repeat with visibleMenuItem in visibleMenuItems
         set visibleName to ""
         try
@@ -108,7 +108,7 @@ tell application "System Events"
         if recordType is "unknown" then
           set visibleName to visibleIdentifier & " — " & visibleName
         end if
-        set end of records to recordType & tab & visibleName
+        set end of menuRecords to recordType & tab & visibleName
       end repeat
       perform action "AXCancel" of targetMenu
       set menuClosedAfterCancel to false
@@ -124,9 +124,9 @@ tell application "System Events"
     if not menuClosedAfterCancel then error "status menu did not close after AXCancel"
     set previousDelimiters to text item delimiters of AppleScript
     set text item delimiters of AppleScript to linefeed
-    set joinedRecords to records as text
+    set joinedMenuRecords to menuRecords as text
     set text item delimiters of AppleScript to previousDelimiters
-    return joinedRecords
+    return joinedMenuRecords
   end tell
 end tell
 APPLESCRIPT

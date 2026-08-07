@@ -72,6 +72,7 @@ enum L10n {
   static let cleanupStandfastTrashEffect = t("cleanup.standfastTrash.effect")
 
   static let noRunnersFound = t("state.noRunners")
+  static let checkingRunners = t("state.checking")
   static let launchAgentsUnreadable = t("state.launchAgentsUnreadable")
   static let someRunnersUnreadable = t("state.unreadable")
   static let moreUnreadable = t("state.unreadable.more")
@@ -281,25 +282,6 @@ enum L10n {
     _ scope: String, _ id: Int, in bundles: [Bundle]? = nil
   ) -> String {
     String(format: t("menu.quickRunnerScopeID", in: bundles), scope, Int64(id))
-  }
-
-  static func quickMenuFleet(
-    _ state: String, overflowCount: Int = 0,
-    in bundles: [Bundle]? = nil
-  ) -> String {
-    guard overflowCount > 0 else {
-      return String(format: t("menu.fleet", in: bundles), state)
-    }
-    return String(
-      format: t("menu.fleetOverflow", in: bundles), state,
-      quickMenuMoreRunners(overflowCount, in: bundles))
-  }
-
-  static func quickMenuMoreRunners(
-    _ count: Int, in bundles: [Bundle]? = nil
-  ) -> String {
-    guard count != 1 else { return t("menu.moreRunners.one", in: bundles) }
-    return String(format: t("menu.moreRunners", in: bundles), String(count))
   }
 
   /// The job in flight and how long it has been going.
@@ -527,10 +509,6 @@ enum L10n {
     "menu.openOnGitHub": "Open on GitHub",
     "menu.refreshNow": "Refresh now",
     "menu.quit": "Quit",
-    "menu.fleet": "Fleet — %@",
-    "menu.fleetOverflow": "Fleet — %@ — %@",
-    "menu.moreRunners.one": "1 more runner update",
-    "menu.moreRunners": "%@ more runner updates",
     "menu.controlCenter": "Open Standfast",
     "menu.settings": "Settings",
     "menu.recentJobs": "Recent jobs",
@@ -622,6 +600,7 @@ enum L10n {
     "cleanup.partiallyFailed":
       "Some files may have been deleted, but cleanup did not finish; check that %@ is writable",
     "state.noRunners": "No runners installed on this Mac",
+    "state.checking": "Checking runners",
     "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",

@@ -32,8 +32,10 @@ private func quickSnapshot(
 private func quickMenu(
   _ snapshots: [RunnerSnapshot], notice: FleetNotice? = nil, thermal: [String] = []
 ) -> QuickMenuPresentation {
-  QuickMenuPresentation.building(
-    snapshots: snapshots, notice: notice, thermalLines: thermal,
+  let overview = FleetOverviewPresentation.building(
+    snapshots: snapshots, notice: notice, readAt: nil)
+  return QuickMenuPresentation.building(
+    snapshots: snapshots, overview: overview, thermalLines: thermal,
     readAt: nil, now: quickMenuNow)
 }
 
@@ -119,16 +121,19 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
       "three<\(name)|\(scope)|\(state)>"
     },
     scopeWithID: { scope, id in "identity<\(scope)|\(id)>" })
+  let snapshots = [
+    quickSnapshot("solo", .resolved(.idle)),
+    quickSnapshot(
+      "build", .resolved(.idle),
+      scope: .repository(owner: "acme", name: "widget")),
+    quickSnapshot(
+      "build", .resolved(.stopped),
+      scope: .repository(owner: "acme", name: "gadget")),
+  ]
   let menu = QuickMenuPresentation.building(
-    snapshots: [
-      quickSnapshot("solo", .resolved(.idle)),
-      quickSnapshot(
-        "build", .resolved(.idle),
-        scope: .repository(owner: "acme", name: "widget")),
-      quickSnapshot(
-        "build", .resolved(.stopped),
-        scope: .repository(owner: "acme", name: "gadget")),
-    ], notice: nil, thermalLines: [], readAt: nil, now: quickMenuNow,
+    snapshots: snapshots,
+    overview: .building(snapshots: snapshots, notice: nil, readAt: nil),
+    thermalLines: [], readAt: nil, now: quickMenuNow,
     identityFormatting: formatting)
 
   #expect(
@@ -296,10 +301,10 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
   #expect(echoes(in: menu).isEmpty)
 }
 
-@Test func emptyUnresolvedDiscoveryDoesNotClaimNoRunners() {
+@Test func emptyUnresolvedDiscoverySaysItIsCheckingWithoutClaimingNoRunners() {
   let menu = quickMenu([])
 
-  #expect(discoveryLines(in: menu).isEmpty)
+  #expect(discoveryLines(in: menu) == [L10n.checkingRunners])
   #expect(!menu.items.contains(.discovery(L10n.noRunnersFound)))
 }
 

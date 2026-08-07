@@ -87,7 +87,8 @@ struct QuickMenuPresentation: Equatable {
 
 extension QuickMenuPresentation {
   static func building(
-    snapshots: [RunnerSnapshot], notice: FleetNotice?, thermalLines: [String],
+    snapshots: [RunnerSnapshot], overview: FleetOverviewPresentation,
+    thermalLines: [String],
     readAt: Date?, now: Date,
     identityFormatting: RunnerIdentityFormatting = .localized
   ) -> Self {
@@ -99,7 +100,7 @@ extension QuickMenuPresentation {
           for: snapshot, identity: identity,
           identityFormatting: identityFormatting))
     }
-    if let notice, let discovery = discoverySummary(for: notice) {
+    if let discovery = overview.quickMenuDiscoveryLine {
       items.append(.discovery(discovery))
     }
     items += thermalLines.prefix(Self.thermalLinesShown).map(Item.thermal)
@@ -203,25 +204,4 @@ extension QuickMenuPresentation {
     )
   }
 
-  /// One discovery item must remain one rendered line. The detailed paths are
-  /// still available in the Control Center; putting them here recreates the
-  /// unbounded menu this type replaces.
-  private static func discoverySummary(for notice: FleetNotice) -> String? {
-    switch notice {
-    case .noRunnersInstalled:
-      return L10n.noRunnersFound
-    case .launchAgentsUnreadable(let directory):
-      return [L10n.launchAgentsUnreadable, PathText.abbreviated(directory)]
-        .joined(separator: " ")
-    case .unreadable(let paths):
-      guard let first = paths.first else { return nil }
-      return [
-        L10n.someRunnersUnreadable,
-        PathText.abbreviated(first),
-        paths.count > 1 ? L10n.moreUnreadable : nil,
-      ]
-      .compactMap { $0 }
-      .joined(separator: " ")
-    }
-  }
 }

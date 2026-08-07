@@ -32,23 +32,34 @@ enum GitHubDestination: Equatable {
 /// installation guidance, while discovery failures retain the exact paths the
 /// user can inspect. The view renders this value and makes no discovery choice.
 enum ControlCenterEmptyPresentation: Equatable {
+  case checking
   case noRunnersInstalled
   case launchAgentsUnavailable(directory: String)
   case unreadableRunners(paths: [String])
 
-  static func building(notice: FleetNotice?) -> Self {
-    switch notice {
-    case nil, .noRunnersInstalled:
+  static func building(overview: FleetOverviewPresentation) -> Self? {
+    switch overview.state {
+    case .checking:
+      .checking
+    case .noRunnersInstalled:
       .noRunnersInstalled
-    case .launchAgentsUnreadable(let directory):
-      .launchAgentsUnavailable(directory: PathText.abbreviated(directory))
-    case .unreadable(let paths):
-      .unreadableRunners(paths: paths.map(PathText.abbreviated))
+    case .unavailable:
+      switch overview.recovery {
+      case .launchAgentsUnavailable(let directory):
+        .launchAgentsUnavailable(directory: directory)
+      case .unreadableRunners(let paths):
+        .unreadableRunners(paths: paths)
+      case nil:
+        .checking
+      }
+    case .fleet:
+      nil
     }
   }
 
   var title: String {
     switch self {
+    case .checking: L10n.checkingRunners
     case .noRunnersInstalled: L10n.noRunnersFound
     case .launchAgentsUnavailable: L10n.launchAgentsUnreadable
     case .unreadableRunners: L10n.someRunnersUnreadable
@@ -57,6 +68,8 @@ enum ControlCenterEmptyPresentation: Equatable {
 
   var detailLines: [String] {
     switch self {
+    case .checking:
+      []
     case .noRunnersInstalled:
       [L10n.controlCenterNoRunnersDescription]
     case .launchAgentsUnavailable(let directory):
@@ -68,6 +81,7 @@ enum ControlCenterEmptyPresentation: Equatable {
 
   var symbolName: String {
     switch self {
+    case .checking: "arrow.triangle.2.circlepath"
     case .noRunnersInstalled: FleetSummary.noRunnersSymbolName
     case .launchAgentsUnavailable, .unreadableRunners: "exclamationmark.triangle"
     }
@@ -78,13 +92,14 @@ enum ControlCenterNoticePresentation: Equatable {
   case launchAgentsUnavailable(directory: String)
   case unreadableRunners(paths: [String])
 
-  static func building(notice: FleetNotice?) -> Self? {
-    switch notice {
-    case .launchAgentsUnreadable(let directory):
-      .launchAgentsUnavailable(directory: PathText.abbreviated(directory))
-    case .unreadable(let paths):
-      .unreadableRunners(paths: paths.map(PathText.abbreviated))
-    case nil, .noRunnersInstalled:
+  static func building(overview: FleetOverviewPresentation) -> Self? {
+    guard case .fleet = overview.state else { return nil }
+    return switch overview.recovery {
+    case .launchAgentsUnavailable(let directory):
+      .launchAgentsUnavailable(directory: directory)
+    case .unreadableRunners(let paths):
+      .unreadableRunners(paths: paths)
+    case nil:
       nil
     }
   }
@@ -99,16 +114,14 @@ struct ControlCenterHeaderPresentation: Equatable {
   let freshness: String
 
   static func building(
-    snapshots: [RunnerSnapshot], readAt: Date?, now: Date
+    overview: FleetOverviewPresentation, readAt: Date?, now: Date
   ) -> Self {
-    let aggregate = FleetSummary.summarising(snapshots.map(\.display))
-    let attentionCount = snapshots.count { $0.display.needsAttention }
     return Self(
-      summary: aggregate?.summary ?? L10n.noRunnersFound,
-      shortSummary: aggregate?.shortSummary ?? L10n.noRunnersFound,
-      symbolName: aggregate?.symbolName ?? FleetSummary.noRunnersSymbolName,
-      tone: aggregate?.tone ?? .neutral,
-      attention: attentionCount == 0 ? nil : L10n.runnerAttention(attentionCount),
+      summary: overview.summary,
+      shortSummary: overview.shortSummary,
+      symbolName: overview.symbolName,
+      tone: overview.tone,
+      attention: overview.attention,
       freshness: FleetStatus.lastCheckedLine(readAt: readAt, now: now))
   }
 }

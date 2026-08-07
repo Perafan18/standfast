@@ -30,10 +30,6 @@
 "menu.openOnGitHub" = "Open on GitHub";
 "menu.refreshNow" = "Refresh now";
 "menu.quit" = "Quit";
-"menu.fleet" = "Fleet — %@";
-"menu.fleetOverflow" = "Fleet — %@ — %@";
-"menu.moreRunners.one" = "1 more runner update";
-"menu.moreRunners" = "%@ more runner updates";
 "menu.controlCenter" = "Open Standfast";
 "menu.settings" = "Settings";
 "menu.recentJobs" = "Recent jobs";
@@ -103,6 +99,7 @@
 "cleanup.partiallyFailed" = "Some files may have been deleted, but cleanup did not finish; check that %@ is writable";
 
 "state.noRunners" = "No runners installed on this Mac";
+"state.checking" = "Checking runners";
 "state.launchAgentsUnreadable" = "The LaunchAgents directory could not be read:";
 "state.unreadable" = "Some runner files could not be read:";
 "state.unreadable.more" = "…and more";

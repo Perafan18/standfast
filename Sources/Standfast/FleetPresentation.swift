@@ -268,6 +268,133 @@ extension FleetNotice {
   }
 }
 
+/// The recovery fact discovery found, independent of whether valid runner
+/// cards were found beside it.
+enum FleetRecoveryPresentation: Equatable {
+  case launchAgentsUnavailable(directory: String)
+  case unreadableRunners(paths: [String])
+
+  static func building(_ notice: FleetNotice?) -> Self? {
+    switch notice {
+    case .launchAgentsUnreadable(let directory):
+      .launchAgentsUnavailable(directory: PathText.abbreviated(directory))
+    case .unreadable(let paths):
+      .unreadableRunners(paths: paths.map(PathText.abbreviated))
+    case nil, .noRunnersInstalled:
+      nil
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .launchAgentsUnavailable: L10n.launchAgentsUnreadable
+    case .unreadableRunners: L10n.someRunnersUnreadable
+    }
+  }
+
+  var detailLines: [String] {
+    switch self {
+    case .launchAgentsUnavailable(let directory): [directory]
+    case .unreadableRunners(let paths): paths
+    }
+  }
+
+  var quickMenuLine: String {
+    switch self {
+    case .launchAgentsUnavailable(let directory):
+      [title, directory].joined(separator: " ")
+    case .unreadableRunners(let paths):
+      [title, paths.first, paths.count > 1 ? L10n.moreUnreadable : nil]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+  }
+}
+
+/// One fleet-level truth shared by the status item, quick menu, and Control
+/// Center. Empty snapshots alone are not an answer: only a conclusive notice
+/// may turn them into "no runners" or a recovery state.
+struct FleetOverviewPresentation: Equatable {
+  enum State: Equatable {
+    case checking
+    case noRunnersInstalled
+    case unavailable
+    case fleet(DisplayState)
+  }
+
+  let state: State
+  let recovery: FleetRecoveryPresentation?
+  let attention: String?
+
+  static func building(
+    snapshots: [RunnerSnapshot], notice: FleetNotice?, readAt: Date?
+  ) -> Self {
+    let recovery = FleetRecoveryPresentation.building(notice)
+    let state: State
+    if let aggregate = FleetSummary.summarising(snapshots.map(\.display)) {
+      state = .fleet(aggregate)
+    } else if recovery != nil {
+      state = .unavailable
+    } else if notice == .noRunnersInstalled {
+      state = .noRunnersInstalled
+    } else {
+      // This is normally the initial `readAt == nil` state. A nil notice after
+      // a later read is still inconclusive and must not invent a clean empty
+      // result either.
+      state = .checking
+    }
+    let attentionCount = snapshots.count { $0.display.needsAttention }
+    return Self(
+      state: state, recovery: recovery,
+      attention: attentionCount == 0 ? nil : L10n.runnerAttention(attentionCount))
+  }
+
+  var summary: String {
+    switch state {
+    case .checking: L10n.checkingRunners
+    case .noRunnersInstalled: L10n.noRunnersFound
+    case .unavailable: recovery?.title ?? L10n.checkingRunners
+    case .fleet(let display): display.summary
+    }
+  }
+
+  var shortSummary: String {
+    switch state {
+    case .fleet(let display): display.shortSummary
+    case .checking, .noRunnersInstalled, .unavailable: summary
+    }
+  }
+
+  var symbolName: String {
+    switch state {
+    case .checking: "arrow.triangle.2.circlepath"
+    case .noRunnersInstalled: FleetSummary.noRunnersSymbolName
+    case .unavailable: "exclamationmark.triangle"
+    case .fleet(let display): display.symbolName
+    }
+  }
+
+  var tone: StateTone {
+    switch state {
+    case .checking: .active
+    case .noRunnersInstalled: .neutral
+    case .unavailable: .attention
+    case .fleet(let display): display.tone
+    }
+  }
+
+  var quickMenuDiscoveryLine: String? {
+    switch state {
+    case .fleet:
+      recovery?.quickMenuLine
+    case .unavailable:
+      recovery?.quickMenuLine ?? summary
+    case .checking, .noRunnersInstalled:
+      summary
+    }
+  }
+}
+
 /// The single state the menu bar icon shows for the whole machine.
 enum FleetSummary {
   /// Nothing installed. Its own symbol rather than the unknown question mark:

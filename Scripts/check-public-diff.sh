@@ -48,7 +48,7 @@ while IFS=$'\t' read -r -d '' added deleted path; do
   if [ -z "$path" ]; then
     # With `-z`, a rename is encoded as an empty path followed by the old and
     # new paths in separate NUL-delimited fields. Policy applies to its target.
-    IFS= read -r -d '' old_path
+    IFS= read -r -d '' _old_path
     IFS= read -r -d '' path
   fi
   if [ "$added" != "-" ] || [ "$deleted" != "-" ]; then

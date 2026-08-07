@@ -15,10 +15,10 @@ struct StandfastApp: App {
         thermal: thermal,
         sceneActivation: sceneActivation)
     } label: {
-      let display = FleetSummary.summarising(fleet.snapshots.map(\.display))
-      Image(systemName: FleetSummary.symbolName(for: fleet.snapshots.map(\.display)))
+      let overview = fleet.overview
+      Image(systemName: overview.symbolName)
         .accessibilityLabel(L10n.statusItemLabel)
-        .accessibilityValue(FleetSummary.accessibilityValue(for: display))
+        .accessibilityValue(overview.summary)
     }
 
     Window(L10n.controlCenterTitle, id: "control-center") {

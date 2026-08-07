@@ -483,8 +483,17 @@ grep -Fq 'dev.standfast.quick-menu.runner' "$menu_script" \
   || fail "the menu probe does not recognize the stable runner AX identifier"
 grep -Fq 'set recordType to "unknown"' "$menu_script" \
   || fail "the menu probe does not emit a closed-world type for unknown identifiers"
-grep -Fq 'set end of records to recordType & tab' "$menu_script" \
+if grep -Fq 'set records to {}' "$menu_script"; then
+  fail "the menu probe uses AppleScript's reserved process records collection"
+fi
+grep -Fq 'set menuRecords to {}' "$menu_script" \
+  || fail "the menu probe does not initialize its nonreserved record collection"
+grep -Fq 'set end of menuRecords to recordType & tab' "$menu_script" \
   || fail "the menu probe does not emit one typed record per visible AX child"
+grep -Fq 'set joinedMenuRecords to menuRecords as text' "$menu_script" \
+  || fail "the menu probe does not join the nonreserved record collection"
+grep -Fq 'return joinedMenuRecords' "$menu_script" \
+  || fail "the menu probe does not return the joined nonreserved record collection"
 grep -Fq 'set text item delimiters of AppleScript to linefeed' "$menu_script" \
   || fail "the menu probe concatenates adjacent item names without a delimiter"
 assert_status_open_transitions "$menu_script" 1 "the menu probe"

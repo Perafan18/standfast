@@ -243,9 +243,28 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 @Test func controlCenterSourceRendersOnlyTheCompletePresentation() {
   let controlCenter = standfastSource("ControlCenterView.swift")
 
-  #expect(controlCenter.contains("fleet.controlCenterPresentation(now: Date())"))
+  #expect(controlCenter.contains("TimelineView(.periodic(from: .now, by: 2))"))
+  #expect(
+    controlCenter.contains(
+      "fleet.controlCenterPresentation(now: timeline.date)"))
+  #expect(!controlCenter.contains("controlCenterPresentation(now: Date())"))
   #expect(!controlCenter.contains("fleet.controlCenterCards"))
   #expect(!controlCenter.contains("fleet.snapshots"))
+}
+
+@Test func timelineDateMovesTheHeaderAcrossTheFreshnessBoundary() {
+  let readAt = Date(timeIntervalSince1970: 1_000)
+  let overview = FleetOverviewPresentation.building(
+    snapshots: [controlCenterSnapshot()], notice: nil, readAt: readAt)
+  let fresh = ControlCenterHeaderPresentation.building(
+    overview: overview, readAt: readAt,
+    now: readAt.addingTimeInterval(FleetStatus.justNow - 0.1))
+  let stale = ControlCenterHeaderPresentation.building(
+    overview: overview, readAt: readAt,
+    now: readAt.addingTimeInterval(FleetStatus.justNow))
+
+  #expect(fresh.freshness == L10n.checkedJustNow)
+  #expect(stale.freshness == L10n.checkedAgo("10s"))
 }
 
 @Test func redesignedViewsUseOneSurfaceAndNativeDisclosureSections() {
@@ -360,9 +379,11 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
     controlCenterSnapshot(.resolved(.stopped)),
   ]
   let readAt = controlCenterNow.addingTimeInterval(-245)
+  let overview = FleetOverviewPresentation.building(
+    snapshots: snapshots, notice: nil, readAt: readAt)
 
   let subject = ControlCenterHeaderPresentation.building(
-    snapshots: snapshots, readAt: readAt, now: controlCenterNow)
+    overview: overview, readAt: readAt, now: controlCenterNow)
 
   #expect(subject.summary == L10n.stateBusy)
   #expect(subject.shortSummary == L10n.stateRunningShort)
@@ -373,25 +394,29 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 }
 
 @Test func zeroAttentionDisappearsAndStoppedDoesNotCountAsAttention() {
+  let snapshots = [
+    controlCenterSnapshot(.resolved(.idle)),
+    controlCenterSnapshot(.resolved(.stopped)),
+  ]
   let subject = ControlCenterHeaderPresentation.building(
-    snapshots: [
-      controlCenterSnapshot(.resolved(.idle)),
-      controlCenterSnapshot(.resolved(.stopped)),
-    ], readAt: controlCenterNow, now: controlCenterNow)
+    overview: .building(
+      snapshots: snapshots, notice: nil, readAt: controlCenterNow),
+    readAt: controlCenterNow, now: controlCenterNow)
 
   #expect(subject.summary == L10n.stateIdle)
   #expect(subject.tone == .healthy)
   #expect(subject.attention == nil)
 }
 
-@Test func anEmptyHeaderIsNeutralWithoutInventingAnAggregate() {
+@Test func anUnreadInitialHeaderIsActivelyChecking() {
   let subject = ControlCenterHeaderPresentation.building(
-    snapshots: [], readAt: nil, now: controlCenterNow)
+    overview: .building(snapshots: [], notice: nil, readAt: nil),
+    readAt: nil, now: controlCenterNow)
 
-  #expect(subject.summary == L10n.noRunnersFound)
-  #expect(subject.shortSummary == L10n.noRunnersFound)
-  #expect(subject.symbolName == FleetSummary.noRunnersSymbolName)
-  #expect(subject.tone == .neutral)
+  #expect(subject.summary == L10n.checkingRunners)
+  #expect(subject.shortSummary == L10n.checkingRunners)
+  #expect(subject.symbolName == "arrow.triangle.2.circlepath")
+  #expect(subject.tone == .active)
   #expect(subject.attention == nil)
   #expect(subject.freshness == L10n.checkedNever)
 }
@@ -716,26 +741,33 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 // MARK: - Empty fleet
 
 @Test func emptyControlCenterUsesInstallGuidanceOnlyForANoRunnerNotice() {
+  let overview = FleetOverviewPresentation.building(
+    snapshots: [], notice: .noRunnersInstalled, readAt: controlCenterNow)
   #expect(
-    ControlCenterEmptyPresentation.building(notice: .noRunnersInstalled)
+    ControlCenterEmptyPresentation.building(overview: overview)
       == .noRunnersInstalled)
 }
 
 @Test func emptyControlCenterCarriesTheUnavailableLaunchAgentsDirectory() {
+  let overview = FleetOverviewPresentation.building(
+    snapshots: [],
+    notice: .launchAgentsUnreadable(
+      URL(fileURLWithPath: "/tmp/Library/LaunchAgents")),
+    readAt: controlCenterNow)
   #expect(
-    ControlCenterEmptyPresentation.building(
-      notice: .launchAgentsUnreadable(
-        URL(fileURLWithPath: "/tmp/Library/LaunchAgents")))
+    ControlCenterEmptyPresentation.building(overview: overview)
       == .launchAgentsUnavailable(directory: "/tmp/Library/LaunchAgents"))
 }
 
 @Test func emptyControlCenterCarriesEveryUnreadableRunnerPath() {
+  let overview = FleetOverviewPresentation.building(
+    snapshots: [],
+    notice: .unreadable([
+      URL(fileURLWithPath: "/tmp/actions.runner.a.plist"),
+      URL(fileURLWithPath: "/tmp/actions.runner.b.plist"),
+    ]), readAt: controlCenterNow)
   #expect(
-    ControlCenterEmptyPresentation.building(
-      notice: .unreadable([
-        URL(fileURLWithPath: "/tmp/actions.runner.a.plist"),
-        URL(fileURLWithPath: "/tmp/actions.runner.b.plist"),
-      ]))
+    ControlCenterEmptyPresentation.building(overview: overview)
       == .unreadableRunners(paths: [
         "/tmp/actions.runner.a.plist", "/tmp/actions.runner.b.plist",
       ]))

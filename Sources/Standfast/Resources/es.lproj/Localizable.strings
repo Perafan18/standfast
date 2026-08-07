@@ -30,10 +30,6 @@
 "menu.openOnGitHub" = "Abrir en GitHub";
 "menu.refreshNow" = "Actualizar ahora";
 "menu.quit" = "Salir";
-"menu.fleet" = "Flota — %@";
-"menu.fleetOverflow" = "Flota — %@ — %@";
-"menu.moreRunners.one" = "1 runner más con novedades";
-"menu.moreRunners" = "%@ runners más con novedades";
 "menu.controlCenter" = "Abrir Standfast";
 "menu.settings" = "Configuración";
 "menu.recentJobs" = "Trabajos recientes";
@@ -103,6 +99,7 @@
 "cleanup.partiallyFailed" = "Es posible que se hayan borrado algunos archivos, pero la limpieza no terminó; comprueba que se puede escribir en %@";
 
 "state.noRunners" = "No hay runners instalados en esta Mac";
+"state.checking" = "Consultando runners";
 "state.launchAgentsUnreadable" = "No se pudo leer el directorio LaunchAgents:";
 "state.unreadable" = "No se pudieron leer algunos archivos de runner:";
 "state.unreadable.more" = "…y más";

@@ -573,13 +573,18 @@ final class RunnerFleetModel: ObservableObject {
 
   // MARK: - Presenting
 
+  /// The one fleet-level readiness value every app surface consumes.
+  var overview: FleetOverviewPresentation {
+    .building(snapshots: snapshots, notice: notice, readAt: lastReadAt)
+  }
+
   /// The bounded menu projection, built only from values the latest scan has
   /// already read.
   func quickMenuPresentation(
     thermalLines: [String], now: Date = Date()
   ) -> QuickMenuPresentation {
     QuickMenuPresentation.building(
-      snapshots: snapshots, notice: notice, thermalLines: thermalLines,
+      snapshots: snapshots, overview: overview, thermalLines: thermalLines,
       readAt: lastReadAt, now: now)
   }
 
@@ -599,11 +604,12 @@ final class RunnerFleetModel: ObservableObject {
   /// accessor above, this reads only values already held by the model.
   func controlCenterPresentation(now: Date = Date()) -> ControlCenterPresentation {
     let cards = controlCenterCards(now: now)
+    let overview = overview
     return ControlCenterPresentation(
-      header: .building(snapshots: snapshots, readAt: lastReadAt, now: now),
+      header: .building(overview: overview, readAt: lastReadAt, now: now),
       cards: cards,
-      empty: cards.isEmpty ? .building(notice: notice) : nil,
-      notice: cards.isEmpty ? nil : .building(notice: notice))
+      empty: cards.isEmpty ? .building(overview: overview) : nil,
+      notice: cards.isEmpty ? nil : .building(overview: overview))
   }
 
   // MARK: - Acting

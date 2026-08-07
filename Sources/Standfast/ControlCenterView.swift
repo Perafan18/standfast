@@ -25,38 +25,40 @@ struct ControlCenterView: View {
   }
 
   var body: some View {
-    let presentation = fleet.controlCenterPresentation(now: Date())
-    VStack(spacing: 0) {
-      header(presentation.header)
+    TimelineView(.periodic(from: .now, by: 2)) { timeline in
+      let presentation = fleet.controlCenterPresentation(now: timeline.date)
+      VStack(spacing: 0) {
+        header(presentation.header)
 
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
-          if let notice = presentation.notice {
-            noticeView(notice)
-          }
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
+            if let notice = presentation.notice {
+              noticeView(notice)
+            }
 
-          if let empty = presentation.empty {
-            emptyView(empty)
-          } else {
-            ForEach(presentation.cards) { card in
-              RunnerCardView(
-                card: card,
-                performAction: { action in
-                  fleet.perform(action, onRunnerID: card.id)
-                },
-                performMaintenance: { offer in
-                  fleet.performMaintenance(offer, onRunnerID: card.id)
-                })
+            if let empty = presentation.empty {
+              emptyView(empty)
+            } else {
+              ForEach(presentation.cards) { card in
+                RunnerCardView(
+                  card: card,
+                  performAction: { action in
+                    fleet.perform(action, onRunnerID: card.id)
+                  },
+                  performMaintenance: { offer in
+                    fleet.performMaintenance(offer, onRunnerID: card.id)
+                  })
+              }
             }
           }
+          .padding(.horizontal, StandfastTheme.Spacing.large)
+          .padding(.vertical, StandfastTheme.Spacing.roomy)
         }
-        .padding(.horizontal, StandfastTheme.Spacing.large)
-        .padding(.vertical, StandfastTheme.Spacing.roomy)
       }
+      .frame(minWidth: StandfastTheme.controlCenterMinimumWidth)
+      .frame(maxHeight: .infinity)
+      .background(Color(nsColor: .windowBackgroundColor))
     }
-    .frame(minWidth: StandfastTheme.controlCenterMinimumWidth)
-    .frame(maxHeight: .infinity)
-    .background(Color(nsColor: .windowBackgroundColor))
   }
 
   private func header(_ presentation: ControlCenterHeaderPresentation) -> some View {
