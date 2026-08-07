@@ -214,7 +214,7 @@ uploads `_diag` contents and stores no credentials of its own; see
 ```sh
 git clone https://github.com/Perafan18/standfast
 cd standfast
-make test      # 565 tests, none of which needs a runner installed
+make test      # 566 tests, none of which needs a runner installed
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 make check     # the packaging check: assembles, deletes .build, launches
