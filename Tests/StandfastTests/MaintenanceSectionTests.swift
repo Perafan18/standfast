@@ -103,6 +103,23 @@ private func section(
   #expect(rows.offer(.cleanActionCache) != nil)
 }
 
+@Test func aLegacyStandfastGraveGetsItsOwnGenericRecovery() throws {
+  // A UUID-only grave proves Standfast made it, but not which cache it held.
+  // It needs a recovery action without appearing as tool/actions or as an
+  // unexplained runner file that no in-app action can reach.
+  let rows = section(
+    snapshot(display: .resolved(.idle)),
+    measurement: measured(legacyTrash: gigabyte))
+
+  let usage = try #require(rows.usage.first)
+  #expect(usage == L10n.diskStandfastTrash(ByteText.short(gigabyte)))
+  #expect(rows.offer(.cleanToolCache) == nil)
+  #expect(rows.offer(.cleanActionCache) == nil)
+  let recovery = try #require(rows.offer(.cleanStandfastTrash))
+  #expect(recovery.isEnabled)
+  #expect(recovery.label == L10n.cleanStandfastTrash(ByteText.short(gigabyte)))
+}
+
 @Test func logsAreOnlyOfferedWhenASweepWouldFreeSomething() {
   // A `_diag` of nothing but this week's logs is a `_diag` a sweep would leave
   // exactly as it found it.

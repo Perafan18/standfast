@@ -10,10 +10,15 @@ import RunnerKit
 final class FleetSandbox: @unchecked Sendable {
   let root: URL
   private let lock = NSLock()
-  private var running: Bool
+  private var running: Bool?
   private var remote: Result<RemoteStatus, GitHubError>
   private var scans = 0
   private var probes = 0
+  private var nextProbeBarrier: BlockingProbe?
+  private var nextDiscoveryBarrier: BlockingProbe?
+  private var nextRemoteBarrier: BlockingProbe?
+  private var nextReleaseBarrier: BlockingReleaseCheck?
+  private var discoveryFailure: DiscoveryFailure?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
   /// Held for the duration of every GitHub call, so a test can make a scan
@@ -24,10 +29,6 @@ final class FleetSandbox: @unchecked Sendable {
   private var releaseChecks = 0
   private var releaseQueues: [String] = []
   private var versionQueues: [String] = []
-  /// Held for the duration of every release check, the way `delay` is for the
-  /// status call — so a test can make the answer slow enough to tell whether
-  /// anything is waiting on it.
-  private var releaseDelay: TimeInterval = 0
 
   init(
     serviceRunning: Bool = false,
@@ -105,26 +106,54 @@ final class FleetSandbox: @unchecked Sendable {
     let sandbox: FleetSandbox
 
     func blockingLatestRunnerRelease() throws -> RunnerVersion {
-      typealias Answer = (Result<RunnerVersion, GitHubError>, TimeInterval)
+      typealias Answer = (Result<RunnerVersion, GitHubError>, BlockingReleaseCheck?)
       let answer = sandbox.withLock { () -> Answer in
         sandbox.releaseChecks += 1
         sandbox.releaseQueues.append(FleetSandbox.queueLabel())
-        return (sandbox.latest, sandbox.releaseDelay)
+        defer { sandbox.nextReleaseBarrier = nil }
+        return (sandbox.latest, sandbox.nextReleaseBarrier)
       }
-      // Outside the lock, like the status call's own delay: holding it would
-      // stop the very scan a test is trying to run alongside this.
-      if answer.1 > 0 { Thread.sleep(forTimeInterval: answer.1) }
+      answer.1?.block()
       return try answer.0.get()
     }
   }
 
-  func set(releaseDelay seconds: TimeInterval) { withLock { releaseDelay = seconds } }
-
-  func set(serviceRunning: Bool) { withLock { running = serviceRunning } }
+  func set(serviceRunning: Bool?) { withLock { running = serviceRunning } }
   func set(remote answer: Result<RemoteStatus, GitHubError>) {
     withLock { remote = answer }
   }
   func set(delay seconds: TimeInterval) { withLock { delay = seconds } }
+  func set(discoveryFailure failure: DiscoveryFailure?) {
+    withLock { discoveryFailure = failure }
+  }
+
+  /// Pauses the next local service probe before it reads `running`.
+  func blockNextProbe() -> BlockingProbe {
+    let barrier = BlockingProbe()
+    withLock { nextProbeBarrier = barrier }
+    return barrier
+  }
+
+  /// Pauses the next discovery only after it has read the filesystem result.
+  func blockNextDiscoveryAfterReading() -> BlockingProbe {
+    let barrier = BlockingProbe()
+    withLock { nextDiscoveryBarrier = barrier }
+    return barrier
+  }
+
+  /// Pauses the next GitHub answer after launchd has already been read.
+  func blockNextRemoteAnswer() -> BlockingProbe {
+    let barrier = BlockingProbe()
+    withLock { nextRemoteBarrier = barrier }
+    return barrier
+  }
+
+  /// Pauses the next latest-release answer until a test releases it.
+  func blockNextReleaseCheck() -> BlockingReleaseCheck {
+    let barrier = BlockingReleaseCheck()
+    withLock { nextReleaseBarrier = barrier }
+    return barrier
+  }
 
   /// A command runner that moves the sandbox's service the way `svc.sh` moves
   /// a real one, so a refresh landing mid-restart sees the service genuinely
@@ -301,8 +330,19 @@ final class FleetSandbox: @unchecked Sendable {
   var discover: @Sendable () -> DiscoveryResult {
     { [self] in
       let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
-      withLock { discoveryQueues.append(queue) }
-      return RunnerDiscovery(launchAgentsDirectory: launchAgents).discover()
+      let (failure, barrier) = withLock {
+        discoveryQueues.append(queue)
+        defer { nextDiscoveryBarrier = nil }
+        return (discoveryFailure, nextDiscoveryBarrier)
+      }
+      let found =
+        if let failure {
+          DiscoveryResult(runners: [], failure: failure)
+        } else {
+          RunnerDiscovery(launchAgentsDirectory: launchAgents).discover()
+        }
+      barrier?.block()
+      return found
     }
   }
 
@@ -311,10 +351,13 @@ final class FleetSandbox: @unchecked Sendable {
   var resolver: RunnerStateResolver {
     RunnerStateResolver(
       isServiceRunning: { [self] _ in
-        withLock {
+        let barrier = withLock {
           probes += 1
-          return running
+          defer { nextProbeBarrier = nil }
+          return nextProbeBarrier
         }
+        barrier?.block()
+        return withLock { running }
       },
       github: Client(sandbox: self))
   }
@@ -325,12 +368,14 @@ final class FleetSandbox: @unchecked Sendable {
 
     func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
       let queue = String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
-      let (answer, pause) = sandbox.withLock {
+      let (answer, pause, barrier) = sandbox.withLock {
         sandbox.scans += 1
         sandbox.queues.append(queue)
-        return (sandbox.remote, sandbox.delay)
+        defer { sandbox.nextRemoteBarrier = nil }
+        return (sandbox.remote, sandbox.delay, sandbox.nextRemoteBarrier)
       }
       if pause > 0 { Thread.sleep(forTimeInterval: pause) }
+      barrier?.block()
       return try answer.get()
     }
   }
@@ -359,6 +404,262 @@ final class TimingOutCommandRunner: CommandRunning, @unchecked Sendable {
   ) throws -> CommandResult {
     if let verb = arguments.last { onVerb(verb) }
     throw CommandError.timedOut(executable: executable)
+  }
+}
+
+/// A `svc.sh` that definitely did not complete, for distinguishing a known
+/// failure from a timeout whose effects cannot be known.
+final class FailingCommandRunner: CommandRunning, @unchecked Sendable {
+  private let onVerb: @Sendable (String) -> Void
+
+  init(onVerb: @escaping @Sendable (String) -> Void = { _ in }) { self.onVerb = onVerb }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    if let verb = arguments.last { onVerb(verb) }
+    throw DeliberateCommandFailure.failed
+  }
+
+  private enum DeliberateCommandFailure: Error { case failed }
+}
+
+/// Succeeds until one selected svc verb, for locating which half of Restart
+/// failed without replacing the controller's real stop-then-start sequence.
+final class FailingVerbCommandRunner: CommandRunning, @unchecked Sendable {
+  private let failingVerb: String
+  private let onVerb: @Sendable (String) -> Void
+  private let lock = NSLock()
+  private var seen: [String] = []
+
+  init(
+    failingVerb: String, onVerb: @escaping @Sendable (String) -> Void = { _ in }
+  ) {
+    self.failingVerb = failingVerb
+    self.onVerb = onVerb
+  }
+
+  var invocations: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return seen
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    let verb = arguments.last ?? ""
+    lock.lock()
+    seen.append(verb)
+    lock.unlock()
+    onVerb(verb)
+    if verb == failingVerb { throw DeliberateCommandFailure.failed }
+    return CommandResult(standardOutput: "", exitCode: 0)
+  }
+
+  private enum DeliberateCommandFailure: Error { case failed }
+}
+
+/// Succeeds until one selected svc verb times out, so Restart tests can tell a
+/// timeout in Stop from a timeout after Stop completed and Start was attempted.
+final class TimingOutVerbCommandRunner: CommandRunning, @unchecked Sendable {
+  private let timingOutVerb: String
+  private let onVerb: @Sendable (String) -> Void
+
+  init(
+    timingOutVerb: String, onVerb: @escaping @Sendable (String) -> Void = { _ in }
+  ) {
+    self.timingOutVerb = timingOutVerb
+    self.onVerb = onVerb
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    let verb = arguments.last ?? ""
+    onVerb(verb)
+    if verb == timingOutVerb { throw CommandError.timedOut(executable: executable) }
+    return CommandResult(standardOutput: "", exitCode: 0)
+  }
+}
+
+enum SecondCommandOutcome {
+  case definiteFailure
+  case timeout
+}
+
+/// Lets one Stop complete, then fails the next service command so a test can
+/// start a second lifecycle only after the first action released ownership.
+final class SecondCommandOutcomeRunner: CommandRunning, @unchecked Sendable {
+  private let outcome: SecondCommandOutcome
+  private let lock = NSLock()
+  private var seen: [String] = []
+
+  init(_ outcome: SecondCommandOutcome) { self.outcome = outcome }
+
+  var invocations: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return seen
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    let verb = arguments.last ?? ""
+    let invocation = lock.withLock {
+      seen.append(verb)
+      return seen.count
+    }
+    guard invocation == 2 else {
+      return CommandResult(standardOutput: "", exitCode: 0)
+    }
+    switch outcome {
+    case .definiteFailure: throw SecondCommandFailure.failed
+    case .timeout: throw CommandError.timedOut(executable: executable)
+    }
+  }
+
+  private enum SecondCommandFailure: Error { case failed }
+}
+
+/// Holds every command at a gate after recording it, so tests can act while a
+/// service mutation is definitely still in flight without racing a sleep.
+final class BlockingCommandRunner: CommandRunning, @unchecked Sendable {
+  private let lock = NSLock()
+  private let gate = DispatchSemaphore(value: 0)
+  private let failureAfterRelease: Bool
+  private let onReleaseVerb: @Sendable (String) -> Void
+  private var seen: [[String]] = []
+  private var completed = 0
+
+  init(
+    failureAfterRelease: Bool = false,
+    onReleaseVerb: @escaping @Sendable (String) -> Void = { _ in }
+  ) {
+    self.failureAfterRelease = failureAfterRelease
+    self.onReleaseVerb = onReleaseVerb
+  }
+
+  var invocations: [[String]] {
+    lock.lock()
+    defer { lock.unlock() }
+    return seen
+  }
+
+  func waitForInvocationCount(
+    _ count: Int, timeout: Duration = .seconds(1)
+  ) async throws {
+    try await wait(timeout: timeout) { self.invocations.count >= count }
+  }
+
+  func waitForCompletionCount(
+    _ count: Int, timeout: Duration = .seconds(1)
+  ) async throws {
+    try await wait(timeout: timeout) { self.completionCount >= count }
+  }
+
+  /// Signals may be issued before a command reaches the gate; the semaphore
+  /// keeps them, which lets a test release both the expected and buggy paths.
+  func release(_ count: Int = 1) {
+    for _ in 0..<count { gate.signal() }
+  }
+
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    lock.lock()
+    seen.append([executable] + arguments)
+    lock.unlock()
+
+    gate.wait()
+    if let verb = arguments.last { onReleaseVerb(verb) }
+    lock.lock()
+    completed += 1
+    lock.unlock()
+    if failureAfterRelease { throw DeliberateCommandFailure.failed }
+    return CommandResult(standardOutput: "", exitCode: 0)
+  }
+
+  private var completionCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return completed
+  }
+
+  private func wait(
+    timeout: Duration, until condition: () -> Bool
+  ) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition() {
+      guard clock.now < deadline else { throw WaitFailure.timedOut }
+      try await Task.sleep(for: .milliseconds(1))
+    }
+  }
+
+  private enum WaitFailure: Error { case timedOut }
+  private enum DeliberateCommandFailure: Error { case failed }
+}
+
+/// A one-shot gate placed immediately before the sandbox reads launchd state.
+final class BlockingProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private let gate = DispatchSemaphore(value: 0)
+  private var hasEntered = false
+
+  func waitUntilEntered(timeout: Duration = .seconds(1)) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !entered {
+      guard clock.now < deadline else { throw WaitFailure.timedOut }
+      try await Task.sleep(for: .milliseconds(1))
+    }
+  }
+
+  func release() { gate.signal() }
+
+  fileprivate func block() {
+    lock.lock()
+    hasEntered = true
+    lock.unlock()
+    gate.wait()
+  }
+
+  private var entered: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return hasEntered
+  }
+
+  private enum WaitFailure: Error { case timedOut }
+}
+
+/// A release-check gate whose entry is an event, not a scheduler deadline.
+/// The test using it has a generous test-level limit for broken implementations.
+final class BlockingReleaseCheck: @unchecked Sendable {
+  private let gate = DispatchSemaphore(value: 0)
+  private let entry: AsyncStream<Void>
+  private let entryContinuation: AsyncStream<Void>.Continuation
+
+  init() {
+    let signal = AsyncStream<Void>.makeStream()
+    entry = signal.stream
+    entryContinuation = signal.continuation
+  }
+
+  func waitUntilEntered() async {
+    for await _ in entry {
+      return
+    }
+  }
+
+  func release() { gate.signal() }
+
+  fileprivate func block() {
+    entryContinuation.yield()
+    entryContinuation.finish()
+    gate.wait()
   }
 }
 

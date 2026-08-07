@@ -229,18 +229,18 @@ private struct BrokenGitHub: GitHubClient {
 
 /// The label of the dispatch queue the calling thread is running on.
 ///
-/// The only signal that separates Swift's cooperative pool from
-/// `DispatchQueue.global()`: the former labels itself
-/// `com.apple.root.default-qos.cooperative`, the latter drops the suffix.
-/// `Thread.isMainThread` cannot tell them apart — it is false for both, because
-/// a nonisolated `async` function called from the main actor already hops off
-/// the main thread and onto the cooperative pool, which is precisely the pool
-/// that must not be blocked.
+/// The signal that distinguishes Swift's cooperative pool, the shared global
+/// queue and a dedicated Foundation thread: their labels end in
+/// `.cooperative`, have no suffix, and end in `.overcommit`, respectively.
+/// `Thread.isMainThread` cannot tell them apart — it is false for all three,
+/// because a nonisolated `async` function called from the main actor already
+/// hops off the main thread and onto the cooperative pool, which is precisely
+/// the pool that must not be blocked.
 private func currentQueueLabel() -> String {
-  String(cString: __dispatch_queue_get_label(nil))
+  String(validatingCString: __dispatch_queue_get_label(nil)) ?? ""
 }
 
-@Test @MainActor func theAsyncFacadeKeepsItsBlockingOffTheCooperativePool() async {
+@Test @MainActor func theAsyncFacadeUsesADedicatedBlockingThread() async {
   // The reason this overload exists. `blockingState(for:)` parks a whole
   // thread inside waitUntilExit, twice per call, for up to the command
   // timeout. The cooperative pool has one thread per core and runs every
@@ -263,7 +263,7 @@ private func currentQueueLabel() -> String {
 
   #expect(state == .idle)
   #expect(ran.onMainThread == false)
-  #expect(ran.queue?.hasSuffix(".cooperative") == false)
+  #expect(ran.queue?.hasSuffix(".overcommit") == true)
 }
 
 @Test func theAsyncFacadeAndTheBlockingCallAgreeOnEveryOutcome() async {
@@ -368,5 +368,27 @@ private func confirm(
     github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()))
 
   #expect(resolver.blockingConfirmedState(for: runner) == .idle)
+  #expect(counter.probes == 0)
+}
+
+@Test func aBusyRunnerIsNotClearedForHousekeepingWhenItIsOffline() {
+  // A runner can lose its connection while it is still executing an assigned
+  // job. For destructive housekeeping, that busy assignment settles the
+  // answer before launchctl is consulted: asking the local service would turn
+  // an in-flight job into either `.disconnected` or `.stopped`.
+  final class Counter: @unchecked Sendable {
+    var probes = 0
+  }
+  let counter = Counter()
+  let resolver = RunnerStateResolver(
+    isServiceRunning: { _ in
+      counter.probes += 1
+      return false
+    },
+    github: StubGitHub(
+      result: .success(RemoteStatus(online: false, busy: true)),
+      asked: StubGitHub.Recorder()))
+
+  #expect(resolver.blockingConfirmedState(for: runner) == .busy)
   #expect(counter.probes == 0)
 }

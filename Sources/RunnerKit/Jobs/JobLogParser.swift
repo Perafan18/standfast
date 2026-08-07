@@ -88,10 +88,16 @@ enum JobLogParser {
       (1...12).contains(month), (1...31).contains(day), (0...23).contains(hour),
       (0...59).contains(minute), (0...59).contains(second)
     else { return nil }
-    return utc.date(
-      from: DateComponents(
-        year: year, month: month, day: day, hour: hour, minute: minute,
-        second: second))
+    let requested = DateComponents(
+      year: year, month: month, day: day, hour: hour, minute: minute,
+      second: second)
+    guard let parsed = utc.date(from: requested) else { return nil }
+    let roundTrip = utc.dateComponents(
+      [.year, .month, .day, .hour, .minute, .second], from: parsed)
+    guard roundTrip.year == year, roundTrip.month == month, roundTrip.day == day,
+      roundTrip.hour == hour, roundTrip.minute == minute, roundTrip.second == second
+    else { return nil }
+    return parsed
   }
 
   private static let utc: Calendar = {

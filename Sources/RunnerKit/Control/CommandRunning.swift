@@ -29,9 +29,10 @@ public enum CommandError: Error {
 
 /// The seam every external command goes through.
 ///
-/// `launchctl`, `svc.sh` and `gh` are the whole of this app's contact with the
-/// system, and none of them exist on a machine running the test suite. Keeping
-/// them behind one protocol is what makes the state logic testable at all.
+/// `launchctl`, `svc.sh`, `gh` and `du` are the external commands this app
+/// invokes, and tests must not depend on any of them describing the host that
+/// runs the suite. Keeping them behind one protocol makes those boundaries
+/// deterministic and the state logic testable.
 public protocol CommandRunning: Sendable {
   /// Throws only when the process could not be launched or would not finish;
   /// a non-zero exit comes back in the result for the caller to interpret.
@@ -84,9 +85,7 @@ public struct ProcessCommandRunner: CommandRunning {
     }
 
     let watchdog = Watchdog(process)
-    let queue = DispatchQueue.global()
-    queue.asyncAfter(deadline: .now() + timeout) { watchdog.terminate() }
-    queue.asyncAfter(deadline: .now() + timeout + terminationGrace) { watchdog.forceKill() }
+    watchdog.arm(timeout: timeout, terminationGrace: terminationGrace)
 
     // Drain before waiting: a child that fills the pipe buffer blocks forever
     // if we wait first.
@@ -107,11 +106,27 @@ public struct ProcessCommandRunner: CommandRunning {
 /// a stranger.
 private final class Watchdog: @unchecked Sendable {
   private let lock = NSLock()
+  private let disarmed = DispatchSemaphore(value: 0)
   private let process: Process
   private var reaped = false
   private var fired = false
 
   init(_ process: Process) { self.process = process }
+
+  /// Keeps deadlines independent from the global dispatch pool. The command
+  /// itself is blocking work and several concurrent commands can occupy that
+  /// pool on older runtimes; scheduling their watchdogs behind them defeats
+  /// the timeout precisely when it is needed most.
+  func arm(timeout: TimeInterval, terminationGrace: TimeInterval) {
+    Thread.detachNewThread { [self] in
+      autoreleasepool {
+        guard disarmed.wait(timeout: .now() + timeout) == .timedOut else { return }
+        terminate()
+        guard disarmed.wait(timeout: .now() + terminationGrace) == .timedOut else { return }
+        forceKill()
+      }
+    }
+  }
 
   func terminate() { whileAlive { process.terminate() } }
 
@@ -120,9 +135,11 @@ private final class Watchdog: @unchecked Sendable {
   /// Stops the watchdog and reports whether it had already gone off.
   func disarm() -> Bool {
     lock.lock()
-    defer { lock.unlock() }
     reaped = true
-    return fired
+    let didFire = fired
+    lock.unlock()
+    disarmed.signal()
+    return didFire
   }
 
   private func whileAlive(_ signalIt: () -> Void) {

@@ -1,5 +1,5 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// The three things this app will interrupt somebody for, each its own switch.
 ///
@@ -63,6 +63,8 @@ enum NotificationAuthorization: Equatable {
 protocol NotificationDelivering {
   /// - Returns: whether notifications may be shown from now on.
   func requestAuthorization() async -> Bool
+  /// Reads macOS's current decision without presenting a prompt.
+  func authorizationStatus() async -> NotificationAuthorization
   func post(title: String, body: String, id: String)
 }
 
@@ -75,6 +77,17 @@ struct UserNotificationDelivery: NotificationDelivering {
     let granted = try? await UNUserNotificationCenter.current()
       .requestAuthorization(options: [.alert, .sound])
     return granted == true
+  }
+
+  func authorizationStatus() async -> NotificationAuthorization {
+    switch await UNUserNotificationCenter.current().notificationSettings()
+      .authorizationStatus
+    {
+    case .notDetermined: .notDetermined
+    case .denied: .denied
+    case .authorized, .provisional, .ephemeral: .authorized
+    @unknown default: .denied
+    }
   }
 
   func post(title: String, body: String, id: String) {
@@ -104,9 +117,10 @@ final class NotificationSettings: ObservableObject {
 
   private let delivery: any NotificationDelivering
   private let defaults: UserDefaults
-  /// Kept only so a test has something to wait on: the permission prompt is
-  /// asynchronous and the switch it belongs to is not.
+  /// Kept only so a test has something to wait on: permission reconciliation
+  /// is asynchronous and the switch it belongs to is not.
   private var request: Task<Void, Never>?
+  private var authorizationGeneration = 0
 
   init(
     delivery: any NotificationDelivering = UserNotificationDelivery(),
@@ -118,6 +132,7 @@ final class NotificationSettings: ObservableObject {
     // default this feature needs anyway.
     enabled = Set(
       NotificationKind.allCases.filter { defaults.bool(forKey: $0.defaultsKey) })
+    if !enabled.isEmpty { refreshAuthorization(requestPermission: false) }
   }
 
   func isEnabled(_ kind: NotificationKind) -> Bool { enabled.contains(kind) }
@@ -130,9 +145,20 @@ final class NotificationSettings: ObservableObject {
     // for a decision it has not got, so a second call costs nothing — and it is
     // the one moment this app can find out that somebody has since switched
     // Standfast off in System Settings.
-    request = Task { [delivery] in
-      let granted = await delivery.requestAuthorization()
-      authorization = granted ? .authorized : .denied
+    refreshAuthorization(requestPermission: true)
+  }
+
+  private func refreshAuthorization(requestPermission: Bool) {
+    authorizationGeneration += 1
+    let generation = authorizationGeneration
+    request?.cancel()
+    request = Task { [weak self, delivery] in
+      if requestPermission { _ = await delivery.requestAuthorization() }
+      let status = await delivery.authorizationStatus()
+      guard !Task.isCancelled, let self,
+        self.authorizationGeneration == generation
+      else { return }
+      self.authorization = status
     }
   }
 

@@ -74,6 +74,15 @@ private func ask(
   #expect(try ask(fake) == RemoteStatus(online: false, busy: false))
 }
 
+@Test(arguments: ["yes", "1", "TRUE"])
+func refusesBusyValuesOtherThanTheBooleanTokens(busy: String) {
+  // Treating any non-true token as false can authorize cleanup after malformed
+  // output. The only valid jq booleans are its exact lowercase spellings.
+  let fake = FakeCommandRunner([onPath(): "online \(busy)\n"])
+
+  #expect(throws: GitHubError.noAnswer) { try ask(fake) }
+}
+
 @Test func asksTheEndpointThatMatchesTheScope() throws {
   let path = "orgs/acme/actions/runners/21"
   let command = ["/usr/bin/env", "gh"] + ghArguments(path)

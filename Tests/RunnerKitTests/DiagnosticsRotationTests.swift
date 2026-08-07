@@ -203,7 +203,7 @@ private func log(
     at: sandbox.diagnostics.appendingPathComponent("Runner_20260102-000000-utc.log"),
     withIntermediateDirectories: true)
 
-  let listing = DiagnosticsFile.listing(in: sandbox.diagnostics)
+  let listing = try DiagnosticsFile.listing(in: sandbox.diagnostics)
   #expect(
     Set(listing.map(\.name)) == [
       "Runner_20260101-000000-utc.log", "Worker_20260101-000000-utc.log",
@@ -240,14 +240,14 @@ private func log(
   let before = reader.read(diagnosticsIn: sandbox.diagnostics)
   #expect(before.records.map(\.name) == ["build-3", "build-2", "build-1"])
 
-  let plan = Housekeeper.rotationPlan(
+  let plan = try Housekeeper.rotationPlan(
     for: sandbox.runner,
     // Every listener log here is older than the retention, so only the floor
     // stands between this sweep and the menu's history.
     retention: DiagnosticsRetention(keepFor: 7 * day, listenerLogsKept: 3), now: now)
   #expect(plan.doomed == [worker])
 
-  Housekeeper().blockingRotateDiagnostics(
+  try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner,
     retention: DiagnosticsRetention(keepFor: 7 * day, listenerLogsKept: 3), now: now,
     isStillSafe: { true })
@@ -295,7 +295,7 @@ private func log(
   var before = JobLogReader()
   #expect(before.read(diagnosticsIn: sandbox.diagnostics).records.map(\.name) == ["build"])
 
-  let outcome = Housekeeper().blockingRotateDiagnostics(
+  let outcome = try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner, now: now, isStillSafe: { true })
   #expect(outcome == .done)
   #expect(!sandbox.exists(worker))
@@ -323,7 +323,7 @@ private func log(
       modified: now.addingTimeInterval(-400 * day))
   }
 
-  Housekeeper().blockingRotateDiagnostics(
+  try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner,
     retention: DiagnosticsRetention(keepFor: 7 * day, listenerLogsKept: 1), now: now,
     isStillSafe: { true })

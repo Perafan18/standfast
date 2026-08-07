@@ -13,11 +13,20 @@ private func runner(_ name: String) -> DiscoveredRunner {
 
 private let plist = URL(
   fileURLWithPath: "/Users/someone/Library/LaunchAgents/actions.runner.a.b.plist")
+private let launchAgents = plist.deletingLastPathComponent()
 
 @Test func aCleanMacIsToldToInstallARunner() {
   // Not an error. Nothing was found because nothing is there, and the answer
   // is to install one rather than to go fixing something.
   #expect(FleetNotice.resolving(runners: [], unreadable: []) == .noRunnersInstalled)
+}
+
+@Test func aLaunchAgentsListingFailureWinsOverTheEmptyMachineNotice() {
+  let failure = DiscoveryFailure.launchAgentsUnreadable(launchAgents)
+
+  #expect(
+    FleetNotice.resolving(runners: [], unreadable: [], failure: failure)
+      == .launchAgentsUnreadable(launchAgents))
 }
 
 @Test func nothingFoundButSomethingUnreadableIsADifferentAnswer() {

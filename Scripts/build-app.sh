@@ -50,6 +50,11 @@ cp -R "$RESOURCES" "$DEST/Contents/Resources/"
 # macOS offer Standfast in the per-app language picker.
 cp -R "$RESOURCES"/*.lproj "$DEST/Contents/Resources/"
 
+# Compile the checked-in master into Apple's icon family before signing so the
+# resulting Standfast.icns is covered by the bundle's resource seal.
+./Scripts/build-icon.sh \
+  Resources/AppIcon.png "$DEST/Contents/Resources/Standfast.icns"
+
 # Signing is not a release-only concern, and dropping it breaks the app.
 #
 # SwiftPM leaves the executable linker-signed with the identifier `Standfast`,

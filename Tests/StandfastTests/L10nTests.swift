@@ -43,7 +43,9 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
   let everyString = [
     L10n.start, L10n.stop, L10n.restart, L10n.openOnGitHub, L10n.refreshNow,
-    L10n.quit, L10n.recentJobs, L10n.openAtLogin, L10n.openAtLoginFailed,
+    L10n.quit, L10n.quickMenuFleet(L10n.stateIdle), L10n.quickMenuMoreRunners(1),
+    L10n.controlCenter, L10n.settings, L10n.recentJobs, L10n.openAtLogin,
+    L10n.openAtLoginFailed,
     L10n.openAtLoginNeedsApproval, L10n.openAtLoginUnavailable,
     L10n.notifyMe, L10n.notifyJobFailed, L10n.notifyDisconnected, L10n.notifyStopped,
     L10n.notificationsBlocked, L10n.preventSleep, L10n.preventSleepLidNotice,
@@ -51,7 +53,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.notificationJobFailedTitle, L10n.notificationDisconnectedTitle,
     L10n.notificationStoppedTitle, L10n.notificationJobFailedBody("a", "b"),
     L10n.notificationDisconnectedBody("a"), L10n.notificationStoppedBody("a"),
-    L10n.noRunnersFound, L10n.someRunnersUnreadable, L10n.moreUnreadable,
+    L10n.noRunnersFound, L10n.launchAgentsUnreadable, L10n.someRunnersUnreadable,
+    L10n.moreUnreadable,
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
     L10n.stateUnknownNoAnswer, L10n.stateUnknownNoLocalAnswer,
@@ -67,12 +70,34 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.diskUnavailable, L10n.cleanupDelete, L10n.cleanupCancel,
     L10n.cleanupToolCacheEffect, L10n.cleanupActionCacheEffect,
     L10n.diskToolCache("a"), L10n.diskActionCache("a"), L10n.diskCheckouts("a"),
-    L10n.diskTemporary("a"), L10n.diskOther("a"), L10n.diskLogs("a"),
-    L10n.diskMeasuredAgo("a"), L10n.freeToolCache("a"), L10n.freeActionCache("a"),
+    L10n.diskTemporary("a"), L10n.diskOther("a"), L10n.diskStandfastTrash("a"),
+    L10n.diskLogs("a"), L10n.diskMeasuredAgo("a"), L10n.freeToolCache("a"),
+    L10n.freeActionCache("a"), L10n.cleanStandfastTrash("a"),
     L10n.deleteOldLogs("a"), L10n.runnerVersion("a"),
     L10n.runnerVersionOutdated("a", "b"), L10n.cleanupConfirmTitle("a"),
-    L10n.cleanupConfirmBody("a", "b"), L10n.cleanupLogsTitle(1, "a"),
-    L10n.cleanupLogsEffect(1), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
+    L10n.cleanupConfirmBody("a", "b"), L10n.cleanupStandfastTrashTitle("a"),
+    L10n.cleanupStandfastTrashEffect, L10n.cleanupLogsTitle(1, "a"),
+    L10n.cleanupLogsTitle(2, "a"), L10n.cleanupLogsEffect(1),
+    L10n.cleanupLogsEffect(2), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
+    L10n.cleanupPartiallyFailed("a"),
+    L10n.serviceOperationInFlightTitle("a"), L10n.serviceOperationInFlightDetail("a"),
+    L10n.serviceOperationAcceptedTitle("a"), L10n.serviceOperationAcceptedDetail("a"),
+    L10n.serviceOperationTimedOutTitle("a"), L10n.serviceOperationTimedOutDetail("a"),
+    L10n.serviceOperationScriptMissingTitle("a"),
+    L10n.serviceOperationScriptMissingDetail("a"),
+    L10n.serviceOperationCouldNotLaunchTitle("a"),
+    L10n.serviceOperationCouldNotLaunchDetail("a"),
+    L10n.serviceOperationUnexpectedFailureTitle("a"),
+    L10n.serviceOperationUnexpectedFailureDetail("a"),
+    L10n.serviceOperationRestartStartFailedTitle,
+    L10n.serviceOperationRestartStartFailedDetail,
+    L10n.serviceOperationRestartStartTimedOutTitle,
+    L10n.serviceOperationRestartStartTimedOutDetail,
+    L10n.statusItemLabel, L10n.controlCenterTitle,
+    L10n.controlCenterNoRunnersDescription, L10n.controlCenterScope,
+    L10n.controlCenterStatus, L10n.controlCenterService,
+    L10n.openWorkflowRuns, L10n.openRunnerSettings,
+    L10n.settingsNotifications, L10n.settingsPower, L10n.settingsStartup,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -91,6 +116,8 @@ private func speaking(_ localization: String) throws -> Bundle {
   let reached = Set(
     [
       "menu.start", "menu.stop", "menu.restart", "menu.openOnGitHub",
+      "menu.fleet", "menu.fleetOverflow", "menu.moreRunners.one",
+      "menu.moreRunners", "menu.controlCenter", "menu.settings",
       "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
       "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
       "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
@@ -101,7 +128,8 @@ private func speaking(_ localization: String) throws -> Bundle {
       "notification.jobFailed.body", "notification.disconnected.title",
       "notification.disconnected.body", "notification.stopped.title",
       "notification.stopped.body",
-      "state.noRunners", "state.unreadable", "state.unreadable.more", "state.idle",
+      "state.noRunners", "state.launchAgentsUnreadable", "state.unreadable",
+      "state.unreadable.more", "state.idle",
       "state.busy", "state.disconnected", "state.stopped", "state.starting",
       "state.unknown.noCLI", "state.unknown.notAuthenticated",
       "state.unknown.noAnswer", "state.unknown.noLocalAnswer", "state.checkedAgo",
@@ -112,15 +140,30 @@ private func speaking(_ localization: String) throws -> Bundle {
       "duration.hours", "duration.minutes", "duration.seconds",
       "menu.maintenance", "menu.maintenance.measure",
       "menu.maintenance.freeToolCache", "menu.maintenance.freeActionCache",
-      "menu.maintenance.trimLogs", "menu.maintenance.onlyWhenIdle",
+      "menu.maintenance.cleanStandfastTrash", "menu.maintenance.trimLogs",
+      "menu.maintenance.onlyWhenIdle",
       "menu.runnerVersion", "menu.runnerVersion.update",
       "disk.toolCache", "disk.actionCache", "disk.checkout", "disk.temporary",
-      "disk.other", "disk.logs", "disk.working", "disk.notMeasured",
+      "disk.other", "disk.standfastTrash", "disk.logs", "disk.working", "disk.notMeasured",
       "disk.measuredJustNow", "disk.measuredAgo", "disk.unavailable",
       "cleanup.confirm.title", "cleanup.confirm.body", "cleanup.confirm.delete",
       "cleanup.confirm.cancel", "cleanup.toolCache.effect",
-      "cleanup.actionCache.effect", "cleanup.logs.title", "cleanup.logs.effect",
-      "cleanup.refused", "cleanup.failed",
+      "cleanup.actionCache.effect", "cleanup.standfastTrash.title",
+      "cleanup.standfastTrash.effect", "cleanup.logs.title.one", "cleanup.logs.title",
+      "cleanup.logs.effect.one", "cleanup.logs.effect",
+      "cleanup.refused", "cleanup.failed", "cleanup.partiallyFailed",
+      "operation.inFlight.title", "operation.inFlight.detail",
+      "operation.accepted.title", "operation.accepted.detail",
+      "operation.timedOut.title", "operation.timedOut.detail",
+      "operation.scriptMissing.title", "operation.scriptMissing.detail",
+      "operation.couldNotLaunch.title", "operation.couldNotLaunch.detail",
+      "operation.unexpectedFailure.title", "operation.unexpectedFailure.detail",
+      "operation.restartStartFailed.title", "operation.restartStartFailed.detail",
+      "operation.restartStartTimedOut.title", "operation.restartStartTimedOut.detail",
+      "app.statusItem", "controlCenter.title", "controlCenter.noRunners.description",
+      "controlCenter.scope", "controlCenter.status", "controlCenter.service",
+      "controlCenter.openWorkflowRuns", "controlCenter.openRunnerSettings",
+      "settings.notifications", "settings.power", "settings.startup",
     ])
   #expect(everyKey == reached)
 }
@@ -161,6 +204,63 @@ private func speaking(_ localization: String) throws -> Bundle {
   #expect(L10n.t("state.stopped", in: [spanish]) == "Detenido")
 }
 
+@Test func oneOldLogUsesTheSingularInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.cleanupLogsTitle(1, "/tmp/runner", in: [english])
+      == "Delete 1 old log file from /tmp/runner?")
+  #expect(
+    L10n.cleanupLogsEffect(1, in: [english])
+      == "1 file nothing has written to in over a week. The log the runner is "
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.")
+  #expect(
+    L10n.cleanupLogsTitle(1, "/tmp/runner", in: [spanish])
+      == "¿Borrar 1 archivo de log antiguo de /tmp/runner?")
+  #expect(
+    L10n.cleanupLogsEffect(1, in: [spanish])
+      == "1 archivo en el que nadie escribe desde hace más de una semana. El log que "
+      + "el runner está escribiendo ahora nunca se borra, ni tampoco el historial que "
+      + "muestra el Centro de control de Standfast.")
+}
+
+@Test func pluralLogCleanupAlsoNamesTheControlCenterInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.cleanupLogsEffect(4, in: [english])
+      == "4 files nothing has written to in over a week. The log the runner is "
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.")
+  #expect(
+    L10n.cleanupLogsEffect(4, in: [spanish])
+      == "4 archivos en los que nadie escribe desde hace más de una semana. El log "
+      + "que el runner está escribiendo ahora nunca se borra, ni tampoco el historial "
+      + "que muestra el Centro de control de Standfast.")
+}
+
+@Test func overflowCopyIsNeutralAndGrammaticalInBothLanguages() throws {
+  let spanish = try speaking("es")
+  let englishOne = L10n.quickMenuMoreRunners(1, in: [])
+  let englishMany = L10n.quickMenuMoreRunners(3, in: [])
+
+  #expect(englishOne == "1 more runner update")
+  #expect(englishMany == "3 more runner updates")
+  #expect(
+    L10n.quickMenuFleet("Running a job", overflowCount: 1, in: [])
+      == "Fleet — Running a job — 1 more runner update")
+  #expect(
+    L10n.quickMenuFleet("Running a job", overflowCount: 3, in: [])
+      == "Fleet — Running a job — 3 more runner updates")
+  #expect(L10n.quickMenuMoreRunners(1, in: [spanish]) == "1 runner más con novedades")
+  #expect(
+    L10n.quickMenuMoreRunners(3, in: [spanish])
+      == "3 runners más con novedades")
+}
+
 @Test func everyUnknownReasonTellsTheUserWhatToDo() {
   // The likeliest thing a new user ever sees. "Unknown" on its own leaves them
   // with nothing to try, so each line has to be the instruction.
@@ -190,6 +290,7 @@ private func speaking(_ localization: String) throws -> Bundle {
   // — the job's name, how long it has been going, or what it usually takes —
   // and `String(format:)` will not say a word about it.
   let expected = [
+    "menu.fleet": 1, "menu.fleetOverflow": 2, "menu.moreRunners": 1,
     "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
     "job.rowNoDuration": 2, "state.checkedAgo": 1,
     // A banner is read out of the corner of an eye. A translation that dropped
@@ -202,13 +303,22 @@ private func speaking(_ localization: String) throws -> Bundle {
     // dropped one leaves a dialogue that does not say what is about to be
     // deleted, or does not say how much.
     "cleanup.confirm.title": 1, "cleanup.confirm.body": 2, "cleanup.failed": 1,
-    "cleanup.refused": 1, "cleanup.logs.title": 1,
+    "cleanup.partiallyFailed": 1, "cleanup.refused": 1,
+    "cleanup.standfastTrash.title": 1, "cleanup.logs.title": 1,
     // The size is the reason to press the button.
     "menu.maintenance.freeToolCache": 1, "menu.maintenance.freeActionCache": 1,
-    "menu.maintenance.trimLogs": 1, "disk.toolCache": 1, "disk.actionCache": 1,
-    "disk.checkout": 1, "disk.temporary": 1, "disk.other": 1, "disk.logs": 1,
+    "menu.maintenance.cleanStandfastTrash": 1, "menu.maintenance.trimLogs": 1,
+    "disk.toolCache": 1, "disk.actionCache": 1,
+    "disk.checkout": 1, "disk.temporary": 1, "disk.other": 1,
+    "disk.standfastTrash": 1, "disk.logs": 1,
     "disk.measuredAgo": 1,
     "menu.runnerVersion": 1, "menu.runnerVersion.update": 2,
+    "operation.inFlight.title": 1, "operation.inFlight.detail": 1,
+    "operation.accepted.title": 1, "operation.accepted.detail": 1,
+    "operation.timedOut.title": 1, "operation.timedOut.detail": 1,
+    "operation.scriptMissing.title": 1, "operation.scriptMissing.detail": 1,
+    "operation.couldNotLaunch.title": 1, "operation.couldNotLaunch.detail": 1,
+    "operation.unexpectedFailure.title": 1, "operation.unexpectedFailure.detail": 1,
   ]
   for language in ["en", "es"] {
     let catalogue = try catalogue(language)

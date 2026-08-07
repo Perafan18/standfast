@@ -71,6 +71,19 @@ func reportsNotRunningWhenTheListingDoesNotMentionTheLabel(listed: String) {
   #expect(LaunchctlProbe(commandRunner: fake).blockingIsRunning(label: "anything") == nil)
 }
 
+@Test func doesNotReadAListingFromALaunchctlCommandThatFailed() {
+  // A valid-looking table is not evidence when launchctl itself did not
+  // succeed. Returning false here would authorize housekeeping from a failed
+  // probe, so the only sound answer is nil.
+  let command = ["/bin/launchctl", "list"]
+  let fake = FakeCommandRunner([command: listing])
+  fake.exitCodes[command] = 1
+
+  #expect(
+    LaunchctlProbe(commandRunner: fake)
+      .blockingIsRunning(label: "actions.runner.acme-widget.build-mac") == nil)
+}
+
 @Test func keepsReadingPastALineItCannotParse() {
   // A truncated line must not end the scan: the runner being asked about may
   // still be further down the table.

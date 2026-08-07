@@ -45,9 +45,12 @@ import Testing
 
 @Test func aJobThatFailsWhileTheAppIsWatchingIsReported() {
   var watcher = FleetWatcher()
-  _ = watcher.events(in: [
-    snapshot(jobs: history([job("testflight", at: 1_785_950_000, result: .succeeded)]))
-  ])
+  // A successful empty read is a baseline, unlike an unavailable empty read.
+  // The failure appearing after it is therefore new and must be reported.
+  #expect(
+    watcher.events(in: [
+      snapshot(jobs: .empty, isJobHistoryAvailable: true)
+    ]).isEmpty)
 
   let events = watcher.events(in: [
     snapshot(
@@ -215,6 +218,200 @@ import Testing
   #expect(again == [.runnerDisconnected(runner: "build-mac")])
 }
 
+@Test func aDisconnectedReadingDuringStopIsProvisional() {
+  // Stop has been requested but svc.sh has not returned. launchd can still say
+  // running while GitHub has already moved the runner offline; that transient
+  // reading belongs to the mutation and must not announce a disconnection.
+  let requestedAt = Date(timeIntervalSince1970: 200)
+  var watcher = FleetWatcher()
+  let runner = snapshot(
+    display: .resolved(.idle), readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  watcher.expectStop(for: runner.runner.label, at: requestedAt)
+
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(1))
+  ])
+
+  #expect(events.isEmpty)
+}
+
+@Test func aFailedStopReplaysItsProvisionalDisconnection() {
+  // Deferring the in-flight transition must not erase it. If svc.sh then
+  // fails and revokes the stop intent, the unchanged next scan compares with
+  // the pre-click baseline and reports the real disconnection.
+  let requestedAt = Date(timeIntervalSince1970: 200)
+  var watcher = FleetWatcher()
+  let runner = snapshot(
+    display: .resolved(.idle), readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  _ = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(1))
+  ])
+
+  watcher.cancelExpectedStop(expectedStop)
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(2))
+  ])
+
+  #expect(events == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func nonStoppedReadingsInsideTheCompletionGracePreserveTheOrderedStop() {
+  // launchd can lag behind svc.sh returning, and GitHub can answer only after
+  // that local grace has ended. The local observation still belongs inside the
+  // grace; remote latency must neither spend its token nor announce it, and the
+  // stopped reading behind it must remain silent.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  for display in [
+    DisplayState.resolved(.idle),
+    .resolved(.busy),
+    .resolved(.disconnected),
+    .resolved(.unknown(.noAnswer)),
+  ] {
+    var watcher = FleetWatcher(expectedStopLifetime: 30)
+    let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+    _ = watcher.events(in: [runner])
+    let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+    watcher.completeExpectedStop(expectedStop, at: completedAt)
+
+    let provisional = watcher.events(in: [
+      snapshot(
+        display: display, readAt: completedAt.addingTimeInterval(29),
+        stateReadAt: completedAt.addingTimeInterval(31))
+    ])
+    let stopped = watcher.events(in: [
+      snapshot(
+        display: .resolved(.stopped),
+        readAt: completedAt.addingTimeInterval(32))
+    ])
+
+    #expect(provisional.isEmpty)
+    #expect(stopped.isEmpty)
+  }
+}
+
+@Test func anUncertainStopUsesLocalProbeTimeForItsCompletionGrace() {
+  // A timed-out command has the same local grace boundary. The remote answer
+  // crossing that deadline cannot announce a disconnection; once a new local
+  // probe itself reaches the deadline, uncertain intent expires as before.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 30)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(
+    expectedStop, outcome: .stopUncertain, at: completedAt)
+
+  let provisional = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(29),
+      stateReadAt: completedAt.addingTimeInterval(31))
+  ])
+  let expired = watcher.events(in: [
+    snapshot(
+      display: .resolved(.stopped),
+      readAt: completedAt.addingTimeInterval(32))
+  ])
+
+  #expect(provisional.isEmpty)
+  #expect(expired == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
+@Test func nonStoppedReadingsAtTheCompletionGraceDeadlineSpendTheOrderedStop() {
+  // The grace is bounded. Once its horizon is reached, a conclusive running
+  // state resolves the old intent so a later crash cannot inherit silence.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  for display in [
+    DisplayState.resolved(.idle),
+    .resolved(.busy),
+    .resolved(.disconnected),
+    .resolved(.unknown(.noAnswer)),
+  ] {
+    var watcher = FleetWatcher(expectedStopLifetime: 30)
+    let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+    _ = watcher.events(in: [runner])
+    let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+    watcher.completeExpectedStop(expectedStop, at: completedAt)
+
+    _ = watcher.events(in: [
+      snapshot(
+        display: display, readAt: completedAt.addingTimeInterval(30),
+        stateReadAt: completedAt.addingTimeInterval(30))
+    ])
+    let crash = watcher.events(in: [
+      snapshot(
+        display: .resolved(.stopped),
+        readAt: completedAt.addingTimeInterval(31))
+    ])
+
+    #expect(crash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+  }
+}
+
+@Test func cancellingDuringTheCompletionGraceReplaysItsDisconnection() {
+  // Definite failure revokes the only reason to defer this transition. The
+  // provisional reading must not have advanced the baseline while intent was
+  // present, or the same disconnection cannot be recovered after cancellation.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 30)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(expectedStop, at: completedAt)
+
+  let provisional = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(1),
+      stateReadAt: completedAt.addingTimeInterval(2))
+  ])
+  watcher.cancelExpectedStop(expectedStop)
+  let recovered = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(3),
+      stateReadAt: completedAt.addingTimeInterval(4))
+  ])
+
+  #expect(provisional.isEmpty)
+  #expect(recovered == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func aRemoteDisconnectionReadBeforeTheClickIsVisibleDuringTheGrace() {
+  // A late apply does not make an old remote answer part of Stop. Suppressing
+  // solely because its timestamp precedes the grace deadline would hide a real
+  // transition that GitHub had already reported before the click.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 30)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-2))
+  _ = watcher.events(in: [runner])
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(expectedStop, at: completedAt)
+
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(-1),
+      stateReadAt: requestedAt.addingTimeInterval(-0.5))
+  ])
+
+  #expect(events == [.runnerDisconnected(runner: "build-mac")])
+}
+
 @Test func aRunnerMidHandshakeIsNotCalledDisconnected() {
   // `.starting` is the settling window covering for a runner that GitHub has
   // not acknowledged yet. Underneath it the resolver is saying `.disconnected`,
@@ -262,10 +459,50 @@ import Testing
   let runner = snapshot()
   _ = watcher.events(in: [runner])
 
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
   let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
 
   #expect(events.isEmpty)
+}
+
+@Test func aScanReadBeforeTheClickCannotSpendTheExpectedStop() {
+  // A slow scan can start before Stop is pressed and land afterward. Its
+  // answer is older than the click, so seeing the runner up in that answer
+  // cannot prove the ordered stop has already been and gone.
+  let beforeClick = Date(timeIntervalSince1970: 100)
+  let clickedAt = Date(timeIntervalSince1970: 200)
+  let afterClick = Date(timeIntervalSince1970: 260)
+  var watcher = FleetWatcher()
+  let runner = snapshot(readAt: beforeClick.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: clickedAt)
+  #expect(
+    watcher.events(in: [snapshot(display: .resolved(.busy), readAt: beforeClick)]).isEmpty)
+  watcher.completeExpectedStop(
+    expectedStop, at: clickedAt.addingTimeInterval(50))
+
+  let events = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: afterClick)
+  ])
+  #expect(events.isEmpty)
+}
+
+@Test func aStoppedScanReadBeforeTheClickIsStillUnexpected() {
+  // The same ordering at the stop branch: a stale answer cannot be attributed
+  // to a click that had not happened when the machine was read.
+  let beforeClick = Date(timeIntervalSince1970: 100)
+  let clickedAt = Date(timeIntervalSince1970: 200)
+  var watcher = FleetWatcher()
+  let runner = snapshot(readAt: beforeClick.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+
+  watcher.expectStop(for: runner.runner.label, at: clickedAt)
+  let events = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: beforeClick)
+  ])
+
+  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
 @Test func theNextStopAfterAnOrderedOneIsReportedAgain() {
@@ -275,7 +512,8 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot()
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: runner.readAt)
+  watcher.completeExpectedStop(expectedStop, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
   #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
 
@@ -284,20 +522,56 @@ import Testing
   #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
-@Test func aRestartThatNeverLooksStoppedDoesNotLeaveItsTokenBehind() {
-  // A restart takes the service down for 1.5s, which a fifteen-second scan
-  // misses more often than not. The token taken out for a gap nobody observed
-  // has to be spent by the runner coming back up, or the next real crash is
-  // swallowed by a restart from an hour ago.
+@Test func aRestartStartingPresentationSettlesACompletedStopIntent() {
+  // Restart's settling window turns its post-start disconnection into
+  // `.starting`. That presentation means the stop half has already been and
+  // gone, so it must keep spending its token immediately rather than granting
+  // the next real crash the Stop grace.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
   var watcher = FleetWatcher()
-  let runner = snapshot()
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  let expectedStop = watcher.expectStop(
+    for: runner.runner.label, action: .restart, at: requestedAt)
+  watcher.completeExpectedStop(expectedStop, at: completedAt)
+
+  _ = watcher.events(in: [snapshot(display: .starting, readAt: completedAt)])
+  let crash = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(1))
+  ])
+
+  #expect(crash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
+@Test func aLaterSuccessfulRestartSupersedesAnEarlierExpectedStop() {
+  // Once a newer action succeeds, its evidence is the authoritative reason
+  // for the next stop. Spending that restart intent must not reveal an older
+  // completed Stop token that can silence a subsequent crash.
+  let firstRequestedAt = Date(timeIntervalSince1970: 100)
+  let firstCompletedAt = Date(timeIntervalSince1970: 101)
+  let secondRequestedAt = Date(timeIntervalSince1970: 102)
+  let secondCompletedAt = Date(timeIntervalSince1970: 103)
+  var watcher = FleetWatcher()
+  let runner = snapshot(readAt: firstRequestedAt.addingTimeInterval(-1))
   _ = watcher.events(in: [runner])
 
-  watcher.expectStop(for: runner.runner.label)
-  #expect(watcher.events(in: [snapshot(display: .resolved(.busy))]).isEmpty)
-  let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
+  let first = watcher.expectStop(for: runner.runner.label, at: firstRequestedAt)
+  watcher.completeExpectedStop(first, at: firstCompletedAt)
+  let second = watcher.expectStop(
+    for: runner.runner.label, action: .restart, at: secondRequestedAt)
+  watcher.completeExpectedStop(second, at: secondCompletedAt)
 
-  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+  _ = watcher.events(in: [
+    snapshot(display: .starting, readAt: secondCompletedAt)
+  ])
+  let crash = watcher.events(in: [
+    snapshot(
+      display: .resolved(.stopped),
+      readAt: secondCompletedAt.addingTimeInterval(1))
+  ])
+
+  #expect(crash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
 @Test func stoppingARunnerThatWasAlreadyStoppedStillSpendsTheToken() {
@@ -307,7 +581,8 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot(display: .resolved(.stopped))
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: runner.readAt)
+  watcher.completeExpectedStop(expectedStop, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
 
   #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
@@ -324,12 +599,60 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot()
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: runner.readAt)
+  watcher.completeExpectedStop(expectedStop, at: runner.readAt)
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
 
   // Started again from a terminal; GitHub has not registered it yet.
   #expect(watcher.events(in: [snapshot(display: .resolved(.disconnected))]).count == 1)
   let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
+
+  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
+@Test func aConfirmedStopWaitsForItsFirstObservationWithoutExpiring() {
+  // svc.sh returned success, so the stop is not a guess with a deadline. A
+  // slow fleet scan may reach this runner well after thirty seconds; its first
+  // stopped observation still belongs to the confirmed command.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 10)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(expectedStop, at: completedAt)
+
+  let orderedStop = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(100))
+  ])
+  #expect(orderedStop.isEmpty)
+
+  _ = watcher.events(in: [snapshot(display: .resolved(.idle))])
+  let laterCrash = watcher.events(in: [snapshot(display: .resolved(.stopped))])
+  #expect(laterCrash == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
+@Test func anUncertainStopIntentExpiresBeforeAFutureCrash() {
+  // A timeout may have stopped the service, so its immediate observation is
+  // suppressed. It may not buy silence forever when only inconclusive states
+  // arrive; the first stopped transition at the deadline is a new crash.
+  let requestedAt = Date(timeIntervalSince1970: 100)
+  let completedAt = Date(timeIntervalSince1970: 101)
+  var watcher = FleetWatcher(expectedStopLifetime: 10)
+  let runner = snapshot(readAt: requestedAt.addingTimeInterval(-1))
+  _ = watcher.events(in: [runner])
+  let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
+  watcher.completeExpectedStop(
+    expectedStop, outcome: .stopUncertain, at: completedAt)
+
+  _ = watcher.events(in: [
+    snapshot(
+      display: .resolved(.unknown(.serviceStateUnreadable)),
+      readAt: completedAt.addingTimeInterval(5))
+  ])
+  let events = watcher.events(in: [
+    snapshot(display: .resolved(.stopped), readAt: completedAt.addingTimeInterval(10))
+  ])
 
   #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
@@ -358,7 +681,7 @@ import Testing
   var watcher = FleetWatcher()
   let runner = snapshot()
   _ = watcher.events(in: [runner])
-  watcher.expectStop(for: runner.runner.label)
+  watcher.expectStop(for: runner.runner.label, at: runner.readAt)
 
   watcher.keepOnly([])
   _ = watcher.events(in: [snapshot(display: .resolved(.idle))])

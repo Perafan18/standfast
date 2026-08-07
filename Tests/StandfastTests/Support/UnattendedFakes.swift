@@ -17,12 +17,37 @@ final class FakeNotificationDelivery: NotificationDelivering {
 
   private(set) var posted: [Posted] = []
   private(set) var authorizationRequests = 0
+  private(set) var authorizationStatusReads = 0
+  private var pendingAuthorizationStatusReads:
+    [Int: CheckedContinuation<NotificationAuthorization, Never>] = [:]
   /// What macOS answers when asked. Set to false for the user who said no.
   var grants = true
+  /// What macOS currently says, independently of the answer returned by the
+  /// permission request itself.
+  var currentAuthorization: NotificationAuthorization = .authorized
+  var suspendsAuthorizationStatusReads = false
 
   func requestAuthorization() async -> Bool {
     authorizationRequests += 1
     return grants
+  }
+
+  func authorizationStatus() async -> NotificationAuthorization {
+    authorizationStatusReads += 1
+    let read = authorizationStatusReads
+    if suspendsAuthorizationStatusReads {
+      return await withCheckedContinuation { continuation in
+        pendingAuthorizationStatusReads[read] = continuation
+      }
+    }
+    return currentAuthorization
+  }
+
+  func resolveAuthorizationStatusRead(
+    _ read: Int, as authorization: NotificationAuthorization
+  ) {
+    pendingAuthorizationStatusReads.removeValue(forKey: read)?.resume(
+      returning: authorization)
   }
 
   func post(title: String, body: String, id: String) {
@@ -90,7 +115,9 @@ func scratchDefaults() -> UserDefaults {
 func snapshot(
   _ name: String = "build-mac", scope: String = "widget",
   display: DisplayState = .resolved(.idle), qualifier: String? = nil,
-  jobs: JobHistory = .empty, readAt: Date = Date(timeIntervalSince1970: 1_785_962_174),
+  jobs: JobHistory = .empty, isJobHistoryAvailable: Bool = true,
+  readAt: Date = Date(timeIntervalSince1970: 1_785_962_174),
+  stateReadAt: Date? = nil,
   version: RunnerVersion? = nil
 ) -> RunnerSnapshot {
   RunnerSnapshot(
@@ -99,6 +126,7 @@ func snapshot(
       directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: 7, agentName: name,
       scope: .repository(owner: "acme", name: scope)),
     display: display, qualifier: qualifier, jobs: jobs, readAt: readAt,
+    isJobHistoryAvailable: isJobHistoryAvailable, stateReadAt: stateReadAt,
     version: version)
 }
 
@@ -106,7 +134,7 @@ func snapshot(
 /// a disk without there being one.
 func measured(
   toolCache: Int64 = 0, actionCache: Int64 = 0, checkout: Int64 = 0, logs: Int64 = 0,
-  temporary: Int64 = 0, other: Int64 = 0,
+  temporary: Int64 = 0, other: Int64 = 0, legacyTrash: Int64 = 0,
   rotatable: Int64 = 0, rotatableCount: Int = 0,
   at readAt: Date = Date(timeIntervalSince1970: 1_785_962_174)
 ) -> DiskMeasurement {
@@ -121,7 +149,8 @@ func measured(
       logBytes: logs,
       rotation: DiagnosticsRotationPlan(
         doomed: (0..<rotatableCount).map { URL(fileURLWithPath: "/tmp/_diag/log\($0)") },
-        bytes: rotatable)),
+        bytes: rotatable),
+      legacyTrashBytes: legacyTrash),
     readAt: readAt)
 }
 

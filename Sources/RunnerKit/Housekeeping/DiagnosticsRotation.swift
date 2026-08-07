@@ -25,13 +25,25 @@ public struct DiagnosticsFile: Equatable, Sendable {
   /// Files only. `_diag` also holds `blocks/` and `pages/`, which are the
   /// runner's own store rather than logs, and a sweep that recursed into them
   /// would be deleting something it has no rule for.
-  public static func listing(in directory: URL) -> [DiagnosticsFile] {
+  ///
+  /// An empty result means there are no log files, including when a runner has
+  /// never started and has not created `_diag` yet. Every other enumeration
+  /// failure is thrown so callers cannot mistake it for a successful plan with
+  /// nothing to do.
+  public static func listing(in directory: URL) throws -> [DiagnosticsFile] {
     let keys: [URLResourceKey] = [
       .contentModificationDateKey, .fileSizeKey, .isRegularFileKey,
     ]
-    let entries =
-      (try? FileManager.default.contentsOfDirectory(
-        at: directory, includingPropertiesForKeys: keys)) ?? []
+    let entries: [URL]
+    do {
+      entries = try FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: keys)
+    } catch let error where FileSystemFailure.isMissing(error) {
+      // A runner that has never started has no `_diag` yet. That is the one
+      // listing failure equivalent to an empty directory; every other failure
+      // means the directory exists but could not be read.
+      return []
+    }
     return entries.compactMap { url in
       guard url.pathExtension == "log",
         let values = try? url.resourceValues(forKeys: Set(keys)),

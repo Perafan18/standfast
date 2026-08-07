@@ -50,11 +50,81 @@ private func job(
   let box = try ListenerLogSandbox()
   defer { box.cleanUp() }
   var reader = JobLogReader()
-  #expect(reader.read(diagnosticsIn: box.diagnostics) == .empty)
+  let empty = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(empty.history == .empty)
+  #expect(empty.isAvailable)
   // And a `_diag` that is not there at all — a runner directory removed while
   // the app was running.
-  #expect(
-    reader.read(diagnosticsIn: box.root.appendingPathComponent("gone")) == .empty)
+  let gone = reader.reading(
+    diagnosticsIn: box.root.appendingPathComponent("gone"))
+  #expect(gone.history == .empty)
+  #expect(gone.isAvailable)
+}
+
+@Test func aListingFailurePreservesHistoryUntilAnEmptyDirectoryIsConfirmed() throws {
+  // A failed listing is not evidence that the files disappeared. Park the real
+  // directory and put a regular file at `_diag`: this makes
+  // `contentsOfDirectory` fail deterministically without depending on the
+  // account running the suite honoring chmod restrictions.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  try box.writeLog(
+    startedAt: "20260805-173458",
+    job("testflight", from: "2026-08-05 20:36:14Z", to: "2026-08-05 20:38:59Z"))
+  var reader = JobLogReader()
+  let initial = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(initial.history.records.map(\.name) == ["testflight"])
+  #expect(initial.isAvailable)
+
+  let parked = box.root.appendingPathComponent("_diag-parked")
+  try FileManager.default.moveItem(at: box.diagnostics, to: parked)
+  try Data("temporarily unavailable".utf8).write(to: box.diagnostics)
+
+  let unavailable = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(unavailable.history.records.map(\.name) == ["testflight"])
+  #expect(unavailable.history.records.map(\.result) == [.succeeded])
+  #expect(!unavailable.isAvailable)
+  #expect(reader.activeLog?.lastPathComponent == "Runner_20260805-173458-utc.log")
+
+  // An actual, successfully listed empty directory is different evidence: the
+  // logs really are gone, so stale history and its active-log pointer must go.
+  try FileManager.default.removeItem(at: box.diagnostics)
+  try FileManager.default.createDirectory(
+    at: box.diagnostics, withIntermediateDirectories: true)
+  let confirmedEmpty = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(confirmedEmpty.history == .empty)
+  #expect(confirmedEmpty.isAvailable)
+  #expect(reader.activeLog == nil)
+}
+
+@Test func anUnreadableHistoricalLogEndsHistoryWithoutPoisoningTheActiveLog() throws {
+  // A rotated listener log can stay unreadable forever (wrong type, stale
+  // permissions) while the active listener keeps recording real work. History
+  // before that boundary may be incomplete, but the current log must remain
+  // available and keep advancing instead of retrying a poisoned cold start on
+  // every refresh.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  let historical = box.diagnostics.appendingPathComponent(
+    "Runner_20260805-000000-utc.log")
+  try FileManager.default.createDirectory(
+    at: historical, withIntermediateDirectories: true)
+  let active = try box.writeLog(
+    startedAt: "20260806-000000",
+    job("current", from: "2026-08-06 00:00:00Z", to: "2026-08-06 00:00:10Z"))
+  var reader = JobLogReader()
+
+  let initial = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(initial.isAvailable)
+  #expect(initial.history.records.map(\.name) == ["current"])
+  #expect(reader.activeLog?.lastPathComponent == active.lastPathComponent)
+
+  try box.append(
+    startedJob("next", at: "2026-08-06 00:01:00Z") + "\n", to: active)
+  let advanced = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(advanced.isAvailable)
+  #expect(advanced.history.records.map(\.name) == ["next", "current"])
+  #expect(advanced.history.running?.name == "next")
 }
 
 @Test func theWorkerLogsBesideItAreNeverOpened() throws {
@@ -294,9 +364,10 @@ private func job(
       + String(line.dropLast(4)), to: log)
 
   // The whole line in front of the fragment lands; the fragment does not.
-  let midWrite = reader.read(diagnosticsIn: box.diagnostics)
-  #expect(midWrite.running == nil)
-  #expect(midWrite.records.map(\.name) == ["lint"])
+  let midWrite = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(midWrite.isAvailable)
+  #expect(midWrite.history.running == nil)
+  #expect(midWrite.history.records.map(\.name) == ["lint"])
 
   try box.append(String(line.suffix(4)) + "\n", to: log)
 

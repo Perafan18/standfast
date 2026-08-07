@@ -5,12 +5,27 @@ import Foundation
 /// Call sites say `L10n.start`, so replacing `.strings` with a String Catalog,
 /// or dropping the catalogue entirely, touches this file and nothing else.
 enum L10n {
+  static let statusItemLabel = t("app.statusItem")
+  static let controlCenterTitle = t("controlCenter.title")
+  static let controlCenterNoRunnersDescription = t(
+    "controlCenter.noRunners.description")
+  static let controlCenterScope = t("controlCenter.scope")
+  static let controlCenterStatus = t("controlCenter.status")
+  static let controlCenterService = t("controlCenter.service")
+  static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
+  static let openRunnerSettings = t("controlCenter.openRunnerSettings")
+  static let settingsNotifications = t("settings.notifications")
+  static let settingsPower = t("settings.power")
+  static let settingsStartup = t("settings.startup")
+
   static let start = t("menu.start")
   static let stop = t("menu.stop")
   static let restart = t("menu.restart")
   static let openOnGitHub = t("menu.openOnGitHub")
   static let refreshNow = t("menu.refreshNow")
   static let quit = t("menu.quit")
+  static let controlCenter = t("menu.controlCenter")
+  static let settings = t("menu.settings")
   static let recentJobs = t("menu.recentJobs")
   static let openAtLogin = t("menu.openAtLogin")
   static let openAtLoginFailed = t("menu.openAtLogin.failed")
@@ -45,8 +60,10 @@ enum L10n {
   // whole reason these two are the only things this app offers to delete.
   static let cleanupToolCacheEffect = t("cleanup.toolCache.effect")
   static let cleanupActionCacheEffect = t("cleanup.actionCache.effect")
+  static let cleanupStandfastTrashEffect = t("cleanup.standfastTrash.effect")
 
   static let noRunnersFound = t("state.noRunners")
+  static let launchAgentsUnreadable = t("state.launchAgentsUnreadable")
   static let someRunnersUnreadable = t("state.unreadable")
   static let moreUnreadable = t("state.unreadable.more")
 
@@ -90,10 +107,74 @@ enum L10n {
   static let jobCanceled = t("job.result.canceled")
   static let jobInterrupted = t("job.result.interrupted")
 
+  static func serviceOperationInFlightTitle(_ action: String) -> String {
+    String(format: t("operation.inFlight.title"), action)
+  }
+  static func serviceOperationInFlightDetail(_ action: String) -> String {
+    String(format: t("operation.inFlight.detail"), action)
+  }
+  static func serviceOperationAcceptedTitle(_ action: String) -> String {
+    String(format: t("operation.accepted.title"), action)
+  }
+  static func serviceOperationAcceptedDetail(_ action: String) -> String {
+    String(format: t("operation.accepted.detail"), action)
+  }
+  static func serviceOperationTimedOutTitle(_ action: String) -> String {
+    String(format: t("operation.timedOut.title"), action)
+  }
+  static func serviceOperationTimedOutDetail(_ action: String) -> String {
+    String(format: t("operation.timedOut.detail"), action)
+  }
+  static func serviceOperationScriptMissingTitle(_ action: String) -> String {
+    String(format: t("operation.scriptMissing.title"), action)
+  }
+  static func serviceOperationScriptMissingDetail(_ action: String) -> String {
+    String(format: t("operation.scriptMissing.detail"), action)
+  }
+  static func serviceOperationCouldNotLaunchTitle(_ action: String) -> String {
+    String(format: t("operation.couldNotLaunch.title"), action)
+  }
+  static func serviceOperationCouldNotLaunchDetail(_ action: String) -> String {
+    String(format: t("operation.couldNotLaunch.detail"), action)
+  }
+  static func serviceOperationUnexpectedFailureTitle(_ action: String) -> String {
+    String(format: t("operation.unexpectedFailure.title"), action)
+  }
+  static func serviceOperationUnexpectedFailureDetail(_ action: String) -> String {
+    String(format: t("operation.unexpectedFailure.detail"), action)
+  }
+  static let serviceOperationRestartStartFailedTitle = t(
+    "operation.restartStartFailed.title")
+  static let serviceOperationRestartStartFailedDetail = t(
+    "operation.restartStartFailed.detail")
+  static let serviceOperationRestartStartTimedOutTitle = t(
+    "operation.restartStartTimedOut.title")
+  static let serviceOperationRestartStartTimedOutDetail = t(
+    "operation.restartStartTimedOut.detail")
+
   /// A runner's name and its state on one line. Localised because the dash and
   /// the spacing around it are not punctuation every language writes the same.
   static func runnerRow(_ name: String, _ state: String) -> String {
     String(format: t("menu.runnerRow"), name, state)
+  }
+
+  static func quickMenuFleet(
+    _ state: String, overflowCount: Int = 0,
+    in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    guard overflowCount > 0 else {
+      return String(format: t("menu.fleet", in: bundles), state)
+    }
+    return String(
+      format: t("menu.fleetOverflow", in: bundles), state,
+      quickMenuMoreRunners(overflowCount, in: bundles))
+  }
+
+  static func quickMenuMoreRunners(
+    _ count: Int, in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    guard count != 1 else { return t("menu.moreRunners.one", in: bundles) }
+    return String(format: t("menu.moreRunners", in: bundles), String(count))
   }
 
   /// The job in flight and how long it has been going.
@@ -181,6 +262,10 @@ enum L10n {
     String(format: t("disk.other"), size)
   }
 
+  static func diskStandfastTrash(_ size: String) -> String {
+    String(format: t("disk.standfastTrash"), size)
+  }
+
   static func diskLogs(_ size: String) -> String {
     String(format: t("disk.logs"), size)
   }
@@ -201,6 +286,10 @@ enum L10n {
 
   static func freeActionCache(_ size: String) -> String {
     String(format: t("menu.maintenance.freeActionCache"), size)
+  }
+
+  static func cleanStandfastTrash(_ size: String) -> String {
+    String(format: t("menu.maintenance.cleanStandfastTrash"), size)
   }
 
   static func deleteOldLogs(_ size: String) -> String {
@@ -229,12 +318,24 @@ enum L10n {
     String(format: t("cleanup.confirm.body"), size, runner)
   }
 
-  static func cleanupLogsTitle(_ count: Int, _ path: String) -> String {
-    String(format: t("cleanup.logs.title"), count, path)
+  static func cleanupStandfastTrashTitle(_ path: String) -> String {
+    String(format: t("cleanup.standfastTrash.title"), path)
   }
 
-  static func cleanupLogsEffect(_ count: Int) -> String {
-    String(format: t("cleanup.logs.effect"), count)
+  static func cleanupLogsTitle(
+    _ count: Int, _ path: String, in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    if count == 1 {
+      return String(format: t("cleanup.logs.title.one", in: bundles), count, path)
+    }
+    return String(format: t("cleanup.logs.title", in: bundles), count, path)
+  }
+
+  static func cleanupLogsEffect(
+    _ count: Int, in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    let key = count == 1 ? "cleanup.logs.effect.one" : "cleanup.logs.effect"
+    return String(format: t(key, in: bundles), count)
   }
 
   /// Said when the runner picked up work between the confirmation and the
@@ -246,6 +347,10 @@ enum L10n {
 
   static func cleanupFailed(_ path: String) -> String {
     String(format: t("cleanup.failed"), path)
+  }
+
+  static func cleanupPartiallyFailed(_ path: String) -> String {
+    String(format: t("cleanup.partiallyFailed"), path)
   }
 
   /// A runner's name and the GitHub scope it is registered against, for the
@@ -264,12 +369,30 @@ enum L10n {
   /// be enumerated cannot be tested. `Resources/en.lproj/Localizable.strings`
   /// has to say exactly this, and a test holds the two together.
   static let english: [String: String] = [
+    "app.statusItem": "Standfast",
+    "controlCenter.title": "Standfast Control Center",
+    "controlCenter.noRunners.description":
+      "Install a self-hosted GitHub Actions runner, then refresh.",
+    "controlCenter.scope": "Scope",
+    "controlCenter.status": "Status",
+    "controlCenter.service": "Runner service",
+    "controlCenter.openWorkflowRuns": "Open workflow runs",
+    "controlCenter.openRunnerSettings": "Open runner settings",
+    "settings.notifications": "Notifications",
+    "settings.power": "Power",
+    "settings.startup": "Startup",
     "menu.start": "Start",
     "menu.stop": "Stop",
     "menu.restart": "Restart",
     "menu.openOnGitHub": "Open on GitHub",
     "menu.refreshNow": "Refresh now",
     "menu.quit": "Quit",
+    "menu.fleet": "Fleet — %@",
+    "menu.fleetOverflow": "Fleet — %@ — %@",
+    "menu.moreRunners.one": "1 more runner update",
+    "menu.moreRunners": "%@ more runner updates",
+    "menu.controlCenter": "Open Standfast",
+    "menu.settings": "Settings",
     "menu.recentJobs": "Recent jobs",
     "menu.openAtLogin": "Open at login",
     "menu.openAtLogin.failed": "Open at login could not be turned on",
@@ -290,6 +413,8 @@ enum L10n {
     "menu.maintenance.measure": "Measure disk use",
     "menu.maintenance.freeToolCache": "Free up the tool cache (%@)…",
     "menu.maintenance.freeActionCache": "Free up downloaded actions (%@)…",
+    "menu.maintenance.cleanStandfastTrash":
+      "Delete Standfast cleanup leftovers (%@)…",
     "menu.maintenance.trimLogs": "Delete old logs (%@)…",
     "menu.maintenance.onlyWhenIdle":
       "Deleting is offered while this runner is idle or stopped",
@@ -302,6 +427,7 @@ enum L10n {
     "disk.checkout": "Repository checkouts — %@",
     "disk.temporary": "Job scratch space — %@",
     "disk.other": "Other runner files — %@",
+    "disk.standfastTrash": "Standfast cleanup leftovers — %@",
     "disk.logs": "Logs — %@",
     "disk.working": "Working…",
     "disk.notMeasured": "Disk use not measured yet",
@@ -318,13 +444,29 @@ enum L10n {
     "cleanup.actionCache.effect":
       "These are the actions your workflows use, checked out here. "
       + "The runner fetches back any it cannot find.",
+    "cleanup.standfastTrash.title":
+      "Delete Standfast cleanup leftovers from %@?",
+    "cleanup.standfastTrash.effect":
+      "These cache directories were moved aside by an earlier Standfast cleanup. "
+      + "Their old names no longer say which cache they held. Only UUID-named "
+      + "leftovers in Standfast's private trash are deleted; current caches and "
+      + "other files stay.",
+    "cleanup.logs.title.one": "Delete %d old log file from %@?",
     "cleanup.logs.title": "Delete %d old log files from %@?",
+    "cleanup.logs.effect.one":
+      "%d file nothing has written to in over a week. The log the runner is "
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.",
     "cleanup.logs.effect":
       "%d files nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history this menu shows.",
-    "cleanup.refused": "Nothing was deleted: %@ picked up work",
+      + "writing now is never deleted, and neither is the history shown in the "
+      + "Standfast Control Center.",
+    "cleanup.refused": "Cleanup stopped: %@ picked up work",
     "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
+    "cleanup.partiallyFailed":
+      "Some files may have been deleted, but cleanup did not finish; check that %@ is writable",
     "state.noRunners": "No runners installed on this Mac",
+    "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",
     "state.idle": "Idle — ready for jobs",
@@ -347,6 +489,27 @@ enum L10n {
     "job.result.failed": "Failed",
     "job.result.canceled": "Canceled",
     "job.result.interrupted": "Interrupted",
+    "operation.inFlight.title": "%@ request in progress",
+    "operation.inFlight.detail": "Wait for %@ to return.",
+    "operation.accepted.title": "%@ request sent",
+    "operation.accepted.detail":
+      "%@ returned, but the runner state is not confirmed. Refresh now.",
+    "operation.timedOut.title": "%@ request timed out",
+    "operation.timedOut.detail": "%@ may still have run. Wait, then Refresh now.",
+    "operation.scriptMissing.title": "%@ request could not run",
+    "operation.scriptMissing.detail":
+      "svc.sh is missing. Reinstall the runner, then try %@ again.",
+    "operation.couldNotLaunch.title": "%@ request could not launch",
+    "operation.couldNotLaunch.detail": "Check the runner directory, then try %@ again.",
+    "operation.unexpectedFailure.title": "%@ request failed",
+    "operation.unexpectedFailure.detail": "Check the runner files, then try %@ again.",
+    "operation.restartStartFailed.title":
+      "Restart stopped the runner, but could not start it",
+    "operation.restartStartFailed.detail": "Check the runner files, then try Start.",
+    "operation.restartStartTimedOut.title":
+      "Restart stopped the runner, but start timed out",
+    "operation.restartStartTimedOut.detail":
+      "Start may still have run. Wait, then Refresh now.",
     "thermal.serious": "This Mac is hot and macOS is slowing it down",
     "thermal.critical": "This Mac is very hot and macOS is slowing it right down",
     "thermal.slowingJobs": "That is why the job is taking longer than usual",

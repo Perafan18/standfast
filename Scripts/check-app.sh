@@ -48,7 +48,26 @@ fail() {
   exit 1
 }
 
+# Reject typos before doing a build whose evidence would otherwise be labeled
+# with a mode the script never understood.
+"$ROOT/Scripts/check-app-ax.sh" --validate
+
 plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist" 2>/dev/null; }
+
+SOURCE_ICON="$ROOT/Resources/AppIcon.png"
+[ -f "$SOURCE_ICON" ] || fail "Resources/AppIcon.png is missing"
+source_icon_format="$(sips -g format "$SOURCE_ICON" 2>/dev/null \
+  | awk '/format:/ { print $2 }')"
+[ "$source_icon_format" = "png" ] \
+  || fail "Resources/AppIcon.png is $source_icon_format, not PNG"
+source_icon_has_alpha="$(sips -g hasAlpha "$SOURCE_ICON" 2>/dev/null \
+  | awk '/hasAlpha:/ { print $2 }')"
+[ "$source_icon_has_alpha" = "no" ] \
+  || fail "Resources/AppIcon.png must be an opaque PNG (hasAlpha=$source_icon_has_alpha)"
+source_icon_dimensions="$(sips -g pixelWidth -g pixelHeight "$SOURCE_ICON" 2>/dev/null \
+  | awk '/pixelWidth:/ { width = $2 } /pixelHeight:/ { height = $2 } END { print width "x" height }')"
+[ "$source_icon_dimensions" = "1024x1024" ] \
+  || fail "Resources/AppIcon.png is $source_icon_dimensions, not 1024x1024"
 
 echo "==> Assembling the bundle"
 "$ROOT/Scripts/build-app.sh" >/dev/null
@@ -58,9 +77,38 @@ echo "==> Checking the bundle's shape"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist does not lint"
 [ -x "$APP/Contents/MacOS/Standfast" ] || fail "no executable in Contents/MacOS"
 [ "$(plist CFBundleIdentifier)" = "dev.standfast.app" ] || fail "wrong bundle identifier"
+[ "$(plist CFBundleIconFile)" = "Standfast" ] || fail "wrong bundle icon name"
 [ "$(plist LSUIElement)" = "true" ] || fail "LSUIElement is not set: this app would take a Dock tile"
 [ -d "$APP/Contents/Resources/Standfast_Standfast.bundle" ] \
   || fail "the SwiftPM resource bundle did not make it into the app"
+APP_ICON="$APP/Contents/Resources/Standfast.icns"
+[ -f "$APP_ICON" ] || fail "Standfast.icns is missing from the bundle"
+app_icon_format="$(sips -g format "$APP_ICON" 2>/dev/null \
+  | awk '/format:/ { print $2 }')"
+[ "$app_icon_format" = "icns" ] || fail "Standfast.icns is not an ICNS file"
+APP_ICONSET="$STAGE/Standfast.iconset"
+/usr/bin/iconutil -c iconset "$APP_ICON" -o "$APP_ICONSET" \
+  || fail "Standfast.icns could not be expanded as an iconset"
+for icon_specification in \
+  icon_16x16.png:16 \
+  icon_16x16@2x.png:32 \
+  icon_32x32.png:32 \
+  icon_32x32@2x.png:64 \
+  icon_128x128.png:128 \
+  icon_128x128@2x.png:256 \
+  icon_256x256.png:256 \
+  icon_256x256@2x.png:512 \
+  icon_512x512.png:512 \
+  icon_512x512@2x.png:1024; do
+  icon_name="${icon_specification%%:*}"
+  expected_pixels="${icon_specification##*:}"
+  icon_file="$APP_ICONSET/$icon_name"
+  [ -f "$icon_file" ] || fail "Standfast.icns is missing $icon_name"
+  icon_dimensions="$(sips -g pixelWidth -g pixelHeight "$icon_file" 2>/dev/null \
+    | awk '/pixelWidth:/ { width = $2 } /pixelHeight:/ { height = $2 } END { print width "x" height }')"
+  [ "$icon_dimensions" = "${expected_pixels}x${expected_pixels}" ] \
+    || fail "$icon_name is $icon_dimensions, not ${expected_pixels}x${expected_pixels}"
+done
 # The identifier `codesign` reports, not the one Info.plist claims. Until the
 # bundle is signed the two differ — SwiftPM leaves the executable linker-signed
 # as `Standfast` with Info.plist unbound — and an app with no bundle identity
@@ -139,48 +187,19 @@ for _ in $(seq "$ALIVE_SECONDS"); do
 done
 echo "    still alive after ${ALIVE_SECONDS}s"
 
-# Best effort from here down: reading another process's menu needs Accessibility
-# permission, which a CI runner does not have and cannot be asked for. Reported
-# as skipped rather than failed so this script stays usable from CI, where the
-# launch above is still the check that matters.
-echo "==> Reading the menu (needs Accessibility permission)"
-# Menu bar 2, not 1: an agent app still gets a main menu bar it never shows,
-# and that is the one holding the Apple menu. Status items live in the second.
-menu="$(osascript 2>/dev/null <<'APPLESCRIPT' || true
-tell application "System Events"
-  tell process "Standfast"
-    if not (exists menu bar item 1 of menu bar 2) then return ""
-    click menu bar item 1 of menu bar 2
-    delay 1.5
-    set names to name of every menu item of menu 1 of menu bar item 1 of menu bar 2
-    key code 53
-    return names as text
-  end tell
-end tell
-APPLESCRIPT
-)"
-if [ -z "$menu" ]; then
-  echo "    SKIPPED: no Accessibility permission, or no status item to read"
-else
-  echo "    menu: $menu"
-  # Dotted identifiers are what a menu looks like when every lookup missed and
-  # the built-in English was not there to catch it.
-  case "$menu" in
-    # One pattern per family of keys in L10n. A new family that is not added
-    # here is a family this check silently stops covering.
-    *menu.*|*state.*|*job.*|*duration.*|*thermal.*|*notification.*)
-      fail "the menu is showing raw localisation keys" ;;
-  esac
-fi
+AX_CHECK_STATUS=0
+"$ROOT/Scripts/check-app-ax.sh" "$PID" || AX_CHECK_STATUS=$?
 
 echo "==> Checking it stays out of the Dock"
-background="$(osascript -e \
-  'tell application "System Events" to get background only of process "Standfast"' \
+background="$(CHECK_PID="$PID" osascript -e \
+  'tell application "System Events" to get background only of (first process whose unix id is ((system attribute "CHECK_PID") as integer))' \
   2>/dev/null || true)"
 case "$background" in
   true) echo "    background only: no Dock tile" ;;
   "") echo "    SKIPPED: could not read the process list" ;;
   *) fail "the app is not background-only; LSUIElement did not take effect" ;;
 esac
+
+[ "$AX_CHECK_STATUS" -eq 0 ] || exit "$AX_CHECK_STATUS"
 
 echo "PASS"

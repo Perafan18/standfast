@@ -26,7 +26,19 @@ struct RunnerConfig: Decodable, Equatable, Sendable {
     agentId = try container.decode(Int.self, forKey: .agentId)
     gitHubUrl = try container.decode(String.self, forKey: .gitHubUrl)
     agentName = container.cosmeticString(forKey: .agentName, default: "")
-    workFolder = container.cosmeticString(forKey: .workFolder, default: "_work")
+    let decodedWorkFolder = container.cosmeticString(forKey: .workFolder, default: "_work")
+    guard Self.isSafeRelativeWorkFolder(decodedWorkFolder) else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .workFolder, in: container,
+        debugDescription: "workFolder must stay inside the runner directory")
+    }
+    workFolder = decodedWorkFolder
+  }
+
+  private static func isSafeRelativeWorkFolder(_ folder: String) -> Bool {
+    let components = NSString(string: folder).pathComponents
+    guard !components.isEmpty, components.first != "/" else { return false }
+    return !components.contains { $0 == "." || $0 == ".." }
   }
 }
 

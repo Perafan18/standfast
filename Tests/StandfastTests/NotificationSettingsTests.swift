@@ -47,6 +47,22 @@ private func settings(
   #expect(notifications.authorization == .authorized)
 }
 
+@Test @MainActor func enablingASwitchReadsTheSystemVerdictAfterRequestingPermission()
+  async
+{
+  let delivery = FakeNotificationDelivery()
+  delivery.grants = true
+  delivery.currentAuthorization = .denied
+  let notifications = settings(delivery)
+
+  notifications.setEnabled(.jobFailed, true)
+  await notifications.quiesce()
+
+  #expect(delivery.authorizationRequests == 1)
+  #expect(delivery.authorizationStatusReads == 1)
+  #expect(notifications.authorization == .denied)
+}
+
 @Test @MainActor func switchingSomethingOffAsksForNothing() async {
   let delivery = FakeNotificationDelivery()
   let notifications = settings(delivery)
@@ -66,6 +82,7 @@ private func settings(
   // waiting for a warning that can never arrive.
   let delivery = FakeNotificationDelivery()
   delivery.grants = false
+  delivery.currentAuthorization = .denied
   let notifications = settings(delivery)
 
   notifications.setEnabled(.runnerDisconnected, true)
@@ -94,6 +111,72 @@ private func settings(
   #expect(second.isEnabled(.jobFailed))
   #expect(second.isEnabled(.runnerStopped))
   #expect(!second.isEnabled(.runnerDisconnected))
+}
+
+@Test @MainActor func relaunchWithAnEnabledSwitchRestoresAuthorizedSystemState()
+  async
+{
+  let defaults = scratchDefaults()
+  defaults.set(true, forKey: NotificationKind.jobFailed.defaultsKey)
+  let delivery = FakeNotificationDelivery()
+  delivery.currentAuthorization = .authorized
+
+  let notifications = settings(delivery, defaults: defaults)
+  await notifications.quiesce()
+
+  #expect(delivery.authorizationRequests == 0)
+  #expect(delivery.authorizationStatusReads == 1)
+  #expect(notifications.authorization == .authorized)
+}
+
+@Test @MainActor func relaunchWithAnEnabledSwitchRestoresDeniedSystemState()
+  async
+{
+  let defaults = scratchDefaults()
+  defaults.set(true, forKey: NotificationKind.runnerStopped.defaultsKey)
+  let delivery = FakeNotificationDelivery()
+  delivery.currentAuthorization = .denied
+
+  let notifications = settings(delivery, defaults: defaults)
+  await notifications.quiesce()
+
+  #expect(delivery.authorizationRequests == 0)
+  #expect(delivery.authorizationStatusReads == 1)
+  #expect(notifications.authorization == .denied)
+  #expect(notifications.notice != nil)
+}
+
+@Test @MainActor func staleRelaunchReadCannotOverwriteANewerPermissionVerdict()
+  async
+{
+  let defaults = scratchDefaults()
+  defaults.set(true, forKey: NotificationKind.jobFailed.defaultsKey)
+  let delivery = FakeNotificationDelivery()
+  delivery.suspendsAuthorizationStatusReads = true
+  let notifications = settings(delivery, defaults: defaults)
+  for _ in 0..<100 where delivery.authorizationStatusReads < 1 {
+    await Task.yield()
+  }
+  #expect(delivery.authorizationStatusReads >= 1)
+  guard delivery.authorizationStatusReads >= 1 else { return }
+
+  notifications.setEnabled(.runnerStopped, true)
+  for _ in 0..<100 where delivery.authorizationStatusReads < 2 {
+    await Task.yield()
+  }
+  #expect(delivery.authorizationStatusReads >= 2)
+  guard delivery.authorizationStatusReads >= 2 else {
+    delivery.resolveAuthorizationStatusRead(1, as: .denied)
+    return
+  }
+  delivery.resolveAuthorizationStatusRead(2, as: .authorized)
+  await notifications.quiesce()
+  #expect(notifications.authorization == .authorized)
+
+  delivery.resolveAuthorizationStatusRead(1, as: .denied)
+  for _ in 0..<5 { await Task.yield() }
+
+  #expect(notifications.authorization == .authorized)
 }
 
 @Test @MainActor func everySwitchIsRememberedSomewhereOfItsOwn() {

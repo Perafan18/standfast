@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import RunnerKit
 import Testing
@@ -79,7 +80,8 @@ private struct UntouchableFileOperations: DestructiveFileOperations {
 @MainActor
 private func listening(
   _ sandbox: FleetSandbox, commands: any CommandRunning = RecordingCommandRunner(),
-  settleDelay: TimeInterval = 0, probeDelay: TimeInterval = 0
+  settleDelay: TimeInterval = 0, probeDelay: TimeInterval = 0,
+  clock: @escaping @Sendable () -> Date = Date.init
 ) async -> (RunnerFleetModel, FakeNotificationDelivery) {
   let delivery = FakeNotificationDelivery()
   let notifications = NotificationSettings(
@@ -89,9 +91,39 @@ private func listening(
   return (
     model(
       sandbox, commands: commands, settleDelay: settleDelay, probeDelay: probeDelay,
-      notifications: notifications),
+      clock: clock, notifications: notifications),
     delivery
   )
+}
+
+@MainActor
+private func waitUntil(
+  timeout: Duration = .seconds(1), _ condition: () -> Bool
+) async throws {
+  let clock = ContinuousClock()
+  let deadline = clock.now.advanced(by: timeout)
+  while !condition() {
+    guard clock.now < deadline else { throw TestWaitFailure.timedOut }
+    try await Task.sleep(for: .milliseconds(1))
+  }
+}
+
+private enum TestWaitFailure: Error { case timedOut }
+
+@MainActor
+private func waitForFirstSnapshot(from fleet: RunnerFleetModel) async {
+  for await snapshots in fleet.$snapshots.values where !snapshots.isEmpty {
+    return
+  }
+}
+
+private struct CouldNotLaunchCommandRunner: CommandRunning {
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    throw CommandError.couldNotLaunch(
+      executable: executable, underlying: NSError(domain: "test", code: 1))
+  }
 }
 
 // MARK: - Reading the machine
@@ -301,14 +333,18 @@ private func listening(
   let directory = try box.addRunner()
   try box.writeListenerLog(
     in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z", finished: nil)
-  // Eighty seconds after the job began, and moving on every reading.
+  // Eighty seconds after the job began at global scan start, and moving on
+  // every reading. Discovery is dated thirty seconds later for absence, then
+  // this runner's own launchd probe another thirty seconds after that. The
+  // latter is still the instant a present runner's snapshot represents.
   let clock = TestClock(Date(timeIntervalSince1970: 1_785_962_174 + 80), step: 30)
   let fleet = model(box, clock: clock.read)
 
   await fleet.quiesce()
 
-  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(80)) == true)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(140)) == true)
   #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(110)) == false)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(80)) == false)
 }
 
 @Test @MainActor func aRunnerStillInstalledIsNotReReadFromScratchEachTime()
@@ -614,6 +650,78 @@ private func listening(
 
 // MARK: - Acting on one runner, not on the machine
 
+@Test @MainActor func oneRunnerAcceptsOnlyOneServiceActionAtATime() async throws {
+  // Hold Start inside svc.sh, then press every service button again. All three
+  // overlap the same label and therefore belong to the one ignored group.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  try await commands.waitForInvocationCount(1)
+  fleet.start(runner)
+  fleet.stop(runner)
+  fleet.restart(runner)
+  commands.release(10)
+  await fleet.quiesce()
+
+  #expect(commands.invocations.map(\.last) == ["start"])
+}
+
+@Test @MainActor func differentRunnersCanActAtTheSameTime() async throws {
+  // The first command is still blocked when the second reaches the runner, so
+  // this proves the guard is keyed by label rather than fleet-wide.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "build-mac", scope: "widget")
+  try box.addRunner(name: "release-mac", scope: "gadget")
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let runners = Dictionary(
+    uniqueKeysWithValues: fleet.snapshots.map {
+      ($0.runner.displayName, $0.runner)
+    })
+
+  fleet.start(runners["build-mac"]!)
+  try await commands.waitForInvocationCount(1)
+  fleet.stop(runners["release-mac"]!)
+  try await commands.waitForInvocationCount(2)
+  commands.release(10)
+  await fleet.quiesce()
+
+  #expect(Set(commands.invocations.compactMap(\.last)) == ["start", "stop"])
+}
+
+@Test @MainActor func openingGitHubIsNotBlockedByAServiceAction() async throws {
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner(scope: "widget")
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let opener = FakeURLOpener()
+  let fleet = model(box, commands: commands, opener: opener)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  try await commands.waitForInvocationCount(1)
+  fleet.perform(.openOnGitHub, on: runner)
+
+  #expect(
+    opener.urls.map(\.absoluteString) == [
+      "https://github.com/acme/widget/actions"
+    ])
+  commands.release()
+  await fleet.quiesce()
+}
+
 @Test @MainActor func anActionThatCouldNotRunOpensNoWindow() async throws {
   // Half-uninstalled runner: no `svc.sh`, so Start throws before anything
   // happens. Nothing was started, so nothing is settling, and the state the
@@ -690,6 +798,340 @@ private func listening(
   await fleet.quiesce()
 
   #expect(box.probeCount > before)
+}
+
+// MARK: - Service-operation outcomes
+
+@Test @MainActor func aServiceActionPublishesInFlightBeforeItsCommandReturns() async throws
+{
+  // Removing the synchronous publication lets a menu click look ignored until
+  // a blocked `svc.sh` returns, even though this runner is already reserved.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+
+  #expect(fleet.operations[runner.label]?.action == .start)
+  #expect(fleet.operations[runner.label]?.phase == .inFlight)
+  #expect(fleet.snapshots[0].operation?.phase == .inFlight)
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func aReturnedServiceCommandIsAcceptedNotAProvedRunnerState() async throws
+{
+  for (kind, action) in [
+    (RunnerRow.Action.Kind.start, ServiceOperationAction.start),
+    (.stop, .stop), (.restart, .restart),
+  ] {
+    let box = try FleetSandbox(serviceRunning: false)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let fleet = model(box)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.perform(kind, on: runner)
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label]?.action == action)
+    #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+  }
+}
+
+@Test @MainActor func serviceCommandFailuresPublishTheirSpecificOutcome() async throws {
+  let cases: [(any CommandRunning, RunnerRow.Action.Kind, ServiceOperationPhase)] = [
+    (TimingOutCommandRunner(), .start, .uncertain(.commandTimedOut)),
+    (FailingCommandRunner(), .start, .failed(.unexpectedFailure)),
+    (CouldNotLaunchCommandRunner(), .stop, .failed(.commandCouldNotLaunch)),
+  ]
+  for (commands, kind, phase) in cases {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let fleet = model(box, commands: commands)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.perform(kind, on: runner)
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label]?.phase == phase)
+  }
+}
+
+@Test @MainActor func aMissingServiceScriptPublishesTheSpecificFailure() async throws {
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner(withScript: false)
+  let fleet = model(box)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  await fleet.quiesce()
+
+  #expect(fleet.operations[runner.label]?.phase == .failed(.scriptMissing))
+}
+
+@Test @MainActor func restartSeparatesAFailedStartFromATimedOutStart() async throws {
+  for (commands, phase) in [
+    (
+      FailingVerbCommandRunner(failingVerb: "start") as any CommandRunning,
+      ServiceOperationPhase.failed(.restartStartFailed)
+    ),
+    (
+      TimingOutVerbCommandRunner(timingOutVerb: "start") as any CommandRunning,
+      .uncertain(.restartStartTimedOut)
+    ),
+  ] {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let fleet = model(box, commands: commands)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.restart(runner)
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label]?.phase == phase)
+  }
+}
+
+@Test @MainActor func eachRunnerRetainsItsOwnOutcomeAndANewActionOnlyReplacesItsOwn()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "first", scope: "widget")
+  try box.addRunner(name: "second", scope: "gadget")
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let first = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "first" }?.runner)
+  let second = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "second" }?.runner)
+
+  fleet.stop(first)
+  try await commands.waitForInvocationCount(1)
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.operations[first.label]?.phase == .requestAccepted)
+
+  fleet.stop(second)
+  try await commands.waitForInvocationCount(2)
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.operations[second.label]?.phase == .requestAccepted)
+
+  fleet.start(first)
+  try await commands.waitForInvocationCount(3)
+  #expect(fleet.operations[first.label]?.phase == .inFlight)
+  #expect(fleet.operations[second.label]?.phase == .requestAccepted)
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor
+func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  await fleet.quiesce()
+  #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+
+  box.set(discoveryFailure: nil)
+  try box.removeRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.operations[runner.label] == nil)
+}
+
+@Test @MainActor
+func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
+  // A terminal receipt in the nominal five-minute scan-wall-clock window may
+  // occupy a quick-menu echo, but it must not leave an otherwise idle runner
+  // there forever. The scan at 4m 59s retains it; the scan at exactly 5m
+  // removes it from every projection when the wall clock advances normally.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let fleet = model(box, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  await fleet.quiesce()
+  clock.advance(299)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+  #expect(fleet.snapshots[0].operation?.phase == .requestAccepted)
+  #expect(fleet.controlCenterCards().first?.operation != nil)
+  #expect(
+    fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
+      guard case .runner(let echo) = item else { return false }
+      return echo.id == runner.label && echo.operation != nil
+    })
+
+  clock.advance(1)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.operations[runner.label] == nil)
+  #expect(fleet.snapshots[0].operation == nil)
+  #expect(fleet.controlCenterCards().first?.operation == nil)
+  #expect(
+    !fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
+      guard case .runner(let echo) = item else { return false }
+      return echo.id == runner.label
+    })
+}
+
+@Test func aBackwardWallClockCorrectionExtendsTerminalReceiptRetention() {
+  // Retention compares Date stamps captured by existing scans; it is not a
+  // monotonic elapsed-time claim. A backward-corrected scan therefore keeps
+  // the receipt until a later scan wall clock reaches the original boundary.
+  let changedAt = Date(timeIntervalSince1970: 1_785_962_174)
+  let operation = ServiceOperation(
+    action: .stop, phase: .requestAccepted, changedAt: changedAt)
+
+  #expect(
+    operation.isReceiptRetained(
+      atScanWallClock: changedAt.addingTimeInterval(-3_600)))
+  #expect(
+    !operation.isReceiptRetained(
+      atScanWallClock: changedAt.addingTimeInterval(300)))
+}
+
+@Test func aForwardWallClockCorrectionCanPruneATerminalReceiptOnTheNextScan() {
+  // A forward correction can cross the wall-clock boundary before five
+  // monotonic minutes have elapsed. That is the explicit timer-free policy.
+  let changedAt = Date(timeIntervalSince1970: 1_785_962_174)
+  let operation = ServiceOperation(
+    action: .stop, phase: .requestAccepted, changedAt: changedAt)
+
+  #expect(
+    !operation.isReceiptRetained(
+      atScanWallClock: changedAt.addingTimeInterval(3_600)))
+}
+
+@Test @MainActor func anInFlightServiceReceiptNeverExpires() async throws {
+  // The scan-wall-clock window applies only after an action reaches a terminal
+  // phase. Pruning an operation merely because its command is slow would make
+  // a still-reserved runner look as though no request were running.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let clock = TestClock()
+  let fleet = model(box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  clock.advance(301)
+  let previousRead = fleet.lastReadAt
+  fleet.refresh()
+  try await waitUntil { fleet.lastReadAt != previousRead }
+
+  #expect(fleet.operations[runner.label]?.phase == .inFlight)
+  #expect(fleet.snapshots[0].operation?.phase == .inFlight)
+  #expect(fleet.controlCenterCards().first?.operation?.isInFlight == true)
+
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func everyTerminalServicePhaseUsesTheSameFiveMinuteLifetime()
+  async throws
+{
+  // Accepted, uncertain, and failed are all terminal for receipt retention.
+  // Handling only the happy path would leave an idle runner's most alarming
+  // feedback occupying a quick-menu slot forever.
+  let cases: [(any CommandRunning, ServiceOperationPhase)] = [
+    (RecordingCommandRunner(), .requestAccepted),
+    (TimingOutCommandRunner(), .uncertain(.commandTimedOut)),
+    (FailingCommandRunner(), .failed(.unexpectedFailure)),
+  ]
+  for (commands, phase) in cases {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let clock = TestClock()
+    let fleet = model(box, commands: commands, clock: clock.read)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.perform(.stop, on: runner)
+    await fleet.quiesce()
+    #expect(fleet.operations[runner.label]?.phase == phase)
+
+    clock.advance(300)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label] == nil)
+    #expect(fleet.snapshots[0].operation == nil)
+  }
+}
+
+@Test @MainActor func expiringOneServiceReceiptLeavesOtherLabelsAlone() async throws {
+  // Receipt lifetime is per operation timestamp, not a fleet-wide sweep that
+  // clears every label when the oldest one reaches its boundary.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "first", scope: "widget")
+  try box.addRunner(name: "second", scope: "gadget")
+  let clock = TestClock()
+  let fleet = model(box, clock: clock.read)
+  await fleet.quiesce()
+  let first = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "first" }?.runner)
+  let second = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "second" }?.runner)
+
+  fleet.stop(first)
+  await fleet.quiesce()
+  clock.advance(299)
+  fleet.stop(second)
+  await fleet.quiesce()
+  clock.advance(1)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.operations[first.label] == nil)
+  #expect(fleet.operations[second.label]?.phase == .requestAccepted)
+  #expect(
+    fleet.snapshots.first { $0.id == first.label }?.operation == nil)
+  #expect(
+    fleet.snapshots.first { $0.id == second.label }?.operation?.phase
+      == .requestAccepted)
 }
 
 // MARK: - Telling somebody who is not looking at the menu
@@ -774,6 +1216,801 @@ private func listening(
   #expect(delivery.posted.isEmpty)
 }
 
+@Test @MainActor func anIdleScanDuringStopCannotSpendItsIntent() async throws {
+  // The command has entered svc.sh but has not stopped the service yet. A scan
+  // in that interval is newer than the click and still says idle; it is not
+  // evidence that the ordered stop has already been and gone.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let before = fleet.lastReadAt
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  clock.advance(1)
+  fleet.refresh()
+  try await waitUntil { fleet.lastReadAt != before }
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.idle)])
+
+  commands.release()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aProbeAfterTheClickBelongsToTheOrderedStop() async throws {
+  // The scan begins first, but its per-runner launchd probe is held until after
+  // Stop completes. Dating every runner from scan start misclassifies this
+  // genuinely post-click `.stopped` observation as stale and announces it.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+
+  let probe = box.blockNextProbe()
+  defer { probe.release() }
+  fleet.refresh()
+  try await probe.waitUntilEntered()
+  clock.advance(1)
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  commands.release()
+  try await commands.waitForCompletionCount(1)
+  probe.release()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aRemoteAnswerAfterTheClickStaysSilentThroughSuccessfulStop()
+  async throws
+{
+  // launchd says running before the click, then GitHub's offline answer lands
+  // while Stop is in flight. The state transition belongs to the remote answer,
+  // not the older local probe, and a successful Stop must announce neither it
+  // nor the stopped observation that follows.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let remote = box.blockNextRemoteAnswer()
+  defer { remote.release() }
+  fleet.refresh()
+  try await remote.waitUntilEntered()
+
+  clock.advance(1)
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  remote.release()
+  try await waitUntil {
+    fleet.snapshots.map(\.display) == [.resolved(.disconnected)]
+  }
+  #expect(delivery.posted.isEmpty)
+
+  commands.release()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aPostCompletionDisconnectionWaitsForTheOrderedStop()
+  async throws
+{
+  // svc.sh has returned, but launchd has not settled yet. Its first local
+  // post-completion answer still says running and GitHub says disconnected;
+  // neither that transient answer nor the stopped answer behind it belongs in
+  // notifications.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = RecordingCommandRunner()
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let postCompletionProbe = box.blockNextProbe()
+  defer { postCompletionProbe.release() }
+  fleet.stop(runner)
+  try await postCompletionProbe.waitUntilEntered()
+  postCompletionProbe.release()
+  try await waitUntil {
+    fleet.snapshots.map(\.display) == [.resolved(.disconnected)]
+  }
+  #expect(delivery.posted.isEmpty)
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aRemoteAnswerDeferredDuringStopReappearsWhenStopFails()
+  async throws
+{
+  // The same split observation is provisional only while the command might
+  // explain it. A definite failure revokes that intent, so the unchanged next
+  // scan must compare against the pre-click baseline and report disconnection.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = BlockingCommandRunner(failureAfterRelease: true)
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let remote = box.blockNextRemoteAnswer()
+  defer { remote.release() }
+  fleet.refresh()
+  try await remote.waitUntilEntered()
+
+  clock.advance(1)
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  remote.release()
+  try await waitUntil {
+    fleet.snapshots.map(\.display) == [.resolved(.disconnected)]
+  }
+  #expect(delivery.posted.isEmpty)
+
+  commands.release()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationDisconnectedTitle])
+}
+
+@Test @MainActor func aRemoteAnswerBeforeTheClickIsNotHiddenByLateScanArrival()
+  async throws
+{
+  // The target's complete disconnected observation predates Stop, but another
+  // runner delays apply until after the click. A blanket "intent in flight"
+  // suppression would lose this real transition; its own remote stamp keeps it
+  // attributable to the pre-click machine.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "build-mac", scope: "aaa")
+  try box.addRunner(name: "release-mac", scope: "zzz")
+  let clock = TestClock()
+  let commands = BlockingCommandRunner(failureAfterRelease: true)
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let runner = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "build-mac" }?.runner)
+
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let targetRemote = box.blockNextRemoteAnswer()
+  defer { targetRemote.release() }
+  fleet.refresh()
+  try await targetRemote.waitUntilEntered()
+  let otherProbe = box.blockNextProbe()
+  defer { otherProbe.release() }
+  targetRemote.release()
+  try await otherProbe.waitUntilEntered()
+
+  clock.advance(1)
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  box.set(remote: .success(RemoteStatus(online: true, busy: false)))
+  otherProbe.release()
+  try await waitUntil {
+    fleet.snapshots.first { $0.runner.label == runner.label }?.display
+      == .resolved(.disconnected)
+  }
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationDisconnectedTitle])
+
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func aRunnerRemainsOwnedUntilItsReprobeIsApplied() async throws {
+  // Stop has returned and its re-probe has started, but that probe has not
+  // reached apply. A second mutation here must not replace the first action's
+  // still-unobserved intent. The same mutation is accepted after apply.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = box.svcDrivingCommandRunner
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  let probe = box.blockNextProbe()
+  defer { probe.release() }
+  fleet.stop(runner)
+  try await probe.waitUntilEntered()
+  clock.advance(1)
+  fleet.restart(runner)
+  probe.release()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+  #expect(delivery.posted.isEmpty)
+
+  fleet.restart(runner)
+  await fleet.quiesce()
+  #expect(commands.invocations.compactMap(\.last) == ["stop", "stop", "start"])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func absenceAtTheCompletionClockCannotReleaseThatAction() async throws {
+  // Discovery has already enumerated build-mac as absent, but a slow candidate
+  // keeps the call from returning until Start completes. A coarse clock gives
+  // both facts the same timestamp, so their ordering is ambiguous: applying
+  // the absence must not release Start's reservation. The listing failure that
+  // follows is inconclusive too, so neither scan permits a second mutation.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "build-mac", scope: "widget")
+  let commands = RecordingCommandRunner()
+  let clock = TestClock()
+  let fleet = model(box, commands: commands, probeDelay: 0.2, clock: clock.read)
+  await fleet.quiesce()
+  let runner = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "build-mac" }?.runner)
+
+  try box.removeRunner(name: "build-mac", scope: "widget")
+  let staleDiscovery = box.blockNextDiscoveryAfterReading()
+  defer { staleDiscovery.release() }
+  let before = fleet.lastReadAt
+  clock.advance(1)
+  fleet.refresh()
+  try await staleDiscovery.waitUntilEntered()
+
+  fleet.start(runner)
+  try await waitUntil { commands.invocations.count == 1 }
+  // Let the action resume from its off-pool command and record completedAt;
+  // probeDelay keeps its own refresh from racing the stale scan below.
+  try await Task.sleep(for: .milliseconds(20))
+  staleDiscovery.release()
+  try await waitUntil { fleet.lastReadAt != before }
+
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  fleet.start(runner)
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["start"])
+
+  box.set(discoveryFailure: nil)
+  try box.addRunner(name: "build-mac", scope: "widget")
+  fleet.refresh()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func staleAbsenceCannotDiscardTheWatchersRunnerBaseline() async throws {
+  // The scan enumerates build-mac as absent, then stalls before discovery
+  // returns. A service action completing afterward makes that absence stale.
+  // Keeping the old baseline is observable when a newly-finished failed job is
+  // read: it is a transition, not history from a newly-installed runner.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(name: "build-mac", scope: "widget")
+  let clock = TestClock()
+  let (fleet, delivery) = await listening(
+    box, commands: RecordingCommandRunner(), probeDelay: 0.2, clock: clock.read)
+  await fleet.quiesce()
+  let runner = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "build-mac" }?.runner)
+
+  try box.removeRunner(name: "build-mac", scope: "widget")
+  let staleDiscovery = box.blockNextDiscoveryAfterReading()
+  defer { staleDiscovery.release() }
+  let before = fleet.lastReadAt
+  clock.advance(1)
+  fleet.refresh()
+  try await staleDiscovery.waitUntilEntered()
+
+  clock.advance(1)
+  fleet.start(runner)
+  try await Task.sleep(for: .milliseconds(20))
+  staleDiscovery.release()
+  try await waitUntil { fleet.lastReadAt != before }
+
+  try box.addRunner(name: "build-mac", scope: "widget")
+  try box.writeListenerLog(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: "2026-08-05 21:02:00Z", result: "Failed")
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationJobFailedTitle])
+}
+
+@Test @MainActor func removingARunnerReleasesItsServiceAction() async throws {
+  // No post-completion probe can exist after uninstall. Applying that absence
+  // must release ownership so a runner later installed under the same label is
+  // not born permanently blocked by its predecessor.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner { [box] verb in
+    box.set(serviceRunning: verb == "start")
+  }
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  try box.removeRunner()
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  try box.addRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+  fleet.start(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(2)
+  commands.release()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop", "start"])
+}
+
+@Test @MainActor func aListingFailureCannotMasqueradeAsActionRemoval() async throws {
+  // Stop completes while LaunchAgents itself cannot be listed. That empty
+  // result says nothing about uninstall: ownership and the watcher baseline
+  // must survive until a later conclusive probe is applied.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  fleet.restart(runner)
+  commands.release(10)
+  await fleet.quiesce()
+
+  try box.writeListenerLog(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: "2026-08-05 21:02:00Z", result: "Failed")
+  box.set(discoveryFailure: nil)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+  #expect(delivery.posted.map(\.title) == [L10n.notificationJobFailedTitle])
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+}
+
+@Test @MainActor func anUnreadableCandidateCannotMasqueradeAsActionRemoval() async throws {
+  // Directory enumeration succeeds, but this runner's plist/config candidate
+  // cannot resolve. Its label is still potentially installed, so the result
+  // cannot erase ownership or the watcher baseline.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let commands = BlockingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  try FileManager.default.removeItem(at: directory.appendingPathComponent(".runner"))
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.isEmpty)
+
+  fleet.restart(runner)
+  commands.release(10)
+  await fleet.quiesce()
+
+  try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "deploy", startedAt: "2026-08-05 21:00:00Z",
+    finished: "2026-08-05 21:02:00Z", result: "Failed")
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(commands.invocations.compactMap(\.last) == ["stop"])
+  #expect(delivery.posted.map(\.title) == [L10n.notificationJobFailedTitle])
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+}
+
+@Test @MainActor func aPostCompletionUnreadableProbeReleasesOnlyActionOwnership()
+  async throws
+{
+  // Unknown normally keeps Stop/Restart available. They stay disabled while
+  // svc.sh owns the label, but the first post-completion local probe releases
+  // that reservation even when launchd cannot answer. The expected-stop intent
+  // is separate: a later stopped reading still belongs to the ordered Stop.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  box.set(serviceRunning: nil)
+  fleet.refresh()
+  try await waitUntil {
+    fleet.snapshots.map(\.display)
+      == [.resolved(.unknown(.serviceStateUnreadable))]
+  }
+
+  #expect(fleet.snapshots[0].row.action(.stop)?.isEnabled == false)
+  #expect(fleet.snapshots[0].row.action(.restart)?.isEnabled == false)
+  #expect(fleet.snapshots[0].row.action(.openOnGitHub)?.isEnabled == true)
+
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].row.action(.stop)?.isEnabled == true)
+  #expect(fleet.snapshots[0].row.action(.restart)?.isEnabled == true)
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aLaterFailedMutationCannotCancelAnEarlierExpectedStop()
+  async throws
+{
+  // Stop1 completed, but launchd's unreadable re-probe released only action
+  // ownership and left its stop evidence alive. Stop2 or Restart2 can now be
+  // clicked; a definite failure belongs only to that second lifecycle and must
+  // reveal Stop1 again rather than erase it.
+  for action in [RunnerRow.Action.Kind.stop, .restart] {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let clock = TestClock()
+    let commands = SecondCommandOutcomeRunner(.definiteFailure)
+    let (fleet, delivery) = await listening(
+      box, commands: commands, clock: clock.read)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    box.set(serviceRunning: nil)
+    fleet.stop(runner)
+    await fleet.quiesce()
+    #expect(
+      fleet.snapshots.map(\.display)
+        == [.resolved(.unknown(.serviceStateUnreadable))])
+    #expect(fleet.snapshots[0].row.action(action)?.isEnabled == true)
+
+    clock.advance(1)
+    fleet.perform(action, on: runner)
+    await fleet.quiesce()
+    #expect(commands.invocations.count == 2)
+
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+    #expect(delivery.posted.isEmpty)
+
+    box.set(serviceRunning: true)
+    fleet.refresh()
+    await fleet.quiesce()
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+  }
+}
+
+@Test @MainActor func aLaterTimedOutMutationCannotReplaceAnEarlierExpectedStop()
+  async throws
+{
+  // A timeout creates bounded evidence of its own. Once that second evidence
+  // expires, Stop1's confirmed lifecycle must still own the delayed stopped
+  // transition; consuming it must then leave the following crash visible.
+  for action in [RunnerRow.Action.Kind.stop, .restart] {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let clock = TestClock()
+    let commands = SecondCommandOutcomeRunner(.timeout)
+    let (fleet, delivery) = await listening(
+      box, commands: commands, clock: clock.read)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    box.set(serviceRunning: nil)
+    fleet.stop(runner)
+    await fleet.quiesce()
+    #expect(
+      fleet.snapshots.map(\.display)
+        == [.resolved(.unknown(.serviceStateUnreadable))])
+
+    clock.advance(1)
+    fleet.perform(action, on: runner)
+    await fleet.quiesce()
+    #expect(commands.invocations.count == 2)
+
+    clock.advance(30)
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+    #expect(delivery.posted.isEmpty)
+
+    box.set(serviceRunning: true)
+    fleet.refresh()
+    await fleet.quiesce()
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+  }
+}
+
+@Test @MainActor func aFailedStopDoesNotSilenceTheNextRealCrash() async throws {
+  // A definite command failure revokes the intent immediately. The runner can
+  // go down independently before the re-probe, and that crash still belongs
+  // in notifications rather than under a stop the app never performed.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = FailingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+}
+
+@Test @MainActor func aStopSeenInFlightIsRecoveredWhenTheCommandFails() async throws {
+  // The stopped transition lands while svc.sh is still running, so it is
+  // provisionally suppressed. If svc.sh then fails definitively, the next
+  // probe must recover that transition instead of accepting stopped as the
+  // new baseline forever.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner(failureAfterRelease: true)
+  defer { commands.release(10) }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  try await commands.waitForInvocationCount(1)
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  try await waitUntil { fleet.snapshots.map(\.display) == [.resolved(.stopped)] }
+  #expect(delivery.posted.isEmpty)
+
+  commands.release()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+}
+
+@Test @MainActor func aFailedRestartDoesNotSilenceTheNextRealCrash() async throws {
+  // Restart fails in its stop half here. It is still a definite failure, so
+  // its expected-stop intent cannot be inherited by an unrelated crash.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = FailingCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title) == [L10n.notificationStoppedTitle])
+}
+
+@Test @MainActor func aRestartWhoseStartFailsStillOwnsItsStop() async throws {
+  // Stop returns successfully and leaves launchd down; only the subsequent
+  // Start fails. Cancelling the whole intent here turns the ordered first half
+  // into a false unexpected-stop notification.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = FailingVerbCommandRunner(failingVerb: "start") { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(commands.invocations == ["stop", "start"])
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aConfirmedRestartReturningToRunningSpendsItsStopIntent()
+  async throws
+{
+  // Once both halves of Restart returned, any conclusive running answer proves
+  // its stop has been and gone. It must spend immediately rather than silence
+  // a real crash for the Stop grace that only an unsettled Stop needs.
+  let returning: [(Result<RemoteStatus, GitHubError>, DisplayState)] = [
+    (.success(RemoteStatus(online: true, busy: false)), .resolved(.idle)),
+    (.success(RemoteStatus(online: true, busy: true)), .resolved(.busy)),
+    (.failure(.noAnswer), .resolved(.unknown(.noAnswer))),
+  ]
+  for (remote, display) in returning {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let (fleet, delivery) = await listening(
+      box, commands: box.svcDrivingCommandRunner)
+    await fleet.quiesce()
+
+    box.set(remote: remote)
+    fleet.restart(fleet.snapshots[0].runner)
+    await fleet.quiesce()
+    #expect(fleet.snapshots.map(\.display) == [display])
+
+    box.set(serviceRunning: false)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(delivery.posted.map(\.title).last == L10n.notificationStoppedTitle)
+  }
+}
+
+@Test @MainActor func aRestartWhoseStopTimesOutKeepsIntentThroughStarting()
+  async throws
+{
+  // Stop timed out before Restart could attempt Start. A locally-running,
+  // remotely-disconnected re-probe may only mean launchd has not settled Stop
+  // yet, so `.starting` cannot spend uncertain intent inside its grace.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let commands = TimingOutCommandRunner()
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aRestartWhoseStartTimesOutCanBeSettledByStarting()
+  async throws
+{
+  // Here Stop is known complete and Start was attempted before timing out.
+  // Seeing launchd running under `.starting` resolves that uncertainty, so a
+  // later independent stop must not inherit Restart's token.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let commands = TimingOutVerbCommandRunner(timingOutVerb: "start") { [box] verb in
+    box.set(serviceRunning: verb == "start")
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title).last == L10n.notificationStoppedTitle)
+}
+
+@Test @MainActor func aTimedOutStopKeepsItsExpectedStopIntent() async throws {
+  // A timeout says only that the process was killed at its deadline. If the
+  // stop already took effect, its resulting scan is still the ordered stop.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = TimingOutCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: false) }
+  }
+  let (fleet, delivery) = await listening(box, commands: commands)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aTimedOutStopCannotSilenceACrashAfterItsLifetime() async throws {
+  // The timeout leaves effects uncertain and launchd cannot answer the first
+  // probe. Thirty seconds later the uncertain intent expires; a new stopped
+  // transition is announced instead of inheriting old silence.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let commands = TimingOutCommandRunner { [box] verb in
+    if verb == "stop" { box.set(serviceRunning: nil) }
+  }
+  let (fleet, delivery) = await listening(
+    box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+
+  fleet.stop(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(
+    fleet.snapshots.map(\.display)
+      == [.resolved(.unknown(.serviceStateUnreadable))])
+
+  clock.advance(30)
+  box.set(serviceRunning: false)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.title).last == L10n.notificationStoppedTitle)
+}
+
 @Test @MainActor func aRunnerThatGoesDownByItselfIsAnnounced() async throws {
   // The same reading as the test above, reached without a click. Everything the
   // resolver can see is identical; only the click is missing.
@@ -850,6 +2087,124 @@ private func listening(
 
   #expect(!activity.isHeld)
   #expect(activity.ended == 1)
+}
+
+@Test @MainActor func aListingFailureCannotEndPreviouslyObservedBusyWork() async throws {
+  let box = try FleetSandbox(serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.isEmpty)
+  #expect(activity.isHeld)
+  #expect(activity.ended == 0)
+
+  box.set(discoveryFailure: nil)
+  box.set(remote: .success(RemoteStatus(online: true, busy: false)))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(!activity.isHeld)
+  #expect(activity.ended == 1)
+}
+
+@Test @MainActor func anUnreadableCandidateCannotEndItsObservedRunningLog()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: false, busy: false))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  try FileManager.default.removeItem(at: directory.appendingPathComponent(".runner"))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.isEmpty)
+  #expect(activity.isHeld)
+  #expect(activity.ended == 0)
+}
+
+@Test @MainActor func runningLogKeepsTheMacAwakeWhenGitHubSaysDisconnected()
+  async throws
+{
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: false, busy: false))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.disconnected))
+  #expect(fleet.snapshots[0].row.progress == nil)
+  #expect(activity.isHeld)
+}
+
+@Test @MainActor func runningLogKeepsTheMacAwakeWhenGitHubStateIsUnknown()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  box.set(remote: .failure(.noAnswer))
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.unknown(.noAnswer)))
+  #expect(fleet.snapshots[0].row.progress == nil)
+  #expect(activity.isHeld)
+}
+
+@Test @MainActor func runningLogDoesNotKeepTheMacAwakeWhenServiceIsStopped()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, sleep: sleepGuard)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.stopped))
+  #expect(!activity.isHeld)
 }
 
 @Test @MainActor func aMacWithNoRunnersLeftIsNotHeldAwakeForever() async throws {
@@ -1070,7 +2425,8 @@ private func listening(
   #expect(commands.invocations.count == before)
 }
 
-@Test @MainActor func openOnGitHubHandsTheBrowserThisRunnersOwnSettingsPage() async throws {
+@Test @MainActor
+func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
   let sandbox = try FleetSandbox()
   defer { sandbox.cleanUp() }
   _ = try sandbox.addRunner(name: "build-mac", scope: "widget")
@@ -1084,7 +2440,7 @@ private func listening(
 
   #expect(
     opener.urls.map(\.absoluteString)
-      == ["https://github.com/acme/widget/settings/actions/runners"])
+      == ["https://github.com/acme/widget/actions"])
 }
 
 // MARK: - Which runner is installed, and whether there is a newer one
@@ -1149,7 +2505,8 @@ private func listening(
   #expect(box.releaseCheckCount == 2)
 }
 
-@Test @MainActor func aSlowReleaseCheckDoesNotHoldUpTheMenu() async throws {
+@Test(.timeLimit(.minutes(1))) @MainActor
+func aSlowReleaseCheckDoesNotHoldUpTheMenu() async throws {
   // It used to be inside the scan, and the scan is what paints the menu. The
   // very first one of every launch asks — `lastReleaseCheck` is process memory
   // that starts at nil — so a `gh` hanging on its 30s timeout meant half a
@@ -1159,16 +2516,21 @@ private func listening(
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
-  box.set(releaseDelay: 0.4)
+  let release = box.blockNextReleaseCheck()
+  defer { release.release() }
 
   let fleet = model(box)
-  // Long enough for a scan that waited on the release check to still be inside
-  // it, and short enough to be well under the delay.
-  try await Task.sleep(for: .milliseconds(150))
+  await release.waitUntilEntered()
+  // The release answer is still gated, so the runner row can appear only if
+  // the scan is independent of it. Await the published state change directly;
+  // the test-level limit diagnoses noncompletion without a scheduler-speed
+  // assumption in the barrier or the assertion.
+  await waitForFirstSnapshot(from: fleet)
   #expect(!fleet.snapshots.isEmpty)
   #expect(fleet.latestRelease == nil)
 
   // And the answer still lands, once it comes.
+  release.release()
   await fleet.quiesce()
   #expect(fleet.latestRelease == RunnerVersion(2, 336, 0))
 }

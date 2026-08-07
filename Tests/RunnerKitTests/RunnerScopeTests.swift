@@ -61,3 +61,28 @@ import Testing
     RunnerScope.enterprise("acme").settingsURL.absoluteString
       == "https://github.com/enterprises/acme/settings/actions/runners")
 }
+
+@Test func repositoryNavigationOpensWorkflowRuns() {
+  let scope = RunnerScope.repository(owner: "acme", name: "widget")
+
+  #expect(
+    scope.workflowRunsURL?.absoluteString
+      == "https://github.com/acme/widget/actions")
+  #expect(
+    scope.preferredGitHubURL.absoluteString
+      == "https://github.com/acme/widget/actions")
+}
+
+@Test func broaderScopesFallBackToTheirHonestRunnerSettingsPages() {
+  let organization = RunnerScope.organization("acme")
+  let enterprise = RunnerScope.enterprise("acme-corp")
+
+  #expect(organization.workflowRunsURL == nil)
+  #expect(
+    organization.preferredGitHubURL.absoluteString
+      == "https://github.com/organizations/acme/settings/actions/runners")
+  #expect(enterprise.workflowRunsURL == nil)
+  #expect(
+    enterprise.preferredGitHubURL.absoluteString
+      == "https://github.com/enterprises/acme-corp/settings/actions/runners")
+}

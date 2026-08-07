@@ -31,15 +31,14 @@ private struct Sandbox {
   func addRunner(
     label: String, agentId: Int, gitHubUrl: String,
     runnerFile: RunnerFile = .complete, fileName: String? = nil,
-    workFolder: String = "_work"
+    workFolder: String? = "_work"
   ) throws -> URL {
     let dir = root.appendingPathComponent(label)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     if runnerFile != .missing {
-      var fields: [String: Any] = [
-        "agentId": agentId, "gitHubUrl": gitHubUrl, "workFolder": workFolder,
-      ]
+      var fields: [String: Any] = ["agentId": agentId, "gitHubUrl": gitHubUrl]
       if runnerFile == .complete { fields["agentName"] = label }
+      if let workFolder { fields["workFolder"] = workFolder }
       var data = Data([0xEF, 0xBB, 0xBF])  // same BOM the real agent writes
       data.append(try JSONSerialization.data(withJSONObject: fields))
       try data.write(to: dir.appendingPathComponent(".runner"))
@@ -64,6 +63,8 @@ private struct Sandbox {
 
   func cleanUp() { try? FileManager.default.removeItem(at: root) }
 }
+
+private struct DirectoryListingFailure: Error {}
 
 @Test func discoversASingleRunner() throws {
   let box = try Sandbox()
@@ -189,6 +190,64 @@ private struct Sandbox {
   #expect(found.runners[0].workDirectory.path.hasPrefix(dir.path + "/"))
 }
 
+@Test func reportsRunnersWithEscapingWorkFoldersAsUnreadable() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.relative", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "../outside")
+  try box.addRunner(
+    label: "actions.runner.acme-widget.absolute", agentId: 2,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "/tmp/outside")
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(
+    found.unreadable.map(\.lastPathComponent) == [
+      "actions.runner.acme-widget.absolute.plist",
+      "actions.runner.acme-widget.relative.plist",
+    ])
+}
+
+@Test func reportsAWorkFolderSymlinkedOutsideTheRunnerAsUnreadable() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(
+    label: "actions.runner.acme-widget.linked", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "builds")
+  let outside = box.root.appendingPathComponent("outside-work")
+  try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: directory.appendingPathComponent("builds"), withDestinationURL: outside)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(
+    found.unreadable.map(\.lastPathComponent)
+      == ["actions.runner.acme-widget.linked.plist"])
+  #expect(found.possiblyInstalledLabels == ["actions.runner.acme-widget.linked"])
+}
+
+@Test func keepsAWorkFolderSymlinkedWithinTheRunner() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(
+    label: "actions.runner.acme-widget.linked", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "builds")
+  let actualWork = directory.appendingPathComponent("actual-work")
+  try FileManager.default.createDirectory(at: actualWork, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: directory.appendingPathComponent("builds"), withDestinationURL: actualWork)
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.count == 1)
+  #expect(found.runners[0].workDirectory == directory.appendingPathComponent("builds"))
+  #expect(found.unreadable.isEmpty)
+}
+
 @Test func fallsBackToTheStandardWorkFolderWhenTheFileDoesNotSayOne() throws {
   // `workFolder` is one of the cosmetic fields, so a runner release that stops
   // writing it must not cost the runner its row — nor leave the work directory
@@ -197,7 +256,8 @@ private struct Sandbox {
   defer { box.cleanUp() }
   let dir = try box.addRunner(
     label: "actions.runner.acme-widget.mac-a", agentId: 1,
-    gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName)
+    gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName,
+    workFolder: nil)
 
   let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
 
@@ -292,11 +352,29 @@ private struct Sandbox {
 
   #expect(nothingInstalled.runners.isEmpty)
   #expect(nothingInstalled.unreadable.isEmpty)
+  #expect(nothingInstalled.possiblyInstalledLabels == [])
 
   #expect(nothingReadable.runners.isEmpty)
   #expect(
     nothingReadable.unreadable.map(\.lastPathComponent)
       == ["actions.runner.acme-widget.ghost.plist"])
+  #expect(
+    nothingReadable.possiblyInstalledLabels
+      == ["actions.runner.acme-widget.ghost"])
+}
+
+@Test func anUnreadablePlistMakesRunnerAbsenceInconclusive() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try Data("not a plist".utf8).write(
+    to: box.launchAgents.appendingPathComponent(
+      "actions.runner.acme-widget.unknown.plist"))
+
+  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(found.unreadable.count == 1)
+  #expect(found.possiblyInstalledLabels == nil)
 }
 
 @Test func returnsEmptyWhenThereIsNoLaunchAgentsDirectory() {
@@ -305,4 +383,37 @@ private struct Sandbox {
 
   #expect(found.runners.isEmpty)
   #expect(found.unreadable.isEmpty)
+  #expect(found.failure == nil)
+}
+
+@Test func onlyANoSuchFileListingErrorIsACleanEmptyResult() {
+  let absentLooking = URL(
+    fileURLWithPath: "/nope/standfast-review/LaunchAgents")
+  let missing = RunnerDiscovery(
+    launchAgentsDirectory: absentLooking,
+    listDirectory: { _ in throw CocoaError(.fileNoSuchFile) }
+  ).discover()
+  let otherFailure = RunnerDiscovery(
+    launchAgentsDirectory: absentLooking,
+    listDirectory: { _ in throw DirectoryListingFailure() }
+  ).discover()
+
+  #expect(missing.failure == nil)
+  #expect(missing.possiblyInstalledLabels == [])
+  #expect(otherFailure.failure == .launchAgentsUnreadable(absentLooking))
+  #expect(otherFailure.possiblyInstalledLabels == nil)
+}
+
+@Test func reportsAnExistingLaunchAgentsDirectoryThatCannotBeListed() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let found = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents,
+    listDirectory: { _ in throw DirectoryListingFailure() }
+  ).discover()
+
+  #expect(found.runners.isEmpty)
+  #expect(found.unreadable.isEmpty)
+  #expect(found.failure == .launchAgentsUnreadable(box.launchAgents))
+  #expect(found.possiblyInstalledLabels == nil)
 }

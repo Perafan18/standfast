@@ -16,11 +16,12 @@ private func runner(
 
 private func snapshot(
   _ display: DisplayState, name: String = "build-mac", agentName: String? = nil,
-  repository: String = "widget", qualifier: String? = nil
+  repository: String = "widget", qualifier: String? = nil,
+  operation: ServiceOperation? = nil
 ) -> RunnerSnapshot {
   RunnerSnapshot(
     runner: runner(name: name, agentName: agentName, repository: repository),
-    display: display, qualifier: qualifier)
+    display: display, qualifier: qualifier, operation: operation)
 }
 
 // MARK: - The title
@@ -165,10 +166,79 @@ private func snapshot(
   }
 }
 
+@Test func anUnownedUnreadableRunnerStillOffersStopAndRestart() {
+  // launchd gave no answer, so the menu deliberately preserves the recovery
+  // controls unless an already-running action owns this label.
+  let row = snapshot(.resolved(.unknown(.serviceStateUnreadable))).row
+
+  #expect(row.action(.stop)?.isEnabled == true)
+  #expect(row.action(.restart)?.isEnabled == true)
+}
+
+// MARK: - Service-operation outcomes
+
+@Test func everyServiceOperationOutcomeExplainsWhatHappenedAndWhatToDoNext() {
+  // Breaking any case in `ServiceOperation.presentation` makes one of these
+  // cells lose the concrete next step that turns an outcome into useful UI.
+  let when = Date(timeIntervalSince1970: 1_785_962_174)
+  let cases: [(ServiceOperationAction, ServiceOperationPhase, String)] = [
+    (.start, .inFlight, L10n.start),
+    (.stop, .inFlight, L10n.stop),
+    (.restart, .inFlight, L10n.restart),
+    (.start, .requestAccepted, L10n.refreshNow),
+    (.stop, .requestAccepted, L10n.refreshNow),
+    (.restart, .requestAccepted, L10n.refreshNow),
+    (.start, .uncertain(.commandTimedOut), L10n.refreshNow),
+    (.stop, .uncertain(.commandTimedOut), L10n.refreshNow),
+    (.restart, .uncertain(.commandTimedOut), L10n.refreshNow),
+    (.start, .failed(.scriptMissing), L10n.start),
+    (.stop, .failed(.scriptMissing), L10n.stop),
+    (.restart, .failed(.scriptMissing), L10n.restart),
+    (.start, .failed(.commandCouldNotLaunch), L10n.start),
+    (.stop, .failed(.commandCouldNotLaunch), L10n.stop),
+    (.restart, .failed(.commandCouldNotLaunch), L10n.restart),
+    (.start, .failed(.unexpectedFailure), L10n.start),
+    (.stop, .failed(.unexpectedFailure), L10n.stop),
+    (.restart, .failed(.unexpectedFailure), L10n.restart),
+    (.restart, .failed(.restartStartFailed), L10n.start),
+    (.restart, .uncertain(.restartStartTimedOut), L10n.refreshNow),
+  ]
+
+  for (action, phase, nextStep) in cases {
+    let presentation = ServiceOperation(action: action, phase: phase, changedAt: when)
+      .presentation
+    #expect(!presentation.title.isEmpty)
+    #expect(!presentation.detail.isEmpty)
+    #expect(!presentation.symbolName.isEmpty)
+    #expect(presentation.detail.contains(nextStep))
+    #expect(presentation.isInFlight == (phase == .inFlight))
+  }
+}
+
+@Test func aRunnerRowCarriesItsServiceOperationPresentation() {
+  let operation = ServiceOperation(
+    action: .start, phase: .requestAccepted,
+    changedAt: Date(timeIntervalSince1970: 1_785_962_174))
+
+  #expect(
+    snapshot(.resolved(.stopped), operation: operation).row.operation
+      == operation.presentation)
+}
+
 // MARK: - The notice's lines
 
 @Test func theNoRunnersNoticeIsOneLine() {
   #expect(FleetNotice.noRunnersInstalled.lines == [L10n.noRunnersFound])
+}
+
+@Test func theLaunchAgentsFailureNamesTheDirectoryThatCouldNotBeRead() {
+  let directory = URL(fileURLWithPath: "/tmp/standfast-fixtures/LaunchAgents")
+
+  #expect(
+    FleetNotice.launchAgentsUnreadable(directory).lines == [
+      L10n.launchAgentsUnreadable,
+      "/tmp/standfast-fixtures/LaunchAgents",
+    ])
 }
 
 @Test func theUnreadableNoticePrintsPathsAndNeverACount() {

@@ -89,6 +89,15 @@ private func event(_ line: String) -> JobLogEvent? {
   #expect(JobLogParser.timestamp("2026-08-05 20:36:1Z"[...]) == nil)
 }
 
+@Test func impossibleCalendarDatesAreNotNormalizedIntoAnotherDay() {
+  #expect(JobLogParser.timestamp("2026-02-29 12:00:00Z"[...]) == nil)
+  #expect(JobLogParser.timestamp("2026-04-31 12:00:00Z"[...]) == nil)
+}
+
+@Test func aRealLeapDayRemainsValid() {
+  #expect(JobLogParser.timestamp("2024-02-29 12:00:00Z"[...]) != nil)
+}
+
 @Test func aStartWithNoJobNameIsNotAJob() {
   // A nameless row with a timer running next to it is worse than no row.
   #expect(event(startedJob("", at: "2026-08-05 20:36:14Z")) == nil)

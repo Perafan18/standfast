@@ -25,14 +25,23 @@ public struct DiskReport: Equatable, Sendable {
   /// The whole of `_diag`.
   public let logBytes: Int64
   public let rotation: DiagnosticsRotationPlan
+  /// Graves made before their cache kind was encoded in the name. Kept out of
+  /// `other` so the UI can offer an honest generic recovery instead of guessing
+  /// which cache they used to be.
+  public let legacyTrashBytes: Int64
 
-  public init(entries: [DiskEntry], logBytes: Int64, rotation: DiagnosticsRotationPlan) {
+  public init(
+    entries: [DiskEntry], logBytes: Int64, rotation: DiagnosticsRotationPlan,
+    legacyTrashBytes: Int64 = 0
+  ) {
     self.entries = entries
     self.logBytes = logBytes
     self.rotation = rotation
+    self.legacyTrashBytes = legacyTrashBytes
   }
 
-  public static let empty = DiskReport(entries: [], logBytes: 0, rotation: .empty)
+  public static let empty = DiskReport(
+    entries: [], logBytes: 0, rotation: .empty, legacyTrashBytes: 0)
 
   /// Everything of one kind added up. `_work` holds one checkout per repository
   /// this runner builds, and the menu has no room for a row each.
@@ -59,6 +68,17 @@ public struct DiskReport: Equatable, Sendable {
 /// refresh loop runs every fifteen seconds all day; this runs when somebody
 /// asks.
 public struct DiskUsage: Sendable {
+  private enum WorkKind {
+    case entry(DiskEntryKind)
+    case legacyTrash
+  }
+
+  private struct WorkItem {
+    let url: URL
+    let name: String
+    let kind: WorkKind
+  }
+
   /// The absolute path, not `/usr/bin/env du`. `du` is in the base system, so
   /// there is no PATH to search and nothing a user could have installed
   /// somewhere else — unlike `gh`, which is why that one gets a search and this
@@ -85,10 +105,17 @@ public struct DiskUsage: Sendable {
   public func blockingReport(
     for runner: DiscoveredRunner, retention: DiagnosticsRetention, now: Date
   ) -> DiskReport? {
-    let children = Self.children(of: runner.workDirectory)
-    let diagnostics = runner.diagnosticsDirectory
-    let logs = DiagnosticsFile.listing(in: diagnostics)
-    var paths = children
+    guard let workDirectory = runner.containedWorkDirectory,
+      let diagnostics = runner.containedDiagnosticsDirectory
+    else { return nil }
+    let workItems: [WorkItem]
+    do {
+      workItems = try Self.workItems(in: workDirectory)
+    } catch {
+      return nil
+    }
+    guard let logs = try? DiagnosticsFile.listing(in: diagnostics) else { return nil }
+    var paths = workItems.map(\.url)
     if FileManager.default.fileExists(atPath: diagnostics.path) {
       paths.append(diagnostics)
     }
@@ -100,19 +127,25 @@ public struct DiskUsage: Sendable {
 
     guard let sizes = blockingSizes(of: paths) else { return nil }
     let entries =
-      children
-      .map {
-        DiskEntry(
-          name: $0.lastPathComponent,
-          kind: DiskEntryKind(folderName: $0.lastPathComponent),
-          bytes: sizes[$0] ?? 0)
+      workItems
+      .compactMap { item -> DiskEntry? in
+        guard case .entry(let kind) = item.kind else { return nil }
+        return DiskEntry(
+          name: item.name,
+          kind: kind,
+          bytes: sizes[item.url] ?? 0)
       }
       .sorted(by: Self.biggestFirst)
+    let legacyTrashBytes = workItems.reduce(Int64(0)) { total, item in
+      guard case .legacyTrash = item.kind else { return total }
+      return total + (sizes[item.url] ?? 0)
+    }
 
     return DiskReport(
       entries: entries,
       logBytes: sizes[diagnostics] ?? 0,
-      rotation: DiagnosticsRotation.plan(logs, retention: retention, now: now))
+      rotation: DiagnosticsRotation.plan(logs, retention: retention, now: now),
+      legacyTrashBytes: legacyTrashBytes)
   }
 
   /// Biggest first, and by name where two are the same size — so a menu redrawn
@@ -166,10 +199,69 @@ public struct DiskUsage: Sendable {
 
   /// What is directly inside `_work`, sorted so the answer does not depend on
   /// the order the filesystem happened to hand back.
-  static func children(of directory: URL) -> [URL] {
-    let entries =
-      (try? FileManager.default.contentsOfDirectory(
-        at: directory, includingPropertiesForKeys: nil)) ?? []
-    return entries.sorted { $0.lastPathComponent < $1.lastPathComponent }
+  static func children(of directory: URL) throws -> [URL] {
+    do {
+      return try FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: nil
+      )
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    } catch let error where FileSystemFailure.isMissing(error) {
+      return []
+    }
+  }
+
+  private static func workItems(in directory: URL) throws -> [WorkItem] {
+    try children(of: directory).flatMap { child in
+      guard child.lastPathComponent == Housekeeper.trashFolder else {
+        return [
+          WorkItem(
+            url: child, name: child.lastPathComponent,
+            kind: .entry(DiskEntryKind(folderName: child.lastPathComponent)))
+        ]
+      }
+      return trashItems(in: child)
+    }
+  }
+
+  /// Expands Standfast's private trash so each interrupted cache deletion keeps
+  /// its kind. The root itself is never measured alongside its children: that
+  /// would count every byte twice.
+  private static func trashItems(in trash: URL) -> [WorkItem] {
+    guard fileType(at: trash) == .typeDirectory else {
+      return [
+        WorkItem(url: trash, name: trash.lastPathComponent, kind: .entry(.other))
+      ]
+    }
+    let entries: [URL]
+    do {
+      entries = try children(of: trash)
+    } catch {
+      // An unreadable private trash cannot safely prove what any entry is. Keep
+      // the whole thing visible as Other without descending into it.
+      return [
+        WorkItem(url: trash, name: trash.lastPathComponent, kind: .entry(.other))
+      ]
+    }
+    return entries.map { entry in
+      let kind: WorkKind
+      if fileType(at: entry) == .typeDirectory,
+        let grave = StandfastGrave(name: entry.lastPathComponent)
+      {
+        switch grave {
+        case .cache(let target): kind = .entry(target.kind)
+        case .legacy: kind = .legacyTrash
+        }
+      } else {
+        kind = .entry(.other)
+      }
+      return WorkItem(
+        url: entry, name: entry.lastPathComponent,
+        kind: kind)
+    }
+  }
+
+  private static func fileType(at url: URL) -> FileAttributeType? {
+    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+    return attributes?[.type] as? FileAttributeType
   }
 }

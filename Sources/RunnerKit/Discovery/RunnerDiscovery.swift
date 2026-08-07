@@ -54,6 +54,76 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   }
 }
 
+extension DiscoveredRunner {
+  /// Resolves the part of a work path that exists and proves the result stays
+  /// under the runner.
+  var containedWorkDirectory: URL? {
+    Self.resolvedPath(workDirectory, containedIn: directory, allowingRoot: true)
+  }
+
+  /// `_diag` is fixed by the runner rather than configured, but it is still a
+  /// path on a filesystem and can be replaced by a symlink. An internal target
+  /// remains a runner directory; an external or unresolvable one does not.
+  var containedDiagnosticsDirectory: URL? {
+    Self.resolvedPath(diagnosticsDirectory, containedIn: directory)
+  }
+
+  /// Resolves a path and the root it must stay under. The resolved spelling is
+  /// used by the immediate operation, so replacing the configured leaf symlink
+  /// afterwards does not redirect that operation through the old spelling.
+  ///
+  /// This narrows rather than eliminates the race: `FileManager` and `du` still
+  /// accept pathnames, so the same user can replace a resolved component after
+  /// this check and before the syscall. Closing that remaining window requires
+  /// descriptor-relative operations such as `openat`/`renameat`/`unlinkat`.
+  static func resolvedPath(
+    _ path: URL, containedIn root: URL, allowingRoot: Bool = false
+  ) -> URL? {
+    guard let resolvedRoot = Self.resolvingExistingPathComponents(in: root),
+      let resolvedPath = Self.resolvingExistingPathComponents(in: path)
+    else { return nil }
+
+    let rootPath = resolvedRoot.path
+    let path = resolvedPath.path
+    if path == rootPath { return allowingRoot ? resolvedPath : nil }
+    let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+    return path.hasPrefix(prefix) ? resolvedPath : nil
+  }
+
+  /// `resolvingSymlinksInPath` leaves a wholly missing suffix unresolved. Walk
+  /// upward until something exists, resolve that ancestor, then restore the
+  /// suffix. A dangling symlink is not the same as a missing directory: its
+  /// destination cannot be proved contained, so it fails closed.
+  private static func resolvingExistingPathComponents(in url: URL) -> URL? {
+    let standardized = url.standardizedFileURL
+    do {
+      let attributes = try FileManager.default.attributesOfItem(atPath: standardized.path)
+      let resolved = standardized.resolvingSymlinksInPath().standardizedFileURL
+      if attributes[.type] as? FileAttributeType == .typeSymbolicLink,
+        resolved.path == standardized.path
+      {
+        return nil
+      }
+      return resolved
+    } catch {
+      guard Self.isNoSuchFile(error) else { return nil }
+      let parent = standardized.deletingLastPathComponent()
+      guard parent.path != standardized.path,
+        let resolvedParent = Self.resolvingExistingPathComponents(in: parent)
+      else { return nil }
+      return resolvedParent.appendingPathComponent(standardized.lastPathComponent)
+        .standardizedFileURL
+    }
+  }
+
+  private static func isNoSuchFile(_ error: any Error) -> Bool {
+    let error = error as NSError
+    guard error.domain == NSCocoaErrorDomain else { return false }
+    return error.code == CocoaError.Code.fileNoSuchFile.rawValue
+      || error.code == CocoaError.Code.fileReadNoSuchFile.rawValue
+  }
+}
+
 /// The outcome of one scan.
 ///
 /// The failures are kept instead of being folded into an empty list. "No
@@ -61,6 +131,10 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
 /// both come out as no runners, and only the second means something is
 /// wrong — telling that user to install a runner is the one answer certain
 /// to be useless.
+public enum DiscoveryFailure: Equatable, Sendable {
+  case launchAgentsUnreadable(URL)
+}
+
 public struct DiscoveryResult: Equatable, Sendable {
   public let runners: [DiscoveredRunner]
   /// LaunchAgents that announced themselves as runners and could not be
@@ -68,10 +142,32 @@ public struct DiscoveryResult: Equatable, Sendable {
   /// Paths rather than errors — enough to name the file that needs looking
   /// at, without a diagnosis this version could not act on anyway.
   public let unreadable: [URL]
+  /// Why the scan itself could not start, rather than why one runner candidate
+  /// could not be resolved.
+  public let failure: DiscoveryFailure?
+  /// Labels that may still be installed even though their runner could not be
+  /// resolved, and nil when the scan could not identify every possible label.
+  ///
+  /// An empty set is meaningful: it says the directory was enumerated and no
+  /// unresolved candidate can own a label. Callers may use that as removal
+  /// evidence. Nil says absence from `runners` proves nothing.
+  public let possiblyInstalledLabels: Set<String>?
 
-  public init(runners: [DiscoveredRunner], unreadable: [URL] = []) {
+  public init(
+    runners: [DiscoveredRunner], unreadable: [URL] = [],
+    failure: DiscoveryFailure? = nil,
+    possiblyInstalledLabels: Set<String>? = nil
+  ) {
     self.runners = runners
     self.unreadable = unreadable
+    self.failure = failure
+    if failure != nil {
+      self.possiblyInstalledLabels = nil
+    } else if unreadable.isEmpty {
+      self.possiblyInstalledLabels = []
+    } else {
+      self.possiblyInstalledLabels = possiblyInstalledLabels
+    }
   }
 }
 
@@ -81,12 +177,25 @@ public struct DiscoveryResult: Equatable, Sendable {
 /// `.runner`.
 public struct RunnerDiscovery: Sendable {
   private let launchAgentsDirectory: URL
+  private let listDirectory: @Sendable (URL) throws -> [URL]
 
   public init(launchAgentsDirectory: URL? = nil) {
     self.launchAgentsDirectory =
       launchAgentsDirectory
       ?? FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/LaunchAgents")
+    self.listDirectory = { directory in
+      try FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: nil)
+    }
+  }
+
+  init(
+    launchAgentsDirectory: URL,
+    listDirectory: @escaping @Sendable (URL) throws -> [URL]
+  ) {
+    self.launchAgentsDirectory = launchAgentsDirectory
+    self.listDirectory = listDirectory
   }
 
   /// Reads the whole LaunchAgents directory and a file from each runner, on the
@@ -101,10 +210,16 @@ public struct RunnerDiscovery: Sendable {
   /// actor is not enough; see `offCooperativePool`, which is what the menu bar
   /// app wraps this call in.
   public func discover() -> DiscoveryResult {
-    let entries =
-      (try? FileManager.default.contentsOfDirectory(
-        at: launchAgentsDirectory,
-        includingPropertiesForKeys: nil)) ?? []
+    let entries: [URL]
+    do {
+      entries = try listDirectory(launchAgentsDirectory)
+    } catch {
+      if Self.isNoSuchFile(error) {
+        return DiscoveryResult(runners: [])
+      }
+      return DiscoveryResult(
+        runners: [], failure: .launchAgentsUnreadable(launchAgentsDirectory))
+    }
 
     let candidates =
       entries
@@ -113,17 +228,33 @@ public struct RunnerDiscovery: Sendable {
 
     var runners: [DiscoveredRunner] = []
     var unreadable: [URL] = []
+    var possiblyInstalledLabels: Set<String> = []
+    var hasUnidentifiedCandidate = false
     for candidate in candidates {
-      if let runner = runner(fromPlistAt: candidate) {
+      let resolved = runner(fromPlistAt: candidate)
+      if let runner = resolved.runner {
         runners.append(runner)
       } else {
         unreadable.append(candidate)
+        if let label = resolved.label {
+          possiblyInstalledLabels.insert(label)
+        } else {
+          hasUnidentifiedCandidate = true
+        }
       }
     }
 
     return DiscoveryResult(
       runners: deduplicatedByLabel(runners),
-      unreadable: unreadable.sorted { $0.path < $1.path })
+      unreadable: unreadable.sorted { $0.path < $1.path },
+      possiblyInstalledLabels: hasUnidentifiedCandidate ? nil : possiblyInstalledLabels)
+  }
+
+  private static func isNoSuchFile(_ error: any Error) -> Bool {
+    let error = error as NSError
+    guard error.domain == NSCocoaErrorDomain else { return false }
+    return error.code == CocoaError.Code.fileNoSuchFile.rawValue
+      || error.code == CocoaError.Code.fileReadNoSuchFile.rawValue
   }
 
   /// One entry per label. Duplicating a plist in Finder yields "… copy.plist",
@@ -142,21 +273,29 @@ public struct RunnerDiscovery: Sendable {
       }
   }
 
-  private func runner(fromPlistAt url: URL) -> DiscoveredRunner? {
-    guard let agent = try? LaunchAgentDescriptor(contentsOf: url) else { return nil }
+  private func runner(
+    fromPlistAt url: URL
+  ) -> (
+    runner: DiscoveredRunner?, label: String?
+  ) {
+    guard let agent = try? LaunchAgentDescriptor(contentsOf: url) else {
+      return (nil, nil)
+    }
     let runnerFile = agent.workingDirectory.appendingPathComponent(".runner")
     // A plist whose runner directory is gone is a half-finished uninstall.
     // Surfacing it would only add a permanently broken row to the menu.
     guard let config = try? RunnerConfig(contentsOf: runnerFile),
       let scope = RunnerScope(gitHubURL: config.gitHubUrl)
-    else { return nil }
+    else { return (nil, agent.label) }
 
-    return DiscoveredRunner(
+    let runner = DiscoveredRunner(
       label: agent.label,
       directory: agent.workingDirectory,
       agentId: config.agentId,
       agentName: config.agentName,
       scope: scope,
       workFolder: config.workFolder)
+    guard runner.containedWorkDirectory != nil else { return (nil, agent.label) }
+    return (runner, agent.label)
   }
 }

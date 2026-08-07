@@ -10,6 +10,7 @@ import Foundation
 /// them, and the difference between the two is one wrong string.
 final class RunnerDirectorySandbox {
   let root: URL
+  let outside: URL
 
   init() throws {
     let created = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -24,15 +25,26 @@ final class RunnerDirectorySandbox {
     // comparison of two names for one directory, which no real runner directory
     // has — nothing symlinks a home directory.
     root = Self.canonical(created)
+    outside = root.deletingLastPathComponent()
+      .appendingPathComponent("outside-work-\(UUID().uuidString)")
   }
 
   private static func canonical(_ url: URL) -> URL {
     var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
     guard realpath(url.path, &buffer) != nil else { return url }
-    return URL(fileURLWithPath: String(cString: buffer))
+    guard
+      let path = buffer.withUnsafeBufferPointer({ pointer -> String? in
+        guard let baseAddress = pointer.baseAddress else { return nil }
+        return String(validatingCString: baseAddress)
+      })
+    else { return url }
+    return URL(fileURLWithPath: path)
   }
 
-  func cleanUp() { try? FileManager.default.removeItem(at: root) }
+  func cleanUp() {
+    try? FileManager.default.removeItem(at: root)
+    try? FileManager.default.removeItem(at: outside)
+  }
 
   var runner: DiscoveredRunner {
     DiscoveredRunner(
@@ -60,6 +72,24 @@ final class RunnerDirectorySandbox {
     return directory
   }
 
+  /// A work-like tree outside the runner, for containment regressions.
+  @discardableResult
+  func makeOutsideFolder(_ name: String, kilobytes: Int = 0) throws -> URL {
+    let directory = outside.appendingPathComponent(name)
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true)
+    if kilobytes > 0 {
+      try Data(repeating: UInt8(ascii: "x"), count: kilobytes * 1024)
+        .write(to: directory.appendingPathComponent("payload"))
+    }
+    return directory
+  }
+
+  func replaceWorkDirectoryWithOutsideSymlink() throws {
+    try FileManager.default.removeItem(at: work)
+    try FileManager.default.createSymbolicLink(at: work, withDestinationURL: outside)
+  }
+
   /// A log in `_diag`, with a modification date of this test's choosing.
   ///
   /// The date is what ages it, and setting it is the only way to write a test
@@ -69,11 +99,13 @@ final class RunnerDirectorySandbox {
   ///   modification date records.
   @discardableResult
   func makeLog(
-    _ name: String, bytes: Int = 16, lines: [String] = [], modified: Date
+    _ name: String, bytes: Int = 16, lines: [String] = [], modified: Date,
+    in directory: URL? = nil
   ) throws -> URL {
+    let directory = directory ?? diagnostics
     try FileManager.default.createDirectory(
-      at: diagnostics, withIntermediateDirectories: true)
-    let url = diagnostics.appendingPathComponent(name)
+      at: directory, withIntermediateDirectories: true)
+    let url = directory.appendingPathComponent(name)
     let data =
       lines.isEmpty
       ? Data(repeating: UInt8(ascii: "x"), count: bytes)

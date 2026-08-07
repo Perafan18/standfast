@@ -47,14 +47,88 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
   try sandbox.makeWorkFolder("_tool", kilobytes: 1)
-  try sandbox.makeWorkFolder("\(Housekeeper.trashFolder)/leftover", kilobytes: 4)
+  try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000020",
+    kilobytes: 4)
 
   try Housekeeper().blockingClean(
     .toolCache, in: sandbox.runner, isStillSafe: { true })
   #expect(sandbox.names(in: sandbox.work).isEmpty)
 }
 
-@Test func aGraveIsSweptEvenWhenThereIsNothingLeftToClean() throws {
+@Test func anOutsideTrashSymlinkIsRefusedBeforeItsContentsAreSwept() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 1)
+  let foreign = try sandbox.makeOutsideFolder("keep", kilobytes: 4)
+  let trash = sandbox.work.appendingPathComponent(Housekeeper.trashFolder)
+  try FileManager.default.createSymbolicLink(at: trash, withDestinationURL: sandbox.outside)
+
+  #expect(throws: HousekeepingFailure(directory: trash)) {
+    try Housekeeper().blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+  #expect(throws: HousekeepingFailure(directory: trash)) {
+    try Housekeeper().blockingCleanLegacyTrash(in: sandbox.runner)
+  }
+
+  #expect(sandbox.exists(foreign.appendingPathComponent("payload")))
+  #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
+}
+
+@Test func legacyRecoveryRemovesOnlyCanonicalDirectories() throws {
+  // The generic migration path has less evidence than a typed retry. It may
+  // remove exact UUID directories and nothing else — not a newer typed grave,
+  // not a malformed neighbour, and not a perfect-looking symlink out of trash.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let firstLegacy = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/CCCCCCCC-0000-0000-0000-000000000001")
+  let secondLegacy = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/CCCCCCCC-0000-0000-0000-000000000004")
+  let typed = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.actionCache.CCCCCCCC-0000-0000-0000-000000000002"
+  )
+  let malformed = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/not-a-standfast-grave")
+  let outside = try sandbox.makeOutsideFolder("keep", kilobytes: 4)
+  let disguisedSymlink = sandbox.work.appendingPathComponent(
+    "\(Housekeeper.trashFolder)/CCCCCCCC-0000-0000-0000-000000000003")
+  try FileManager.default.createSymbolicLink(
+    at: disguisedSymlink, withDestinationURL: outside)
+
+  let outcome = try Housekeeper().blockingCleanLegacyTrash(in: sandbox.runner)
+
+  #expect(outcome == .done)
+  #expect(!sandbox.exists(firstLegacy))
+  #expect(!sandbox.exists(secondLegacy))
+  #expect(sandbox.exists(typed))
+  #expect(sandbox.exists(malformed))
+  #expect(sandbox.exists(disguisedSymlink))
+  #expect(sandbox.exists(outside.appendingPathComponent("payload")))
+  #expect(
+    try Housekeeper().blockingCleanLegacyTrash(in: sandbox.runner) == .nothingToDo)
+}
+
+@Test func anInternalTrashSymlinkDoesNotMakeAnotherRunnerFolderOurs() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 1)
+  let foreign = try sandbox.makeWorkFolder("foreign/keep", kilobytes: 4)
+  let trash = sandbox.work.appendingPathComponent(Housekeeper.trashFolder)
+  try FileManager.default.createSymbolicLink(
+    at: trash, withDestinationURL: sandbox.work.appendingPathComponent("foreign"))
+
+  #expect(throws: HousekeepingFailure(directory: trash)) {
+    try Housekeeper().blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+
+  #expect(sandbox.exists(foreign.appendingPathComponent("payload")))
+  #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
+}
+
+@Test func sweepingAGraveIsReportedAsAChangeEvenWhenTheCacheIsAlreadyGone() throws {
   // The state the test above cannot reach, and the one that does not heal
   // itself. Being killed between the rename and the delete leaves no `_tool`
   // either — but the next build puts one back, and the cleanup after that
@@ -65,12 +139,16 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   // reach them.
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
-  try sandbox.makeWorkFolder("\(Housekeeper.trashFolder)/leftover", kilobytes: 4)
+  try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000021",
+    kilobytes: 4)
 
   let outcome = try Housekeeper().blockingClean(
     .toolCache, in: sandbox.runner, isStillSafe: { true })
 
-  #expect(outcome == .nothingToDo)
+  // The cache itself was already gone, but removing the grave changed the
+  // directory and invalidated any measurement a caller is still showing.
+  #expect(outcome == .done)
   #expect(sandbox.names(in: sandbox.work).isEmpty)
 }
 
@@ -93,6 +171,135 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(sandbox.names(in: sandbox.work).isEmpty)
 }
 
+@Test func aTypedRetryDoesNotGuessAtLegacyOrMalformedGraves() throws {
+  // The tool action has proof for the typed tool grave only. A bare UUID has
+  // lost its original cache kind, and a malformed name proves nothing; neither
+  // may be swept as a side effect of a button that promises `_tool` bytes.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let typed = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000010"
+  )
+  let legacy = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/AAAAAAAA-0000-0000-0000-000000000011")
+  let malformed = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/not-a-standfast-grave")
+
+  let outcome = try Housekeeper().blockingClean(
+    .toolCache, in: sandbox.runner, isStillSafe: { true })
+
+  #expect(outcome == .done)
+  #expect(!sandbox.exists(typed))
+  #expect(sandbox.exists(legacy))
+  #expect(sandbox.exists(malformed))
+}
+
+@Test func aDeleteFailureAfterTheRenameReportsThatItModifiedTheDirectory() throws {
+  // The cache has crossed the atomic point of no return before the recursive
+  // delete fails. A caller must invalidate its old cache measurement and say
+  // that the operation partially succeeded, rather than claiming nothing
+  // changed merely because the final unlink threw.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 8)
+
+  do {
+    _ = try Housekeeper(files: MovingButNotDeletingOperations()).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+    Issue.record("Expected the recursive delete behind the rename to fail")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.didModify)
+    #expect(
+      failure.directory.path
+        == sandbox.work.appendingPathComponent(Housekeeper.trashFolder).path)
+  }
+
+  #expect(!sandbox.names(in: sandbox.work).contains("_tool"))
+}
+
+@Test func aSweptGraveIsStillReportedWhenTheFollowingMoveFails() throws {
+  // The old grave is gone before the current cache reaches its rename. If that
+  // rename then fails, callers still have to invalidate the measurement that
+  // included the grave instead of treating the whole operation as unchanged.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let leftover = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000022",
+    kilobytes: 4)
+  try sandbox.makeWorkFolder("_tool", kilobytes: 8)
+
+  do {
+    _ = try Housekeeper(files: RemovingButNotMovingOperations()).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+    Issue.record("Expected the current cache rename to fail")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.didModify)
+  }
+
+  #expect(!sandbox.exists(leftover))
+  #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
+}
+
+@Test func aFailureInsideTheFirstTypedGraveMayAlreadyHaveModifiedIt() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let grave = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000024"
+  )
+  try Data(repeating: UInt8(ascii: "a"), count: 4096)
+    .write(to: grave.appendingPathComponent("first"))
+  try Data(repeating: UInt8(ascii: "b"), count: 4096)
+    .write(to: grave.appendingPathComponent("second"))
+
+  do {
+    _ = try Housekeeper(files: RemovingOneChildThenRefusingOperations()).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+    Issue.record("Expected the recursive grave removal to stop halfway")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.didModify)
+  }
+
+  #expect(sandbox.names(in: grave).count == 1)
+}
+
+@Test func aFailureInsideTheFirstLegacyGraveMayAlreadyHaveModifiedIt() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let grave = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/AAAAAAAA-0000-0000-0000-000000000025")
+  try Data(repeating: UInt8(ascii: "a"), count: 4096)
+    .write(to: grave.appendingPathComponent("first"))
+  try Data(repeating: UInt8(ascii: "b"), count: 4096)
+    .write(to: grave.appendingPathComponent("second"))
+
+  do {
+    _ = try Housekeeper(files: RemovingOneChildThenRefusingOperations())
+      .blockingCleanLegacyTrash(in: sandbox.runner)
+    Issue.record("Expected the recursive grave removal to stop halfway")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.didModify)
+  }
+
+  #expect(sandbox.names(in: grave).count == 1)
+}
+
+@Test func aGraveThatVanishesDuringRemovalStillInvalidatesTheMeasurement() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("_tool", kilobytes: 4)
+  let grave = try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000026",
+    kilobytes: 4)
+
+  let outcome = try Housekeeper(files: RemovingThenReportingMissingOperations())
+    .blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { false })
+
+  #expect(outcome == .refusedAfterChange)
+  #expect(!sandbox.exists(grave))
+  #expect(sandbox.exists(sandbox.work.appendingPathComponent("_tool/payload")))
+}
+
 /// Renames for real and refuses to delete, which is what a directory holding a
 /// file this app cannot unlink looks like from here.
 private struct MovingButNotDeletingOperations: DestructiveFileOperations {
@@ -109,6 +316,60 @@ private struct MovingButNotDeletingOperations: DestructiveFileOperations {
     try FileManager.default.moveItem(at: url, to: destination)
   }
   func remove(_ url: URL) throws { throw Refusal() }
+}
+
+private struct RemovingButNotMovingOperations: DestructiveFileOperations {
+  struct Refusal: Error {}
+
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws { throw Refusal() }
+  func remove(_ url: URL) throws { try FileManager.default.removeItem(at: url) }
+}
+
+private final class RemovingOneChildThenRefusingOperations:
+  DestructiveFileOperations, @unchecked Sendable
+{
+  struct Refusal: Error {}
+  private let lock = NSLock()
+  private var hasRefused = false
+
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws {
+    try FileManager.default.moveItem(at: url, to: destination)
+  }
+  func remove(_ url: URL) throws {
+    lock.lock()
+    let shouldRefuse = !hasRefused
+    hasRefused = true
+    lock.unlock()
+    guard shouldRefuse else {
+      try FileManager.default.removeItem(at: url)
+      return
+    }
+    let child = try #require(
+      FileManager.default.contentsOfDirectory(
+        at: url, includingPropertiesForKeys: nil
+      ).sorted { $0.lastPathComponent < $1.lastPathComponent }.first)
+    try FileManager.default.removeItem(at: child)
+    throw Refusal()
+  }
+}
+
+private struct RemovingThenReportingMissingOperations: DestructiveFileOperations {
+  func createDirectory(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  }
+  func move(_ url: URL, to destination: URL) throws {
+    try FileManager.default.moveItem(at: url, to: destination)
+  }
+  func remove(_ url: URL) throws {
+    try FileManager.default.removeItem(at: url)
+    throw CocoaError(.fileNoSuchFile)
+  }
 }
 
 @Test func aTrashLeftBehindIsNotMistakenForARepositoryCheckout() throws {
@@ -140,6 +401,23 @@ private struct MovingButNotDeletingOperations: DestructiveFileOperations {
 
 // MARK: - What is refused
 
+@Test func anOutsideWorkFolderSymlinkIsRefusedBeforeAnyMutation() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeWorkFolder("placeholder")
+  try sandbox.makeOutsideFolder("_tool", kilobytes: 4)
+  try sandbox.replaceWorkDirectoryWithOutsideSymlink()
+  let files = RecordingFileOperations()
+
+  #expect(throws: HousekeepingFailure(directory: sandbox.work)) {
+    try Housekeeper(files: files).blockingClean(
+      .toolCache, in: sandbox.runner, isStillSafe: { true })
+  }
+
+  #expect(files.calls.isEmpty)
+  #expect(sandbox.exists(sandbox.outside.appendingPathComponent("_tool/payload")))
+}
+
 @Test func aRunnerThatPickedUpWorkKeepsItsCache() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
@@ -147,13 +425,15 @@ private struct MovingButNotDeletingOperations: DestructiveFileOperations {
   // With a grave in it, so the sweep above the check is actually under these
   // assertions. Without one the trash branch never runs and they pass over a
   // path nothing exercised.
-  try sandbox.makeWorkFolder("\(Housekeeper.trashFolder)/leftover", kilobytes: 4)
+  try sandbox.makeWorkFolder(
+    "\(Housekeeper.trashFolder)/standfast-v1.toolCache.AAAAAAAA-0000-0000-0000-000000000023",
+    kilobytes: 4)
 
   let files = RecordingFileOperations()
   let outcome = try Housekeeper(files: files).blockingClean(
     .toolCache, in: sandbox.runner, isStillSafe: { false })
 
-  #expect(outcome == .refused)
+  #expect(outcome == .refusedAfterChange)
   // Nothing of the runner's was moved, and nothing of the runner's was removed.
   // The grave is this app's own and is swept whatever the answer — it holds
   // only what an earlier run of this left behind, at a path the runner cannot
@@ -279,6 +559,64 @@ private func blamedDirectory(
 
 // MARK: - Rotation
 
+@Test func anOutsideDiagnosticsSymlinkIsRefusedBeforeAFileIsRemoved() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let foreignLog = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600), in: sandbox.outside)
+  try FileManager.default.createSymbolicLink(
+    at: sandbox.diagnostics, withDestinationURL: sandbox.outside)
+
+  #expect(throws: HousekeepingFailure(directory: sandbox.diagnostics)) {
+    try Housekeeper().blockingRotateDiagnostics(
+      in: sandbox.runner, now: now, isStillSafe: { true })
+  }
+
+  #expect(sandbox.exists(foreignLog))
+}
+
+@Test func diagnosticsSymlinkedWithinTheRunnerCanStillBeRotated() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let internalDiagnostics = sandbox.root.appendingPathComponent("diagnostics-store")
+  let old = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600), in: internalDiagnostics)
+  try FileManager.default.createSymbolicLink(
+    at: sandbox.diagnostics, withDestinationURL: internalDiagnostics)
+
+  let outcome = try Housekeeper().blockingRotateDiagnostics(
+    in: sandbox.runner, now: now, isStillSafe: { true })
+
+  #expect(outcome == .done)
+  #expect(!sandbox.exists(old))
+}
+
+@Test func aDiagnosticsDirectoryThatCannotBeEnumeratedIsReportedAsAFailure() throws {
+  // A regular file at `_diag` is a deterministic stand-in for any filesystem
+  // refusal to enumerate that path. Treating the listing error as `[]` tells
+  // callers there were simply no old logs and suppresses the warning entirely.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try Data("not a directory".utf8).write(to: sandbox.diagnostics)
+  var probes = 0
+
+  do {
+    _ = try Housekeeper().blockingRotateDiagnostics(in: sandbox.runner, now: now) {
+      probes += 1
+      return true
+    }
+    Issue.record("Expected enumerating a non-directory _diag to fail")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.directory.path == sandbox.diagnostics.path)
+    #expect(!failure.didModify)
+  }
+
+  // Planning failed before the safety probe; no deletion was attempted.
+  #expect(probes == 0)
+}
+
 @Test func rotationLeavesTheActiveLogAndTakesTheRest() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
@@ -287,12 +625,96 @@ private func blamedDirectory(
     modified: now.addingTimeInterval(-30 * 24 * 3600))
   let active = try sandbox.makeLog("Runner_20260805-000000-utc.log", modified: now)
 
-  let outcome = Housekeeper().blockingRotateDiagnostics(
+  let outcome = try Housekeeper().blockingRotateDiagnostics(
     in: sandbox.runner, now: now, isStillSafe: { true })
 
   #expect(outcome == .done)
   #expect(!sandbox.exists(old))
   #expect(sandbox.exists(active))
+}
+
+@Test func aDiagnosticLogThatCannotBeRemovedReportsTheDiagnosticsDirectory() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600))
+
+  let files = RecordingFileOperations()
+  files.failing = true
+
+  #expect(throws: HousekeepingFailure(directory: sandbox.diagnostics)) {
+    try Housekeeper(files: files).blockingRotateDiagnostics(
+      in: sandbox.runner, now: now, isStillSafe: { true })
+  }
+}
+
+@Test func aRotationFailureReportsWhenAnEarlierLogWasRemoved() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let first = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-40 * 24 * 3600))
+  let second = try sandbox.makeLog(
+    "Worker_20260201-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600))
+
+  do {
+    _ = try Housekeeper(files: RemovingOneThenRefusingOperations())
+      .blockingRotateDiagnostics(in: sandbox.runner, now: now, isStillSafe: { true })
+    Issue.record("Expected the second unlink to fail")
+  } catch let failure as HousekeepingFailure {
+    #expect(failure.directory == sandbox.diagnostics)
+    #expect(failure.didModify)
+  }
+
+  #expect(!sandbox.exists(first))
+  #expect(sandbox.exists(second))
+}
+
+private final class RemovingOneThenRefusingOperations:
+  DestructiveFileOperations, @unchecked Sendable
+{
+  private struct Refusal: Error {}
+  private let lock = NSLock()
+  private var removalCount = 0
+
+  func createDirectory(at url: URL) throws {}
+  func move(_ url: URL, to destination: URL) throws {}
+
+  func remove(_ url: URL) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard removalCount == 0 else { throw Refusal() }
+    removalCount += 1
+    try FileManager.default.removeItem(at: url)
+  }
+}
+
+@Test func aDiagnosticLogThatDisappearedBeforeUnlinkIsStillDone() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let old = try sandbox.makeLog(
+    "Worker_20260101-000000-utc.log",
+    modified: now.addingTimeInterval(-30 * 24 * 3600))
+
+  let outcome = try Housekeeper(files: RemovingThenMissingOperations())
+    .blockingRotateDiagnostics(
+      in: sandbox.runner, now: now, isStillSafe: { true })
+
+  #expect(outcome == .done)
+  #expect(!sandbox.exists(old))
+}
+
+private struct RemovingThenMissingOperations: DestructiveFileOperations {
+  func createDirectory(at url: URL) throws {}
+  func move(_ url: URL, to destination: URL) throws {}
+  func remove(_ url: URL) throws {
+    try FileManager.default.removeItem(at: url)
+    // The second real removal supplies Foundation's bridged NSError, rather
+    // than the Swift CocoaError value a test could manufacture directly.
+    try FileManager.default.removeItem(at: url)
+  }
 }
 
 @Test func rotationRefusesWhileTheRunnerIsWorkingToo() throws {
@@ -302,7 +724,7 @@ private func blamedDirectory(
     "Worker_20260101-000000-utc.log", modified: now.addingTimeInterval(-30 * 24 * 3600))
 
   let files = RecordingFileOperations()
-  let outcome = Housekeeper(files: files).blockingRotateDiagnostics(
+  let outcome = try Housekeeper(files: files).blockingRotateDiagnostics(
     in: sandbox.runner, now: now, isStillSafe: { false })
 
   #expect(outcome == .refused)
@@ -316,7 +738,7 @@ private func blamedDirectory(
   try sandbox.makeLog("Runner_20260805-000000-utc.log", modified: now)
 
   var probes = 0
-  let outcome = Housekeeper().blockingRotateDiagnostics(in: sandbox.runner, now: now) {
+  let outcome = try Housekeeper().blockingRotateDiagnostics(in: sandbox.runner, now: now) {
     probes += 1
     return true
   }

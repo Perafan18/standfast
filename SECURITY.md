@@ -2,53 +2,95 @@
 
 ## What Standfast can reach
 
-Standfast runs as your user, with your permissions, and does not ask for more. It:
+Standfast runs as your user and never elevates privileges. Features normally use the
+permissions that user already has; the opt-in notification switches ask macOS for
+notification authorization when you enable one. Standfast:
 
 - reads `~/Library/LaunchAgents/actions.runner.*.plist` and the `.runner` file inside each
-  runner directory — files you can already read;
+  runner directory, plus the runner's `_work` and `_diag` directories. Listener-log
+  contents in `_diag` provide local job history and the installed runner version; file
+  metadata and disk usage support maintenance;
 - runs `/bin/launchctl list` to ask launchd whether a service is alive;
 - runs `/bin/bash` on your runner's own `svc.sh` to start and stop it, in that runner's
   own directory;
-- runs the GitHub CLI to ask the API about a runner's status — `/usr/bin/env gh` first,
-  then `/opt/homebrew/bin/gh` and `/usr/local/bin/gh`. The first of those resolves
-  through your `PATH`, on purpose: a `gh` from mise, nix or asdf is a deliberate choice
-  and the only one holding the credentials you meant to use.
+- runs `/usr/bin/du` to measure the runner directories shown by housekeeping;
+- runs the GitHub CLI to ask the API about runner status and the public latest
+  `actions/runner` release — `/usr/bin/env gh` first, then `/opt/homebrew/bin/gh` and
+  `/usr/local/bin/gh`. The first resolves through your `PATH` so a `gh` installed and
+  configured through mise, nix, asdf or another chosen toolchain is respected; whichever
+  executable runs receives the inherited environment described below;
+- opens GitHub workflow runs for repository-scoped runners, or the runner settings page
+  for organization- and enterprise-scoped runners, in your default browser when you ask;
+- stores notification and sleep-prevention switches in `UserDefaults`, asks macOS to
+  register or unregister its login item when you change that switch, and posts the
+  notifications you enable;
+- while sleep prevention is enabled and at least one runner has work, holds a macOS
+  `.idleSystemSleepDisabled` activity assertion; it releases the assertion when the switch
+  is disabled, when the next completed scan observes no remaining work, or when the
+  Standfast process exits; and
+- after an explicit housekeeping confirmation, creates a temporary directory inside the
+  runner's `_work`, moves and deletes the selected caches, or deletes the eligible old
+  diagnostic logs in `_diag` while preserving the active and retained listener logs.
 
-That is the complete list — four executables, all of them absolute paths. It opens no
-ports, writes no file and no preference of its own, and has no telemetry, no analytics
-and no update check. Nothing about your machine, your
-repositories or your jobs is sent anywhere.
+Before housekeeping measures or deletes anything, it resolves the runner, work and
+diagnostics paths and refuses a target that resolves outside the runner. Its private
+trash directory must be a real directory rather than a symbolic link. These pathname
+checks protect against stale or accidental filesystem configuration; they are not a
+sandbox against another process running concurrently as the same user. Such a process
+already has the same file authority and can replace a checked path before the next
+filesystem call. Eliminating that race would require descriptor-relative operations such
+as `openat`, `renameat` and `unlinkat` with no-follow checks.
+
+Standfast opens no listening ports, adds no telemetry or analytics of its own, and never
+checks for updates to Standfast itself. Its outgoing GitHub requests are functional:
+runner-status requests identify the configured scope and runner, while the
+latest-runner-release request uses a public endpoint. Standfast does not upload `_diag`
+contents or other job data.
+
+Standfast launches `gh` with the environment it inherited; it neither injects nor removes
+GitHub authentication, update-notifier, or telemetry variables. Current `gh` versions may
+send their own pseudonymous telemetry unless the user disables it; see
+[GitHub CLI telemetry](https://cli.github.com/telemetry). `GH_TELEMETRY=false` or
+`DO_NOT_TRACK=true` disables that telemetry in the environment Standfast inherits.
+Depending on the installed `gh` version and configuration, `gh` may also perform its own
+update check or other related traffic when invoked. Standfast does not initiate or inspect
+those delegated behaviors: the only API calls it explicitly asks `gh` to make are runner
+status and the public latest `actions/runner` release.
 
 ## No sudo, ever
 
-On macOS a self-hosted runner is a per-user LaunchAgent. `sudo` is the Linux instruction
-and would only produce a password prompt this app has no way to answer. Standfast never
-elevates privileges, and a change that introduces `sudo` will not be merged.
+On macOS a self-hosted runner is a per-user LaunchAgent. Standfast never invokes `sudo` or
+another privilege-elevation mechanism, and a change that introduces one will not be
+merged.
 
 ## Credentials
 
-Standfast **stores no token of its own**. It calls `gh`, which uses the credentials you
-authenticated once with `gh auth login` and which live in `gh`'s own storage — its config
-directory and the system Keychain. Standfast never reads, copies or logs them.
+Standfast **stores no token of its own**. It calls `gh` with the inherited environment and
+leaves credential selection to that CLI. For `github.com`, `gh` documents `GH_TOKEN` and
+then `GITHUB_TOKEN` as taking precedence over credentials previously stored by `gh auth
+login`; when neither is set, `gh` can use its own stored authentication. Standfast never
+inspects, reads, copies or logs any of those tokens or credentials.
 
-A consequence worth stating plainly: Standfast can do anything to your runners that your
-`gh` credentials permit. It only ever reads runner status and starts or stops the local
-service, but the authority it borrows is yours.
+A consequence worth stating plainly: the `gh` process has the authority of whichever
+credential it selects. Standfast's explicit `gh` requests only read runner status and the
+public latest runner release; starting and stopping the local service does not use GitHub.
 
 ## Command execution
 
-Every external command goes through one seam, `CommandRunning`, and every one is invoked
-with an explicit argument vector — never through a shell. Paths come from your own home
-directory and can contain spaces and quotes; passing them through `sh -c` would turn that
-into an injection surface, so it is not done anywhere in the codebase.
+Every external command goes through `CommandRunning` with an explicit executable and
+argument vector. Standfast does not concatenate executable names or argument values into
+a single command string for `sh -c` or `bash -c`. For runner operations, the working
+directory and runner base path come from the LaunchAgent plist; derived script and work
+paths remain individual argument values, so spaces and quotes in them are treated
+literally.
 
-`svc.sh` is the one command handed to `/bin/bash`, and that is not the same thing. It is
-run as `bash <path> start`, an interpreter given a script and one literal argument — a
-runner directory restored from a backup often arrives without the execute bit, and it is
-a bash script either way. Nothing is ever concatenated into a command string.
+For service control the executable is `/bin/bash`, the argument vector is
+`[<runner>/svc.sh, start|stop]`, and the process working directory is the runner directory.
+Bash receives the script path and verb as arguments, not as a command string. This also
+lets a restored runner's bash script work when its execute bit is missing.
 
-`stdin` is `/dev/null` and `stderr` is discarded, so a subprocess cannot prompt you or
-smuggle output into a parsed result.
+`stdin` is `/dev/null`, so a subprocess receives EOF instead of interactive input.
+`stderr` is discarded rather than mixed into the stdout Standfast parses.
 
 ## Reporting a vulnerability
 

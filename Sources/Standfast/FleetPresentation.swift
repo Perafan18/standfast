@@ -95,6 +95,8 @@ struct RunnerRow: Equatable {
   /// What this runner is building and how long it has been at it, and nil when
   /// it is not building anything.
   let progress: String?
+  /// The last requested service-operation outcome, if there is one to report.
+  let operation: ServiceOperationPresentation?
   let actions: [Action]
   /// The jobs before this one, newest first.
   let recentJobs: [RecentJob]
@@ -180,12 +182,19 @@ extension RunnerSnapshot {
       // four buttons belonging to nobody.
       title: L10n.runnerRow(name, display.summary),
       progress: jobProgress?.line,
+      operation: operation?.presentation,
       // Every action reads this runner's own state. Nothing here consults the
       // fleet summary, which is for the icon and only the icon.
       actions: [
-        .init(kind: .start, label: L10n.start, isEnabled: display.canStart),
-        .init(kind: .stop, label: L10n.stop, isEnabled: display.canStop),
-        .init(kind: .restart, label: L10n.restart, isEnabled: display.canRestart),
+        .init(
+          kind: .start, label: L10n.start,
+          isEnabled: display.canStart && !isServiceActionReserved),
+        .init(
+          kind: .stop, label: L10n.stop,
+          isEnabled: display.canStop && !isServiceActionReserved),
+        .init(
+          kind: .restart, label: L10n.restart,
+          isEnabled: display.canRestart && !isServiceActionReserved),
         // Always available: a runner GitHub cannot see is the one you most
         // want to go and look at.
         .init(kind: .openOnGitHub, label: L10n.openOnGitHub, isEnabled: true),
@@ -212,6 +221,8 @@ extension FleetNotice {
     switch self {
     case .noRunnersInstalled:
       [L10n.noRunnersFound]
+    case .launchAgentsUnreadable(let directory):
+      [L10n.launchAgentsUnreadable, PathText.abbreviated(directory)]
     case .unreadable(let paths):
       // The paths themselves, never a count: going and looking at the file is
       // the entire point, the file name alone does not say where it is, and a
@@ -247,5 +258,14 @@ enum FleetSummary {
 
   static func symbolName(for displays: [DisplayState]) -> String {
     summarising(displays)?.symbolName ?? noRunnersSymbolName
+  }
+
+  /// What VoiceOver says after the menu-bar image's product label.
+  ///
+  /// This is deliberately the aggregate display, not a count assembled from
+  /// individual runners: the icon carries the aggregate state, and saying a
+  /// different state would make its label and value disagree.
+  static func accessibilityValue(for display: DisplayState?) -> String {
+    display?.summary ?? L10n.noRunnersFound
   }
 }

@@ -4,12 +4,69 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**0.4.0 is the first public release.** The three sections below it are development
-milestones that were built and reviewed in sequence but never published separately, so
-everything in this file ships at once. They are kept apart because each one answers a
-different question about the app, and collapsing them would lose that.
+## [0.5.0] — Unreleased
 
-## [0.4.0] — 2026-08-06
+This section describes the current source tree, not a published release. Tagging, signing,
+notarization, the final Homebrew formula SHA, and release publication remain pending work
+owned by the release manager.
+
+### Added
+
+- **Honest, per-runner service-operation outcomes.** Start, Stop, and Restart now report
+  their in-flight, request-accepted, uncertain, or failed outcome under the runner that was
+  acted on. A returned `svc.sh` command is never presented as proof of the next runner
+  state, a timeout admits the result is uncertain, and Restart distinguishes a completed
+  Stop from a failed or timed-out Start phase. In-flight feedback remains until completion;
+  each terminal receipt uses a nominal five-minute scan-wall-clock window and is pruned by
+  the next normal scan. A system clock correction can shorten or extend the displayed
+  interval; this presentation receipt is deliberately timer-free rather than an exact
+  elapsed-time guarantee.
+- **A singleton Standfast Control Center** with one scrolling column of native runner
+  cards. Each card keeps the complete operational picture together: local and GitHub state,
+  current work, service controls, the latest operation outcome, recent jobs, runner version,
+  manual disk measurement and safe cleanup, logs, and the appropriate GitHub destination.
+- **A bounded quick menu** for a three-second glance. It shows the aggregate fleet state;
+  up to three runners needing attention, doing work or starting, or retaining an operation
+  receipt even while otherwise idle; discovery and thermal alerts; freshness; Refresh;
+  Open Standfast; Settings; and Quit. A conclusively stopped runner may offer Start; Stop,
+  Restart, history, maintenance, preferences, and confirmations stay out of the quick
+  surface.
+- **A separate Settings scene** for notification choices, SleepGuard, and Open at Login,
+  using the same long-lived preference state as the rest of the app.
+- **Accessibility semantics for the new surfaces.** The menu-bar item exposes the product
+  name and aggregate state, runner cards and operation feedback expose names and values,
+  decorative duplicate text is hidden from assistive technology, and native controls keep
+  keyboard order and focus. State is never conveyed by color or motion alone; v0.5 adds no
+  state animation that needs a Reduce Motion alternative.
+- **An original Standfast app icon:** a text-free sentinel/beacon, compiled into every macOS
+  icon size and included inside the signed resource seal. Live status remains the job of
+  semantic SF Symbols in the menu bar rather than the product icon.
+
+### Changed
+
+- Repository runners now open that repository's workflow-runs page. Organization and
+  enterprise runners instead open their honest runner-settings page; Standfast no longer
+  labels those registration destinations as run history.
+- The operational interface uses native `GroupBox`, `LabeledContent`, `ControlGroup`,
+  `Form`, and system semantic styles, with no custom color or type scale in the app UI.
+
+### Fixed
+
+- Review follow-ups keep runner progress, operation feedback, and Start inside one runner
+  submenu so detail cannot silently exceed the quick menu's top-level row budget.
+- The packaging/AX audit now checks a singleton main and focused Control Center, bounds its
+  Settings close attempts, verifies every required icon representation, and confirms the
+  opaque 1024×1024 source and sealed `.icns` rather than checking only that an icon exists.
+- The local app check now requires readable menu and window Accessibility evidence by
+  default. CI opts explicitly into a packaging smoke mode whose output states that menu,
+  windows, and Accessibility are not covered.
+
+No Standfast version has been published yet. The 0.1.0 through 0.4.0 sections below are
+integrated development milestones that were built and reviewed in sequence, never tags or
+public releases. They remain separate because each records a distinct stage of the current
+unreleased source tree.
+
+## [0.4.0] — development milestone, integrated into 0.5.0
 
 Stops the runner quietly eating the disk. Measured on one real runner: `_work` was 4.5 GB,
 of which the hosted tool cache alone was 4.33 GB — 91% of it, and a cache — while `_diag`
@@ -54,10 +111,10 @@ half gigabytes a year of text nobody will ever read.
   walks the active log plus 24 rotations behind it, so a floor of 24 would take the file
   its walk ends on. On a laptop that is ordinary rather than exotic, because every sleep
   and wake rotates a log without running a single job. A sweep therefore cannot quietly
-  shorten the job history the menu shows.
+  shorten the job history the Control Center shows.
 - **The runner's own version**, read out of the header its listener writes, with the newest
-  published release beside it when there is a newer one. GitHub is asked at most once a
-  day, and a check that got no answer still counts as having asked.
+  published `actions/runner` release beside it when there is a newer one. GitHub is asked at
+  most once a day, and a check that got no answer still counts as having asked.
 
 ### Fixed
 
@@ -67,7 +124,7 @@ half gigabytes a year of text nobody will ever read.
   none, so nothing ever failed. The opener now goes behind a seam like the notification
   centre and the power assertion, and the test pins the URL.
 
-## [0.3.0] — development milestone, shipped in 0.4.0
+## [0.3.0] — development milestone, integrated into 0.5.0
 
 Makes the app worth having when nobody is looking at it. Everything here is off until
 switched on, and the whole design question was not how to notify but what is worth
@@ -109,7 +166,7 @@ a day of which one in six carries information.
   bundle is now ad-hoc signed at the end of `build-app.sh`, and the packaging check fails
   if the signed identifier is not the one `Info.plist` claims.
 
-## [0.2.0] — development milestone, shipped in 0.4.0
+## [0.2.0] — development milestone, integrated into 0.5.0
 
 Turns a status light into a progress indicator. Everything new here is read from logs the
 runner already writes beside itself, so it stays true to the premise: no API call, no
@@ -144,11 +201,11 @@ token, nothing to configure.
   flight, and again while its answer is younger than the interval; an explicit refresh is
   still remembered.
 
-## [0.1.0] — development milestone, shipped in 0.4.0
+## [0.1.0] — development milestone, integrated into 0.5.0
 
-First public release. The app previously worked on exactly one machine, with the
-repository and runner path written into the source; this release is about making it
-installable by anyone.
+Initial installable development milestone. The app previously worked on exactly one
+machine, with the repository and runner path written into the source; this milestone made
+the source build reusable without claiming a published distribution.
 
 ### Added
 
@@ -161,8 +218,7 @@ installable by anyone.
 - A distinct reason on every `unknown` state — the GitHub CLI missing, present but not
   authenticated, silent, or launchd unreadable — because each has a different fix.
 - English interface with a Spanish translation, English being the default.
-- A `Standfast.app` bundle and a Homebrew formula that builds from source, so installing
-  never runs into Gatekeeper.
+- A `Standfast.app` bundle and draft Homebrew formula for a future source distribution.
 
 ### Fixed
 
@@ -170,8 +226,8 @@ installable by anyone.
   registered to the same repository silently shadowed the one on screen. Each runner is now
   asked about by its own `agentId`.
 - The GitHub CLI was invoked only through `PATH`. An app launched from Finder inherits a
-  `PATH` without Homebrew on it, so `gh` was reported as missing on every machine that
-  installed it with Homebrew. Standfast now also looks where Homebrew puts it.
+  `PATH` without Homebrew on it, so `gh` was reported as missing whenever Homebrew installed
+  it. Standfast now also looks where Homebrew puts it.
 - A command writing more than a pipe buffer to `stderr` could hang the app forever.
 - The `.runner` file is written with a UTF-8 BOM, which `JSONDecoder` rejects outright.
 - Local service state was read by matching text in `svc.sh status` output; it now asks
