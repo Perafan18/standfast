@@ -43,12 +43,10 @@ installed but not authenticated* (run `gh auth login`), *it answered nothing use
 ## Quick menu, Control Center and Settings
 
 The quick menu is deliberately small. It shows one fleet summary, up to three runners that
-need attention, are doing work or starting, or still carry an operation receipt; any compact
+need attention, are doing work or starting, or carry a recent operation receipt; any compact
 discovery or thermal warning; when Standfast last looked; and four fixed actions: Refresh,
-Open Standfast, Settings, and Quit. This means an otherwise idle runner remains visible
-while its last operation still needs to be read. A conclusively stopped runner may offer
-Start inside its echo. Stop, Restart, history, maintenance, preferences and confirmations
-do not live there.
+Open Standfast, Settings, and Quit. A conclusively stopped runner may offer Start inside its
+echo. Stop, Restart, history, maintenance, preferences and confirmations do not live there.
 
 **Open Standfast** brings forward one persistent, single-column Control Center. Each runner
 gets a card with its local and GitHub state, current job, Start/Stop/Restart controls, the
@@ -58,9 +56,12 @@ workflow-runs page; organization and enterprise runners open their runner-settin
 which is the honest shared-scope destination GitHub provides.
 
 Service operations keep their own receipts per runner. In-flight work is visible
-immediately. A command that returned is described as *request accepted*, not as a state the
-next probe has not proved. Timeouts say the result is uncertain, and Restart says when Stop
-completed but the Start phase failed or timed out so the recovery step is clear.
+immediately and remains visible for as long as the command is running. After an operation
+reaches an accepted, uncertain, or failed outcome, its terminal receipt is retained for five
+minutes and removed by the next normal scan at that boundary. A command that returned is
+described as *request accepted*, not as a state the next probe has not proved. Timeouts say
+the result is uncertain, and Restart says when Stop completed but the Start phase failed or
+timed out so the recovery step is clear.
 
 **Settings** owns notification switches, SleepGuard and Open at Login. Those preferences
 share their existing state with the app; moving the controls did not create a second copy.
@@ -240,10 +241,16 @@ uploads `_diag` contents and stores no credentials of its own; see
 ## Building from source
 
 ```sh
-swift package clean && swift test  # 611 tests; no installed runner required
+swift package clean && swift test  # 615 tests; no installed runner required
 make app                           # assembles .build/Standfast.app
-make check                         # tests, isolates the bundle, then launches it
+make check                         # strict local bundle, menu and window/AX lifecycle check
 ```
+
+`make check` requires an unlocked graphical session and Accessibility permission for the
+calling terminal. Missing permission or an unreadable menu/window tree is a failure. CI
+explicitly runs `STANDFAST_AX_MODE=skip ./Scripts/check-app.sh` as a packaging/process
+smoke test; its green result does **not** cover the status menu, Control Center, Settings,
+focus, keyboard navigation, or window lifecycle.
 
 The package is plain SwiftPM with no dependencies and no `.xcodeproj` — project files
 generate unreadable merge conflicts and scare off contributors.

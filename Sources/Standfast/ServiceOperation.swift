@@ -32,9 +32,18 @@ enum ServiceOperationPhase: Equatable, Sendable {
 }
 
 struct ServiceOperation: Equatable, Sendable {
+  /// Terminal feedback remains available across ordinary refreshes without
+  /// permanently occupying an otherwise idle runner's quick-menu echo.
+  static let terminalReceiptLifetime: TimeInterval = 5 * 60
+
   let action: ServiceOperationAction
   let phase: ServiceOperationPhase
   let changedAt: Date
+
+  func isReceiptRetained(at scanStartedAt: Date) -> Bool {
+    if case .inFlight = phase { return true }
+    return scanStartedAt.timeIntervalSince(changedAt) < Self.terminalReceiptLifetime
+  }
 }
 
 /// The outcome text is built from a value, not emitted by an action. This

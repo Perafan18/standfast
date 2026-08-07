@@ -133,7 +133,7 @@ private struct DiagnosticsUntouchableFiles: DestructiveFileOperations {
 
 @Test @MainActor
 func firstAvailableDiagnosticsReadBaselinesHistoricalFailures() async throws {
-  // The app may launch while iCloud, permissions, or the volume makes `_diag`
+  // The app may launch while permissions or a transient volume failure makes `_diag`
   // unreadable. That empty answer is not a job-history baseline: once the
   // directory answers, everything already in it still predates monitoring and
   // must be absorbed without a login-time failure banner.

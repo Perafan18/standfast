@@ -13,8 +13,8 @@ app:
 run: app
 	open .build/Standfast.app
 
-# The one check no unit test can stand in for: that the assembled bundle is
-# still an app after the build directory it was compiled in is gone.
+# The checks no unit test can stand in for: that the isolated bundle launches,
+# and that its menu and window lifecycle are readable through Accessibility.
 check: test
 	./Scripts/check-app.sh
 

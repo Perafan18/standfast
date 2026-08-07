@@ -73,11 +73,15 @@ jobs:
 
       # The only check that catches a bundle which resolves on the machine that
       # built it and traps everywhere else. It reassembles the app, deletes
-      # .build on purpose, and launches what is left.
+      # .build on purpose, and launches what is left. GitHub-hosted runners
+      # cannot grant Accessibility access, so CI opts into the packaging-only
+      # mode explicitly; this green step is not window-lifecycle evidence.
       #
       # This is what `make check` runs. The target itself is not used here only
       # because it would repeat the whole test suite the job above just ran.
-      - name: Launch the packaged app
+      - name: Package smoke (menu/windows/AX not covered)
+        env:
+          STANDFAST_AX_MODE: skip
         run: ./Scripts/check-app.sh
 
   hygiene:
@@ -85,6 +89,15 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Strict and skipped AX modes keep distinct contracts
+        run: Tests/Scripts/CheckAppAXContractTests.sh
+
+      - name: No private workspace references in the PR diff
+        if: github.event_name == 'pull_request'
+        run: ./Scripts/check-public-diff.sh "origin/${GITHUB_BASE_REF}...HEAD"
 
       # `swift format`, with a space: the toolchain ships it as a subcommand of
       # `swift`, not as a `swift-format` binary on PATH. It picks up the

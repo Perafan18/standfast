@@ -16,7 +16,9 @@ owned by the release manager.
   their in-flight, request-accepted, uncertain, or failed outcome under the runner that was
   acted on. A returned `svc.sh` command is never presented as proof of the next runner
   state, a timeout admits the result is uncertain, and Restart distinguishes a completed
-  Stop from a failed or timed-out Start phase.
+  Stop from a failed or timed-out Start phase. In-flight feedback remains until completion;
+  each terminal receipt is retained for five minutes and then pruned by the next normal
+  scan.
 - **A singleton Standfast Control Center** with one scrolling column of native runner
   cards. Each card keeps the complete operational picture together: local and GitHub state,
   current work, service controls, the latest operation outcome, recent jobs, runner version,
@@ -53,6 +55,9 @@ owned by the release manager.
 - The packaging/AX audit now checks a singleton main and focused Control Center, bounds its
   Settings close attempts, verifies every required icon representation, and confirms the
   opaque 1024×1024 source and sealed `.icns` rather than checking only that an icon exists.
+- The local app check now requires readable menu and window Accessibility evidence by
+  default. CI opts explicitly into a packaging smoke mode whose output states that menu,
+  windows, and Accessibility are not covered.
 
 No Standfast version has been published yet. The 0.1.0 through 0.4.0 sections below are
 integrated development milestones that were built and reviewed in sequence, never tags or

@@ -960,6 +960,143 @@ func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
   #expect(fleet.operations[runner.label] == nil)
 }
 
+@Test @MainActor
+func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
+  // A terminal receipt kept for five minutes may occupy a quick-menu echo, but
+  // it must not leave an otherwise idle runner there forever. The scan at 4m
+  // 59s retains it; the scan at exactly 5m removes it from every projection.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let fleet = model(box, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  await fleet.quiesce()
+  clock.advance(299)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+  #expect(fleet.snapshots[0].operation?.phase == .requestAccepted)
+  #expect(fleet.controlCenterCards().first?.operation != nil)
+  #expect(
+    fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
+      guard case .runner(let echo) = item else { return false }
+      return echo.id == runner.label && echo.operation != nil
+    })
+
+  clock.advance(1)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.operations[runner.label] == nil)
+  #expect(fleet.snapshots[0].operation == nil)
+  #expect(fleet.controlCenterCards().first?.operation == nil)
+  #expect(
+    !fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
+      guard case .runner(let echo) = item else { return false }
+      return echo.id == runner.label
+    })
+}
+
+@Test @MainActor func anInFlightServiceReceiptNeverExpires() async throws {
+  // A five-minute lifetime applies only after an action reaches a terminal
+  // phase. Pruning an operation merely because its command is slow would make
+  // a still-reserved runner look as though no request were running.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let clock = TestClock()
+  let fleet = model(box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.stop(runner)
+  try await commands.waitForInvocationCount(1)
+  clock.advance(301)
+  let previousRead = fleet.lastReadAt
+  fleet.refresh()
+  try await waitUntil { fleet.lastReadAt != previousRead }
+
+  #expect(fleet.operations[runner.label]?.phase == .inFlight)
+  #expect(fleet.snapshots[0].operation?.phase == .inFlight)
+  #expect(fleet.controlCenterCards().first?.operation?.isInFlight == true)
+
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func everyTerminalServicePhaseUsesTheSameFiveMinuteLifetime()
+  async throws
+{
+  // Accepted, uncertain, and failed are all terminal for receipt retention.
+  // Handling only the happy path would leave an idle runner's most alarming
+  // feedback occupying a quick-menu slot forever.
+  let cases: [(any CommandRunning, ServiceOperationPhase)] = [
+    (RecordingCommandRunner(), .requestAccepted),
+    (TimingOutCommandRunner(), .uncertain(.commandTimedOut)),
+    (FailingCommandRunner(), .failed(.unexpectedFailure)),
+  ]
+  for (commands, phase) in cases {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let clock = TestClock()
+    let fleet = model(box, commands: commands, clock: clock.read)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.perform(.stop, on: runner)
+    await fleet.quiesce()
+    #expect(fleet.operations[runner.label]?.phase == phase)
+
+    clock.advance(300)
+    fleet.refresh()
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label] == nil)
+    #expect(fleet.snapshots[0].operation == nil)
+  }
+}
+
+@Test @MainActor func expiringOneServiceReceiptLeavesOtherLabelsAlone() async throws {
+  // Receipt lifetime is per operation timestamp, not a fleet-wide sweep that
+  // clears every label when the oldest one reaches its boundary.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "first", scope: "widget")
+  try box.addRunner(name: "second", scope: "gadget")
+  let clock = TestClock()
+  let fleet = model(box, clock: clock.read)
+  await fleet.quiesce()
+  let first = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "first" }?.runner)
+  let second = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "second" }?.runner)
+
+  fleet.stop(first)
+  await fleet.quiesce()
+  clock.advance(299)
+  fleet.stop(second)
+  await fleet.quiesce()
+  clock.advance(1)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.operations[first.label] == nil)
+  #expect(fleet.operations[second.label]?.phase == .requestAccepted)
+  #expect(
+    fleet.snapshots.first { $0.id == first.label }?.operation == nil)
+  #expect(
+    fleet.snapshots.first { $0.id == second.label }?.operation?.phase
+      == .requestAccepted)
+}
+
 // MARK: - Telling somebody who is not looking at the menu
 
 @Test @MainActor func openingTheAppAnnouncesNoneOfWhatItFindsOnDisk() async throws {
@@ -2341,16 +2478,20 @@ func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
-  box.set(releaseDelay: 0.4)
+  let release = box.blockNextReleaseCheck()
+  defer { release.release() }
 
   let fleet = model(box)
-  // Long enough for a scan that waited on the release check to still be inside
-  // it, and short enough to be well under the delay.
-  try await Task.sleep(for: .milliseconds(150))
+  try await release.waitUntilEntered()
+  // The release answer is still gated, so the runner row can appear only if
+  // the scan is independent of it. The bounded wait diagnoses a broken test;
+  // scheduler speed is not part of the expectation.
+  try await waitUntil { !fleet.snapshots.isEmpty }
   #expect(!fleet.snapshots.isEmpty)
   #expect(fleet.latestRelease == nil)
 
   // And the answer still lands, once it comes.
+  release.release()
   await fleet.quiesce()
   #expect(fleet.latestRelease == RunnerVersion(2, 336, 0))
 }

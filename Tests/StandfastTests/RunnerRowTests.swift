@@ -232,12 +232,12 @@ private func snapshot(
 }
 
 @Test func theLaunchAgentsFailureNamesTheDirectoryThatCouldNotBeRead() {
-  let directory = URL(fileURLWithPath: "/Users/someone/Library/LaunchAgents")
+  let directory = URL(fileURLWithPath: "/tmp/standfast-fixtures/LaunchAgents")
 
   #expect(
     FleetNotice.launchAgentsUnreadable(directory).lines == [
       L10n.launchAgentsUnreadable,
-      "/Users/someone/Library/LaunchAgents",
+      "/tmp/standfast-fixtures/LaunchAgents",
     ])
 }
 

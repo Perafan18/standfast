@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 611 tests, ~1s
+make test      # 615 tests, ~1s
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
@@ -156,8 +156,17 @@ make check          # swift test, then the script below
 ```
 
 It assembles the bundle, **deletes `.build`**, launches the app and confirms it is still
-alive. That deletion is the point — with the build directory present, a broken bundle still
-resolves and the failure hides. No unit test can catch this class of bug.
+alive. It then requires the status menu, singleton Control Center, Settings lifecycle,
+focus, and background-agent state to be readable through Accessibility. Run it in an
+unlocked graphical session after granting Accessibility permission to the calling terminal;
+missing permission is a failure. That deletion is the point — with the build directory
+present, a broken bundle still resolves and the failure hides. No unit test can catch this
+class of bug.
+
+CI deliberately uses `STANDFAST_AX_MODE=skip ./Scripts/check-app.sh`. That explicit mode
+continues the packaging, launch, process-survival, and background-agent checks while printing
+that menu, windows, and Accessibility are not covered. A green CI package job is therefore
+not evidence that Control Center or Settings opens, focuses, or closes correctly.
 
 ## Signing and notarisation
 

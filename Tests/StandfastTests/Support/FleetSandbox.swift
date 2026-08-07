@@ -17,6 +17,7 @@ final class FleetSandbox: @unchecked Sendable {
   private var nextProbeBarrier: BlockingProbe?
   private var nextDiscoveryBarrier: BlockingProbe?
   private var nextRemoteBarrier: BlockingProbe?
+  private var nextReleaseBarrier: BlockingProbe?
   private var discoveryFailure: DiscoveryFailure?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
@@ -28,10 +29,6 @@ final class FleetSandbox: @unchecked Sendable {
   private var releaseChecks = 0
   private var releaseQueues: [String] = []
   private var versionQueues: [String] = []
-  /// Held for the duration of every release check, the way `delay` is for the
-  /// status call — so a test can make the answer slow enough to tell whether
-  /// anything is waiting on it.
-  private var releaseDelay: TimeInterval = 0
 
   init(
     serviceRunning: Bool = false,
@@ -109,20 +106,17 @@ final class FleetSandbox: @unchecked Sendable {
     let sandbox: FleetSandbox
 
     func blockingLatestRunnerRelease() throws -> RunnerVersion {
-      typealias Answer = (Result<RunnerVersion, GitHubError>, TimeInterval)
+      typealias Answer = (Result<RunnerVersion, GitHubError>, BlockingProbe?)
       let answer = sandbox.withLock { () -> Answer in
         sandbox.releaseChecks += 1
         sandbox.releaseQueues.append(FleetSandbox.queueLabel())
-        return (sandbox.latest, sandbox.releaseDelay)
+        defer { sandbox.nextReleaseBarrier = nil }
+        return (sandbox.latest, sandbox.nextReleaseBarrier)
       }
-      // Outside the lock, like the status call's own delay: holding it would
-      // stop the very scan a test is trying to run alongside this.
-      if answer.1 > 0 { Thread.sleep(forTimeInterval: answer.1) }
+      answer.1?.block()
       return try answer.0.get()
     }
   }
-
-  func set(releaseDelay seconds: TimeInterval) { withLock { releaseDelay = seconds } }
 
   func set(serviceRunning: Bool?) { withLock { running = serviceRunning } }
   func set(remote answer: Result<RemoteStatus, GitHubError>) {
@@ -151,6 +145,13 @@ final class FleetSandbox: @unchecked Sendable {
   func blockNextRemoteAnswer() -> BlockingProbe {
     let barrier = BlockingProbe()
     withLock { nextRemoteBarrier = barrier }
+    return barrier
+  }
+
+  /// Pauses the next latest-release answer until a test releases it.
+  func blockNextReleaseCheck() -> BlockingProbe {
+    let barrier = BlockingProbe()
+    withLock { nextReleaseBarrier = barrier }
     return barrier
   }
 
