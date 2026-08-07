@@ -58,7 +58,7 @@ which is the honest shared-scope destination GitHub provides.
 Service operations keep their own receipts per runner. In-flight work is visible
 immediately and remains visible for as long as the command is running. After an operation
 reaches an accepted, uncertain, or failed outcome, its terminal receipt remains for a nominal
-five-minute scan-wall-clock window and is pruned by the next normal scan after that wall-clock
+five-minute scan-wall-clock window and is pruned by the next normal scan at or after that wall-clock
 boundary. A system clock correction can shorten or extend the displayed interval. A command
 that returned is described as *request accepted*, not as a state the next probe has not
 proved. Timeouts say the result is uncertain, and Restart says when Stop completed but the
