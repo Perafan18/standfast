@@ -17,8 +17,10 @@ owned by the release manager.
   acted on. A returned `svc.sh` command is never presented as proof of the next runner
   state, a timeout admits the result is uncertain, and Restart distinguishes a completed
   Stop from a failed or timed-out Start phase. In-flight feedback remains until completion;
-  each terminal receipt is retained for five minutes and then pruned by the next normal
-  scan.
+  each terminal receipt uses a nominal five-minute scan-wall-clock window and is pruned by
+  the next normal scan. A system clock correction can shorten or extend the displayed
+  interval; this presentation receipt is deliberately timer-free rather than an exact
+  elapsed-time guarantee.
 - **A singleton Standfast Control Center** with one scrolling column of native runner
   cards. Each card keeps the complete operational picture together: local and GitHub state,
   current work, service controls, the latest operation outcome, recent jobs, runner version,

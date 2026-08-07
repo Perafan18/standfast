@@ -95,6 +95,9 @@ jobs:
       - name: Strict and skipped AX modes keep distinct contracts
         run: Tests/Scripts/CheckAppAXContractTests.sh
 
+      - name: Public-diff checker handles content, refs, renames, and binaries
+        run: Tests/Scripts/PublicDiffContractTests.sh
+
       - name: No private workspace references in the PR diff
         if: github.event_name == 'pull_request'
         run: ./Scripts/check-public-diff.sh "origin/${GITHUB_BASE_REF}...HEAD"

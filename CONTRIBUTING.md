@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 615 tests, ~1s
+make test      # 617 tests, ~1s
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```

@@ -95,8 +95,9 @@ enum FleetNotice: Equatable {
 @MainActor
 final class RunnerFleetModel: ObservableObject {
   @Published private(set) var snapshots: [RunnerSnapshot] = []
-  /// The current service operation or five-minute terminal receipt for each
-  /// installed runner. Labels are durable identities; names can collide.
+  /// The current service operation or nominal five-minute scan-wall-clock
+  /// receipt for each installed runner. Labels are durable identities; names
+  /// can collide.
   @Published private(set) var operations: [String: ServiceOperation] = [:]
   @Published private(set) var notice: FleetNotice?
   /// When the scan behind what is on screen *started* reading, and nil until
@@ -467,7 +468,7 @@ final class RunnerFleetModel: ObservableObject {
     settling.keepOnly(retainedLabels)
     operations = operations.filter {
       retainedLabels.contains($0.key)
-        && $0.value.isReceiptRetained(at: startedAt)
+        && $0.value.isReceiptRetained(atScanWallClock: startedAt)
     }
     // And its log reader would hold a few hundred parsed jobs for a runner
     // that no longer exists, for as long as the app runs.

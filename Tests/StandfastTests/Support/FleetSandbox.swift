@@ -17,7 +17,7 @@ final class FleetSandbox: @unchecked Sendable {
   private var nextProbeBarrier: BlockingProbe?
   private var nextDiscoveryBarrier: BlockingProbe?
   private var nextRemoteBarrier: BlockingProbe?
-  private var nextReleaseBarrier: BlockingProbe?
+  private var nextReleaseBarrier: BlockingReleaseCheck?
   private var discoveryFailure: DiscoveryFailure?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
@@ -106,7 +106,7 @@ final class FleetSandbox: @unchecked Sendable {
     let sandbox: FleetSandbox
 
     func blockingLatestRunnerRelease() throws -> RunnerVersion {
-      typealias Answer = (Result<RunnerVersion, GitHubError>, BlockingProbe?)
+      typealias Answer = (Result<RunnerVersion, GitHubError>, BlockingReleaseCheck?)
       let answer = sandbox.withLock { () -> Answer in
         sandbox.releaseChecks += 1
         sandbox.releaseQueues.append(FleetSandbox.queueLabel())
@@ -149,8 +149,8 @@ final class FleetSandbox: @unchecked Sendable {
   }
 
   /// Pauses the next latest-release answer until a test releases it.
-  func blockNextReleaseCheck() -> BlockingProbe {
-    let barrier = BlockingProbe()
+  func blockNextReleaseCheck() -> BlockingReleaseCheck {
+    let barrier = BlockingReleaseCheck()
     withLock { nextReleaseBarrier = barrier }
     return barrier
   }
@@ -633,6 +633,34 @@ final class BlockingProbe: @unchecked Sendable {
   }
 
   private enum WaitFailure: Error { case timedOut }
+}
+
+/// A release-check gate whose entry is an event, not a scheduler deadline.
+/// The test using it has a generous test-level limit for broken implementations.
+final class BlockingReleaseCheck: @unchecked Sendable {
+  private let gate = DispatchSemaphore(value: 0)
+  private let entry: AsyncStream<Void>
+  private let entryContinuation: AsyncStream<Void>.Continuation
+
+  init() {
+    let signal = AsyncStream<Void>.makeStream()
+    entry = signal.stream
+    entryContinuation = signal.continuation
+  }
+
+  func waitUntilEntered() async {
+    for await _ in entry {
+      return
+    }
+  }
+
+  func release() { gate.signal() }
+
+  fileprivate func block() {
+    entryContinuation.yield()
+    entryContinuation.finish()
+    gate.wait()
+  }
 }
 
 /// A clock a test moves by hand, for the parts of this model that measure how

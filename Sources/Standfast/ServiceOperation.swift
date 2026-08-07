@@ -32,17 +32,23 @@ enum ServiceOperationPhase: Equatable, Sendable {
 }
 
 struct ServiceOperation: Equatable, Sendable {
-  /// Terminal feedback remains available across ordinary refreshes without
-  /// permanently occupying an otherwise idle runner's quick-menu echo.
-  static let terminalReceiptLifetime: TimeInterval = 5 * 60
+  /// A nominal presentation window measured between the wall-clock `Date`
+  /// captured when the outcome changes and the one captured when a later scan
+  /// begins. This is intentionally timer-free, not a monotonic elapsed-time
+  /// guarantee: a forward clock correction can prune on the next scan, while a
+  /// backward correction retains the receipt until the scan clock reaches the
+  /// boundary. `.inFlight` is never expired here.
+  static let terminalReceiptScanWallClockWindow: TimeInterval = 5 * 60
 
   let action: ServiceOperationAction
   let phase: ServiceOperationPhase
   let changedAt: Date
 
-  func isReceiptRetained(at scanStartedAt: Date) -> Bool {
+  func isReceiptRetained(atScanWallClock scanWallClock: Date) -> Bool {
     if case .inFlight = phase { return true }
-    return scanStartedAt.timeIntervalSince(changedAt) < Self.terminalReceiptLifetime
+    return
+      scanWallClock.timeIntervalSince(changedAt)
+      < Self.terminalReceiptScanWallClockWindow
   }
 }
 

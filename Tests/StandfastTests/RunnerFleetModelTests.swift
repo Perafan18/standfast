@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import RunnerKit
 import Testing
@@ -108,6 +109,13 @@ private func waitUntil(
 }
 
 private enum TestWaitFailure: Error { case timedOut }
+
+@MainActor
+private func waitForFirstSnapshot(from fleet: RunnerFleetModel) async {
+  for await snapshots in fleet.$snapshots.values where !snapshots.isEmpty {
+    return
+  }
+}
 
 private struct CouldNotLaunchCommandRunner: CommandRunning {
   func run(
@@ -962,9 +970,10 @@ func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
 
 @Test @MainActor
 func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
-  // A terminal receipt kept for five minutes may occupy a quick-menu echo, but
-  // it must not leave an otherwise idle runner there forever. The scan at 4m
-  // 59s retains it; the scan at exactly 5m removes it from every projection.
+  // A terminal receipt in the nominal five-minute scan-wall-clock window may
+  // occupy a quick-menu echo, but it must not leave an otherwise idle runner
+  // there forever. The scan at 4m 59s retains it; the scan at exactly 5m
+  // removes it from every projection when the wall clock advances normally.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
@@ -1002,8 +1011,36 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
     })
 }
 
+@Test func aBackwardWallClockCorrectionExtendsTerminalReceiptRetention() {
+  // Retention compares Date stamps captured by existing scans; it is not a
+  // monotonic elapsed-time claim. A backward-corrected scan therefore keeps
+  // the receipt until a later scan wall clock reaches the original boundary.
+  let changedAt = Date(timeIntervalSince1970: 1_785_962_174)
+  let operation = ServiceOperation(
+    action: .stop, phase: .requestAccepted, changedAt: changedAt)
+
+  #expect(
+    operation.isReceiptRetained(
+      atScanWallClock: changedAt.addingTimeInterval(-3_600)))
+  #expect(
+    !operation.isReceiptRetained(
+      atScanWallClock: changedAt.addingTimeInterval(300)))
+}
+
+@Test func aForwardWallClockCorrectionCanPruneATerminalReceiptOnTheNextScan() {
+  // A forward correction can cross the wall-clock boundary before five
+  // monotonic minutes have elapsed. That is the explicit timer-free policy.
+  let changedAt = Date(timeIntervalSince1970: 1_785_962_174)
+  let operation = ServiceOperation(
+    action: .stop, phase: .requestAccepted, changedAt: changedAt)
+
+  #expect(
+    !operation.isReceiptRetained(
+      atScanWallClock: changedAt.addingTimeInterval(3_600)))
+}
+
 @Test @MainActor func anInFlightServiceReceiptNeverExpires() async throws {
-  // A five-minute lifetime applies only after an action reaches a terminal
+  // The scan-wall-clock window applies only after an action reaches a terminal
   // phase. Pruning an operation merely because its command is slow would make
   // a still-reserved runner look as though no request were running.
   let box = try FleetSandbox(serviceRunning: true)
@@ -2468,7 +2505,8 @@ func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
   #expect(box.releaseCheckCount == 2)
 }
 
-@Test @MainActor func aSlowReleaseCheckDoesNotHoldUpTheMenu() async throws {
+@Test(.timeLimit(.minutes(1))) @MainActor
+func aSlowReleaseCheckDoesNotHoldUpTheMenu() async throws {
   // It used to be inside the scan, and the scan is what paints the menu. The
   // very first one of every launch asks — `lastReleaseCheck` is process memory
   // that starts at nil — so a `gh` hanging on its 30s timeout meant half a
@@ -2482,11 +2520,12 @@ func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
   defer { release.release() }
 
   let fleet = model(box)
-  try await release.waitUntilEntered()
+  await release.waitUntilEntered()
   // The release answer is still gated, so the runner row can appear only if
-  // the scan is independent of it. The bounded wait diagnoses a broken test;
-  // scheduler speed is not part of the expectation.
-  try await waitUntil { !fleet.snapshots.isEmpty }
+  // the scan is independent of it. Await the published state change directly;
+  // the test-level limit diagnoses noncompletion without a scheduler-speed
+  // assumption in the barrier or the assertion.
+  await waitForFirstSnapshot(from: fleet)
   #expect(!fleet.snapshots.isEmpty)
   #expect(fleet.latestRelease == nil)
 
