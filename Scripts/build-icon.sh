@@ -12,6 +12,10 @@ fail() {
 }
 
 [ -f "$SOURCE" ] || fail "$SOURCE is missing"
+format="$(sips -g format "$SOURCE" 2>/dev/null | awk '/format:/ { print $2 }')"
+[ "$format" = "png" ] || fail "$SOURCE is $format, not PNG"
+has_alpha="$(sips -g hasAlpha "$SOURCE" 2>/dev/null | awk '/hasAlpha:/ { print $2 }')"
+[ "$has_alpha" = "no" ] || fail "$SOURCE must be an opaque PNG (hasAlpha=$has_alpha)"
 dimensions="$(sips -g pixelWidth -g pixelHeight "$SOURCE" 2>/dev/null \
   | awk '/pixelWidth:/ { width = $2 } /pixelHeight:/ { height = $2 } END { print width "x" height }')"
 [ "$dimensions" = "1024x1024" ] || fail "$SOURCE is $dimensions, not 1024x1024"

@@ -23,7 +23,14 @@ Only the second one decides whether your build runs. That is why a runner that i
 unreachable gets a state of its own instead of being filed under "stopped" — the symptom
 looks similar and the fix is not.
 
-## What the icon means
+## App icon
+
+The rounded sentinel/beacon is Standfast's product identity; it does not report
+live runner state. Its checked-in [1024×1024 source](Resources/AppIcon.png) is
+compiled into `Standfast.icns` by `Scripts/build-icon.sh` during `make app`,
+before the bundle is signed.
+
+## What the menu-bar status icon means
 
 | Icon | State | Meaning |
 |---|---|---|

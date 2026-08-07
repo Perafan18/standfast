@@ -53,6 +53,14 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist" 2>/d
 
 SOURCE_ICON="$ROOT/Resources/AppIcon.png"
 [ -f "$SOURCE_ICON" ] || fail "Resources/AppIcon.png is missing"
+source_icon_format="$(sips -g format "$SOURCE_ICON" 2>/dev/null \
+  | awk '/format:/ { print $2 }')"
+[ "$source_icon_format" = "png" ] \
+  || fail "Resources/AppIcon.png is $source_icon_format, not PNG"
+source_icon_has_alpha="$(sips -g hasAlpha "$SOURCE_ICON" 2>/dev/null \
+  | awk '/hasAlpha:/ { print $2 }')"
+[ "$source_icon_has_alpha" = "no" ] \
+  || fail "Resources/AppIcon.png must be an opaque PNG (hasAlpha=$source_icon_has_alpha)"
 source_icon_dimensions="$(sips -g pixelWidth -g pixelHeight "$SOURCE_ICON" 2>/dev/null \
   | awk '/pixelWidth:/ { width = $2 } /pixelHeight:/ { height = $2 } END { print width "x" height }')"
 [ "$source_icon_dimensions" = "1024x1024" ] \
@@ -75,6 +83,29 @@ APP_ICON="$APP/Contents/Resources/Standfast.icns"
 app_icon_format="$(sips -g format "$APP_ICON" 2>/dev/null \
   | awk '/format:/ { print $2 }')"
 [ "$app_icon_format" = "icns" ] || fail "Standfast.icns is not an ICNS file"
+APP_ICONSET="$STAGE/Standfast.iconset"
+/usr/bin/iconutil -c iconset "$APP_ICON" -o "$APP_ICONSET" \
+  || fail "Standfast.icns could not be expanded as an iconset"
+for icon_specification in \
+  icon_16x16.png:16 \
+  icon_16x16@2x.png:32 \
+  icon_32x32.png:32 \
+  icon_32x32@2x.png:64 \
+  icon_128x128.png:128 \
+  icon_128x128@2x.png:256 \
+  icon_256x256.png:256 \
+  icon_256x256@2x.png:512 \
+  icon_512x512.png:512 \
+  icon_512x512@2x.png:1024; do
+  icon_name="${icon_specification%%:*}"
+  expected_pixels="${icon_specification##*:}"
+  icon_file="$APP_ICONSET/$icon_name"
+  [ -f "$icon_file" ] || fail "Standfast.icns is missing $icon_name"
+  icon_dimensions="$(sips -g pixelWidth -g pixelHeight "$icon_file" 2>/dev/null \
+    | awk '/pixelWidth:/ { width = $2 } /pixelHeight:/ { height = $2 } END { print width "x" height }')"
+  [ "$icon_dimensions" = "${expected_pixels}x${expected_pixels}" ] \
+    || fail "$icon_name is $icon_dimensions, not ${expected_pixels}x${expected_pixels}"
+done
 # The identifier `codesign` reports, not the one Info.plist claims. Until the
 # bundle is signed the two differ — SwiftPM leaves the executable linker-signed
 # as `Standfast` with Info.plist unbound — and an app with no bundle identity
