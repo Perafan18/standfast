@@ -52,7 +52,9 @@
 "cleanup.actionCache.effect" = "Son las acciones que usan tus workflows, clonadas aquí. El runner recupera las que no encuentre.";
 "cleanup.standfastTrash.title" = "¿Borrar los restos de limpieza de Standfast de %@?";
 "cleanup.standfastTrash.effect" = "Estos directorios de caché fueron apartados por una limpieza anterior de Standfast. Sus nombres antiguos ya no indican qué caché contenían. Solo se borran restos con nombre UUID en la papelera privada de Standfast; las cachés actuales y los demás archivos permanecen.";
+"cleanup.logs.title.one" = "¿Borrar %d archivo de log antiguo de %@?";
 "cleanup.logs.title" = "¿Borrar %d archivos de log antiguos de %@?";
+"cleanup.logs.effect.one" = "%d archivo en el que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra este menú.";
 "cleanup.logs.effect" = "%d archivos en los que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra este menú.";
 "cleanup.refused" = "La limpieza se detuvo: %@ tomó trabajo";
 "cleanup.failed" = "No se pudo borrar nada; comprueba que se puede escribir en %@";

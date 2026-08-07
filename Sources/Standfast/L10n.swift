@@ -243,12 +243,20 @@ enum L10n {
     String(format: t("cleanup.standfastTrash.title"), path)
   }
 
-  static func cleanupLogsTitle(_ count: Int, _ path: String) -> String {
-    String(format: t("cleanup.logs.title"), count, path)
+  static func cleanupLogsTitle(
+    _ count: Int, _ path: String, in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    if count == 1 {
+      return String(format: t("cleanup.logs.title.one", in: bundles), count, path)
+    }
+    return String(format: t("cleanup.logs.title", in: bundles), count, path)
   }
 
-  static func cleanupLogsEffect(_ count: Int) -> String {
-    String(format: t("cleanup.logs.effect"), count)
+  static func cleanupLogsEffect(
+    _ count: Int, in bundles: [Bundle] = L10n.bundles
+  ) -> String {
+    let key = count == 1 ? "cleanup.logs.effect.one" : "cleanup.logs.effect"
+    return String(format: t(key, in: bundles), count)
   }
 
   /// Said when the runner picked up work between the confirmation and the
@@ -346,7 +354,11 @@ enum L10n {
       + "Their old names no longer say which cache they held. Only UUID-named "
       + "leftovers in Standfast's private trash are deleted; current caches and "
       + "other files stay.",
+    "cleanup.logs.title.one": "Delete %d old log file from %@?",
     "cleanup.logs.title": "Delete %d old log files from %@?",
+    "cleanup.logs.effect.one":
+      "%d file nothing has written to in over a week. The log the runner is "
+      + "writing now is never deleted, and neither is the history this menu shows.",
     "cleanup.logs.effect":
       "%d files nothing has written to in over a week. The log the runner is "
       + "writing now is never deleted, and neither is the history this menu shows.",

@@ -75,7 +75,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.runnerVersionOutdated("a", "b"), L10n.cleanupConfirmTitle("a"),
     L10n.cleanupConfirmBody("a", "b"), L10n.cleanupStandfastTrashTitle("a"),
     L10n.cleanupStandfastTrashEffect, L10n.cleanupLogsTitle(1, "a"),
-    L10n.cleanupLogsEffect(1), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
+    L10n.cleanupLogsTitle(2, "a"), L10n.cleanupLogsEffect(1),
+    L10n.cleanupLogsEffect(2), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
     L10n.cleanupPartiallyFailed("a"),
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
@@ -126,7 +127,8 @@ private func speaking(_ localization: String) throws -> Bundle {
       "cleanup.confirm.title", "cleanup.confirm.body", "cleanup.confirm.delete",
       "cleanup.confirm.cancel", "cleanup.toolCache.effect",
       "cleanup.actionCache.effect", "cleanup.standfastTrash.title",
-      "cleanup.standfastTrash.effect", "cleanup.logs.title", "cleanup.logs.effect",
+      "cleanup.standfastTrash.effect", "cleanup.logs.title.one", "cleanup.logs.title",
+      "cleanup.logs.effect.one", "cleanup.logs.effect",
       "cleanup.refused", "cleanup.failed", "cleanup.partiallyFailed",
     ])
   #expect(everyKey == reached)
@@ -166,6 +168,27 @@ private func speaking(_ localization: String) throws -> Bundle {
   #expect(L10n.t("menu.start", in: [spanish]) == "Arrancar")
   #expect(L10n.t("menu.start", in: [spanish]) != L10n.english["menu.start"])
   #expect(L10n.t("state.stopped", in: [spanish]) == "Detenido")
+}
+
+@Test func oneOldLogUsesTheSingularInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.cleanupLogsTitle(1, "/tmp/runner", in: [english])
+      == "Delete 1 old log file from /tmp/runner?")
+  #expect(
+    L10n.cleanupLogsEffect(1, in: [english])
+      == "1 file nothing has written to in over a week. The log the runner is "
+      + "writing now is never deleted, and neither is the history this menu shows.")
+  #expect(
+    L10n.cleanupLogsTitle(1, "/tmp/runner", in: [spanish])
+      == "¿Borrar 1 archivo de log antiguo de /tmp/runner?")
+  #expect(
+    L10n.cleanupLogsEffect(1, in: [spanish])
+      == "1 archivo en el que nadie escribe desde hace más de una semana. El log que "
+      + "el runner está escribiendo ahora nunca se borra, ni tampoco el historial que "
+      + "muestra este menú.")
 }
 
 @Test func everyUnknownReasonTellsTheUserWhatToDo() {
