@@ -198,6 +198,40 @@ private func echoes(
     }.count == 2)
 }
 
+@Test func operationBearingRunnersStayOneTopLevelElementEach() {
+  // Runner detail belongs inside one native submenu. Rendering its title,
+  // progress, operation feedback, and action as siblings would turn these
+  // nine/twelve top-level elements into eighteen/twenty-one menu rows.
+  let operation = ServiceOperation(
+    action: .start, phase: .requestAccepted, changedAt: quickMenuNow)
+  let snapshots = (1...3).map { index in
+    let job = JobRecord(
+      name: "build-\(index)", startedAt: quickMenuNow.addingTimeInterval(-80))
+    return quickSnapshot(
+      "runner-\(index)", .resolved(.busy),
+      jobs: JobHistory(records: [job], running: job), operation: operation)
+  }
+
+  let normal = quickMenu(snapshots)
+  let alerted = quickMenu(
+    snapshots,
+    notice: .unreadable([URL(fileURLWithPath: "/tmp/unreadable")]),
+    thermal: [L10n.thermalSerious, L10n.thermalSlowingJobs])
+  let runnerMenus: [QuickMenuPresentation.RunnerEcho] =
+    normal.emission.elements.compactMap { element in
+      guard case .runnerMenu(let runner) = element else { return nil }
+      return runner
+    }
+
+  #expect(echoes(in: normal).count == 3)
+  #expect(runnerMenus.count == 3)
+  #expect(runnerMenus.allSatisfy { $0.progress != nil && $0.operation != nil })
+  #expect(normal.emission.elements.count == 9)
+  #expect(normal.emission.elements.count <= 10)
+  #expect(alerted.emission.elements.count == 12)
+  #expect(alerted.emission.elements.count <= 14)
+}
+
 @Test func emittedItemsContainOnlyQuickActionsAndReadOnlyEchoes() {
   // Reintroducing a row action, history, maintenance, preference toggle, or
   // confirmation here would put a destructive or stateful control back in the

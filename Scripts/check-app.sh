@@ -191,11 +191,33 @@ tell application "System Events"
     end repeat
     if not controlClicked then error "Control Center menu item missing"
     delay 1
-    set controlOpened to (count of windows) > 0
-    set controlFrontmost to frontmost
-    if controlOpened then perform action "AXClose" of window 1
+    set controlWindow to missing value
+    set controlWindowCount to 0
+    set controlResolved to false
+    repeat with candidate in {"Standfast Control Center", "Centro de control de Standfast"}
+      set candidateWindows to every window whose name is (candidate as text)
+      set candidateCount to count of candidateWindows
+      set controlWindowCount to controlWindowCount + candidateCount
+      if not controlResolved and candidateCount > 0 then
+        set controlWindow to item 1 of candidateWindows
+        set controlResolved to true
+      end if
+    end repeat
+    set controlSingleton to controlWindowCount is 1
+    set controlMain to false
+    set controlFocused to false
+    if controlResolved then
+      set controlMain to value of attribute "AXMain" of controlWindow as boolean
+      set controlFocused to value of attribute "AXFocused" of controlWindow as boolean
+      perform action "AXClose" of controlWindow
+    end if
     delay 1
-    set controlClosed to (count of windows) is 0
+    set remainingControlWindows to 0
+    repeat with candidate in {"Standfast Control Center", "Centro de control de Standfast"}
+      set remainingControlWindows to remainingControlWindows + ¬
+        (count of (every window whose name is (candidate as text)))
+    end repeat
+    set controlClosed to remainingControlWindows is 0
 
     click menu bar item 1 of menu bar 2
     delay 1
@@ -210,26 +232,60 @@ tell application "System Events"
     if not settingsClicked then error "Settings menu item missing"
     delay 1
     set settingsOpened to (count of windows) > 0
-    repeat while (count of windows) > 0
-      perform action "AXClose" of window 1
+    set closeAttemptLimit to 8
+    set closeAttempts to 0
+    repeat
+      if (count of windows) is 0 then exit repeat
+      if closeAttempts is greater than or equal to closeAttemptLimit then exit repeat
+      set closeAttempts to closeAttempts + 1
+      try
+        perform action "AXClose" of window 1
+      on error
+        exit repeat
+      end try
       delay 0.25
     end repeat
-    set allWindowsClosed to (count of windows) is 0
+    set remainingWindows to count of windows
+    set settingsClosedWithinLimit to ¬
+      ((remainingWindows is 0) and (closeAttempts is less than or equal to closeAttemptLimit))
     set statusItemAlive to exists menu bar item 1 of menu bar 2
-    return (controlOpened as text) & "|" & (controlFrontmost as text) & "|" & ¬
+    return (controlResolved as text) & "|" & (controlSingleton as text) & "|" & ¬
+      (controlMain as text) & "|" & (controlFocused as text) & "|" & ¬
       (controlClosed as text) & "|" & (settingsOpened as text) & "|" & ¬
-      (allWindowsClosed as text) & "|" & (statusItemAlive as text)
+      (settingsClosedWithinLimit as text) & "|" & (remainingWindows as text) & "|" & ¬
+      (closeAttempts as text) & "|" & (statusItemAlive as text)
   end tell
 end tell
 APPLESCRIPT
 )"
-  case "$windows" in
-    "true|true|true|true|true|true")
-      echo "    singleton window and Settings passed; status item survived" ;;
-    *)
-      WINDOW_CHECK_FAILURE="window lifecycle AX check failed: ${windows:-no result}"
-      echo "    FAILED: $WINDOW_CHECK_FAILURE" ;;
+  controlResolved=""
+  controlSingleton=""
+  controlMain=""
+  controlFocused=""
+  controlClosed=""
+  settingsOpened=""
+  settingsClosedWithinLimit=""
+  remainingWindows=""
+  closeAttempts=""
+  statusItemAlive=""
+  IFS='|' read -r controlResolved controlSingleton controlMain controlFocused \
+    controlClosed settingsOpened settingsClosedWithinLimit remainingWindows \
+    closeAttempts statusItemAlive <<< "$windows" || true
+  attemptsAreBounded=false
+  case "$closeAttempts" in
+    ""|*[!0-9]*) ;;
+    *) [ "$closeAttempts" -le 8 ] && attemptsAreBounded=true ;;
   esac
+  if [ "$controlResolved" = true ] && [ "$controlSingleton" = true ] \
+    && [ "$controlMain" = true ] && [ "$controlFocused" = true ] \
+    && [ "$controlClosed" = true ] && [ "$settingsOpened" = true ] \
+    && [ "$settingsClosedWithinLimit" = true ] && [ "$remainingWindows" = 0 ] \
+    && [ "$attemptsAreBounded" = true ] && [ "$statusItemAlive" = true ]; then
+    echo "    singleton main/focused Control Center and bounded Settings close passed"
+  else
+    WINDOW_CHECK_FAILURE="window lifecycle AX check failed: resolved=${controlResolved:-missing}, singleton=${controlSingleton:-missing}, main=${controlMain:-missing}, focused=${controlFocused:-missing}, controlClosed=${controlClosed:-missing}, settingsOpened=${settingsOpened:-missing}, settingsClosedWithinLimit=${settingsClosedWithinLimit:-missing}, remaining=${remainingWindows:-missing}, closeAttempts=${closeAttempts:-missing}, statusItemAlive=${statusItemAlive:-missing}"
+    echo "    FAILED: $WINDOW_CHECK_FAILURE"
+  fi
   kill -0 "$PID" 2>/dev/null \
     || fail "closing every window terminated the menu-bar process"
 fi

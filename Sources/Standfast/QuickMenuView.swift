@@ -14,33 +14,22 @@ struct QuickMenuView: View {
     let thermalLines = ThermalNotice.lines(
       pressure: thermal.pressure, overrunning: fleet.isOverrunning)
     let presentation = fleet.quickMenuPresentation(thermalLines: thermalLines)
+    let elements = presentation.emission.elements
 
-    ForEach(presentation.items.indices, id: \.self) { index in
-      row(presentation.items[index])
+    ForEach(elements.indices, id: \.self) { index in
+      row(elements[index])
     }
   }
 
   @ViewBuilder
-  private func row(_ item: QuickMenuPresentation.Item) -> some View {
-    switch item {
-    case .fleet(let line), .discovery(let line), .thermal(let line),
-      .freshness(let line):
+  private func row(_ element: QuickMenuPresentation.Emission.Element) -> some View {
+    switch element {
+    case .text(let line):
       Text(line)
-    case .runner(let runner):
+    case .runnerText(let runner):
       Text(runner.title)
-      if let progress = runner.progress { Text(progress) }
-      if let operation = runner.operation {
-        Label(operation.title, systemImage: operation.symbolName)
-          .accessibilityElement(children: .combine)
-          .accessibilityLabel(operation.title)
-          .accessibilityValue(operation.detail)
-        Text(operation.detail)
-      }
-      if runner.canStart {
-        Button(L10n.start) {
-          fleet.perform(.start, onRunnerID: runner.id)
-        }
-      }
+    case .runnerMenu(let runner):
+      RunnerEchoMenu(runner: runner, fleet: fleet)
     case .refresh:
       Button(L10n.refreshNow) { fleet.refresh() }
     case .openControlCenter:
@@ -55,6 +44,35 @@ struct QuickMenuView: View {
       }
     case .quit:
       Button(L10n.quit) { NSApplication.shared.terminate(nil) }
+    }
+  }
+}
+
+/// A runner echo with detail is one native menu element. Its secondary copy
+/// and recovery action are children of this submenu and cannot expand the
+/// menu's top-level height budget.
+private struct RunnerEchoMenu: View {
+  let runner: QuickMenuPresentation.RunnerEcho
+  @ObservedObject var fleet: RunnerFleetModel
+
+  var body: some View {
+    Menu {
+      if let progress = runner.progress { Text(progress) }
+      if let operation = runner.operation {
+        Label(operation.title, systemImage: operation.symbolName)
+          .accessibilityElement(children: .combine)
+          .accessibilityLabel(operation.title)
+          .accessibilityValue(operation.detail)
+        Text(operation.detail)
+          .accessibilityHidden(true)
+      }
+      if runner.canStart {
+        Button(L10n.start) {
+          fleet.perform(.start, onRunnerID: runner.id)
+        }
+      }
+    } label: {
+      Text(runner.title)
     }
   }
 }

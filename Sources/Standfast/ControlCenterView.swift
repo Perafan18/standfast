@@ -58,6 +58,7 @@ struct ControlCenterView: View {
                 .accessibilityLabel(operation.title)
                 .accessibilityValue(operation.detail)
               Text(operation.detail)
+                .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
           }

@@ -32,8 +32,47 @@ struct QuickMenuPresentation: Equatable {
     let canStart: Bool
   }
 
+  /// The native top-level elements the menu view emits. Runner progress,
+  /// operation feedback, and Start live inside one submenu instead of becoming
+  /// sibling menu rows. A runner with no nested content remains one text row.
+  struct Emission: Equatable {
+    enum Element: Equatable {
+      case text(String)
+      case runnerText(RunnerEcho)
+      case runnerMenu(RunnerEcho)
+      case refresh
+      case openControlCenter
+      case openSettings
+      case quit
+    }
+
+    let elements: [Element]
+  }
+
   let items: [Item]
-  var namedRowCount: Int { items.count }
+  var namedRowCount: Int { emission.elements.count }
+
+  var emission: Emission {
+    Emission(
+      elements: items.map { item in
+        switch item {
+        case .fleet(let line), .discovery(let line), .thermal(let line),
+          .freshness(let line):
+          .text(line)
+        case .runner(let runner):
+          runner.progress == nil && runner.operation == nil && !runner.canStart
+            ? .runnerText(runner) : .runnerMenu(runner)
+        case .refresh:
+          .refresh
+        case .openControlCenter:
+          .openControlCenter
+        case .openSettings:
+          .openSettings
+        case .quit:
+          .quit
+        }
+      })
+  }
 }
 
 extension QuickMenuPresentation {
