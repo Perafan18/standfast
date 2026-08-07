@@ -1032,7 +1032,9 @@ func unavailableBusyStopRunsNothingAndPublishesTerminalFeedback() async throws {
   var fleet: RunnerFleetModel? = model(box, serviceConfirmation: confirmation)
   await fleet?.quiesce()
 
-  let runner = try #require(fleet?.snapshots[0].runner)
+  let snapshot = fleet?.snapshots.first
+  let unwrappedSnapshot = try #require(snapshot)
+  let runner = unwrappedSnapshot.runner
   fleet?.stop(runner)
   fleet = nil
   await Task.yield()
@@ -1054,7 +1056,9 @@ func unavailableBusyStopRunsNothingAndPublishesTerminalFeedback() async throws {
     serviceConfirmation: ServiceAlertConfirmation(presenter: presenter))
   await fleet?.quiesce()
 
-  let runner = try #require(fleet?.snapshots[0].runner)
+  let snapshot = fleet?.snapshots.first
+  let unwrappedSnapshot = try #require(snapshot)
+  let runner = unwrappedSnapshot.runner
   fleet?.stop(runner)
   try await waitUntil { presenter.prompts.count == 1 }
   weak var releasedFleet: RunnerFleetModel?
