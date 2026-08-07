@@ -57,11 +57,12 @@ which is the honest shared-scope destination GitHub provides.
 
 Service operations keep their own receipts per runner. In-flight work is visible
 immediately and remains visible for as long as the command is running. After an operation
-reaches an accepted, uncertain, or failed outcome, its terminal receipt is retained for five
-minutes and removed by the next normal scan at that boundary. A command that returned is
-described as *request accepted*, not as a state the next probe has not proved. Timeouts say
-the result is uncertain, and Restart says when Stop completed but the Start phase failed or
-timed out so the recovery step is clear.
+reaches an accepted, uncertain, or failed outcome, its terminal receipt remains for a nominal
+five-minute scan-wall-clock window and is pruned by the next normal scan after that wall-clock
+boundary. A system clock correction can shorten or extend the displayed interval. A command
+that returned is described as *request accepted*, not as a state the next probe has not
+proved. Timeouts say the result is uncertain, and Restart says when Stop completed but the
+Start phase failed or timed out so the recovery step is clear.
 
 **Settings** owns notification switches, SleepGuard and Open at Login. Those preferences
 share their existing state with the app; moving the controls did not create a second copy.
