@@ -312,7 +312,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 }
 
 @Test func maintenanceActionsHaveDeterministicKindScopedAccessibilityIDs() {
-  let runner = ControlCenterAccessibility.runner("/Users/me/actions-runner")
+  let runner = ControlCenterAccessibility.runner("/tmp/actions-runner")
   let first = MaintenanceOffer.Kind.allCases.map(runner.maintenanceAction)
   let second = MaintenanceOffer.Kind.allCases.map(runner.maintenanceAction)
 

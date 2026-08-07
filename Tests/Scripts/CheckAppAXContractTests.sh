@@ -64,6 +64,106 @@ assert_status_open_transitions() {
     || fail "$label must prove a closed-to-exposed transition before every AXPress"
 }
 
+assert_exact_process_binding() {
+  local script="$1"
+  local label="$2"
+  local target_process_assignment_count
+
+  grep -Fq 'set targetProcessCount to count of (every application process whose unix id is targetPID)' "$script" \
+    || fail "$label does not resolve the supplied PID exactly"
+  grep -Fq 'if targetProcessCount is not 1 then' "$script" \
+    || fail "$label does not reject a missing or duplicated PID match"
+  grep -Fq 'set targetSystemEventsID to id of first application process whose unix id is targetPID' \
+    "$script" \
+    || fail "$label does not retain System Events' unique process identity"
+  grep -Fq 'set targetProcess to a reference to application process id targetSystemEventsID' \
+    "$script" \
+    || fail "$label materializes a name-based process instead of an exact reference"
+  target_process_assignment_count="$(grep -Ec '^[[:space:]]*set targetProcess to ' "$script" || true)"
+  [ "$target_process_assignment_count" -eq 1 ] \
+    || fail "$label can reassign its exact process reference"
+  grep -Fq 'set resolvedPID to unix id of targetProcess as integer' "$script" \
+    || fail "$label does not verify the PID returned by System Events"
+  grep -Fq 'if resolvedPID is not targetPID then' "$script" \
+    || fail "$label can continue after System Events resolves another PID"
+  grep -Fq 'set targetProcessName to name of targetProcess as text' "$script" \
+    || fail "$label does not retain the exact process name for ambiguity checks"
+  grep -Fq 'set homonymousProcessCount to count of (every application process whose name is targetProcessName)' \
+    "$script" \
+    || fail "$label does not discover homonymous Accessibility processes"
+  grep -Fq 'if homonymousProcessCount is not 1 then' "$script" \
+    || fail "$label can silently audit a homonymous process"
+  grep -Fq 'tell targetProcess' "$script" \
+    || fail "$label does not bind UI traversal to its verified process"
+  grep -Fq 'set auditedPID to unix id as integer' "$script" \
+    || fail "$label does not recheck identity inside the bound process"
+  grep -Fq 'if auditedPID is not targetPID then' "$script" \
+    || fail "$label can read UI after its bound process identity changed"
+  grep -Fq 'set finalResolvedPID to unix id as integer' "$script" \
+    || fail "$label does not verify identity after traversing UI"
+  grep -Fq 'if finalResolvedPID is not targetPID then' "$script" \
+    || fail "$label can report another process's UI as the supplied PID"
+  if grep -Fq 'first process whose unix id is targetPID' "$script"; then
+    fail "$label still takes an unverified first-process path"
+  fi
+  awk '
+    /set targetProcessCount to count of \(every application process whose unix id is targetPID\)/ {
+      if (stage != 0) invalid = 1
+      stage = 1
+      next
+    }
+    /set targetSystemEventsID to id of first application process whose unix id is targetPID/ {
+      if (stage != 1) invalid = 1
+      stage = 2
+      next
+    }
+    /set targetProcess to a reference to application process id targetSystemEventsID/ {
+      if (stage != 2) invalid = 1
+      stage = 3
+      next
+    }
+    /set resolvedPID to unix id of targetProcess as integer/ {
+      if (stage != 3) invalid = 1
+      stage = 4
+      next
+    }
+    /if resolvedPID is not targetPID then/ {
+      if (stage != 4) invalid = 1
+      stage = 5
+      next
+    }
+    /if homonymousProcessCount is not 1 then/ {
+      if (stage != 5) invalid = 1
+      stage = 6
+      next
+    }
+    /^[[:space:]]*tell targetProcess$/ {
+      if (stage != 6) invalid = 1
+      stage = 7
+      next
+    }
+    END { exit(invalid || stage != 7 ? 1 : 0) }
+  ' "$script" || fail "$label does not bind the exact process in causal order"
+}
+
+assert_indexed_menu_reads_fail_closed() {
+  local script="$1"
+  local expected_loops="$2"
+  local label="$3"
+
+  awk -v expected="$expected_loops" '
+    /repeat with menuItemIndex from 1 to menuItemCount/ {
+      if (inMenuLoop) invalid = 1
+      inMenuLoop = 1
+      menuLoops += 1
+      next
+    }
+    inMenuLoop && /^[[:space:]]*try[[:space:]]*$/ { invalid = 1 }
+    inMenuLoop && /^[[:space:]]*end repeat[[:space:]]*$/ { inMenuLoop = 0 }
+    END { exit(invalid || inMenuLoop || menuLoops != expected ? 1 : 0) }
+  ' "$script" || fail "$label can swallow a stale AX read inside indexed traversal"
+}
+
 scene_probe_binding_is_exact() {
   local source="$1"
   awk '
@@ -464,32 +564,46 @@ grep -Fq 'set menuExposed to selected of statusItem' "$menu_script" \
 grep -Fq 'status menu did not become exposed through AXPress; the GUI session may be locked' \
   "$menu_script" \
   || fail "the menu probe has no causal locked-session diagnostic"
-grep -Fq 'value of attribute "AXVisibleChildren" of targetMenu' "$menu_script" \
-  || fail "the menu probe reads cached children instead of visible children"
-if grep -Fq 'every menu item of targetMenu' "$menu_script"; then
-  fail "the menu probe searches cached AXChildren instead of the exposed AXVisibleChildren"
+assert_exact_process_binding "$menu_script" "the menu probe"
+if grep -Eq 'AXVisibleChildren|visibleMenuItem|dev\.standfast\.quick-menu\.|every menu item of targetMenu' \
+  "$menu_script"; then
+  fail "the menu probe depends on coercible AX children or unavailable custom identifiers"
 fi
-grep -Fq 'repeat with visibleMenuItem in visibleMenuItems' "$menu_script" \
-  || fail "the menu probe does not enumerate the exposed AXVisibleChildren"
-grep -Fq 'value of attribute "AXTitle" of visibleMenuItem' "$menu_script" \
-  || fail "the menu probe does not read titles from exposed AXVisibleChildren"
-grep -Fq 'value of attribute "AXValue" of visibleMenuItem' "$menu_script" \
-  || fail "the menu probe does not fall back to AXValue for runner identity"
-grep -Fq 'value of attribute "AXIdentifier" of visibleMenuItem' "$menu_script" \
-  || fail "the menu probe does not type exposed records from stable AX identifiers"
-grep -Fq 'dev.standfast.quick-menu.static' "$menu_script" \
-  || fail "the menu probe does not recognize the stable static AX identifier"
-grep -Fq 'dev.standfast.quick-menu.runner' "$menu_script" \
-  || fail "the menu probe does not recognize the stable runner AX identifier"
-grep -Fq 'set recordType to "unknown"' "$menu_script" \
-  || fail "the menu probe does not emit a closed-world type for unknown identifiers"
+grep -Fq 'set menuItemCount to count of menu items of targetMenu' "$menu_script" \
+  || fail "the menu probe does not snapshot the native menu-item cardinality"
+grep -Fq 'repeat with menuItemIndex from 1 to menuItemCount' "$menu_script" \
+  || fail "the menu probe does not traverse stable native menu-item specifiers"
+grep -Fq 'set candidateMenuItem to a reference to menu item menuItemIndex of targetMenu' \
+  "$menu_script" \
+  || fail "the menu probe does not retain one stable indexed native item"
+grep -Fq 'set menuItemRole to role of candidateMenuItem as text' "$menu_script" \
+  || fail "the menu probe does not read each native item role"
+grep -Fq 'if menuItemRole is not "AXMenuItem" then' "$menu_script" \
+  || fail "the menu probe accepts a non-NSMenu accessibility role"
+grep -Fq 'set rawMenuItemName to name of candidateMenuItem' "$menu_script" \
+  || fail "the menu probe does not read the stable native menu-item title"
+assert_indexed_menu_reads_fail_closed "$menu_script" 1 "the menu probe"
+grep -Fq 'set menuItemEnabled to enabled of candidateMenuItem' "$menu_script" \
+  || fail "the menu probe does not distinguish disabled text/separators from buttons"
+grep -Fq 'set menuItemHasSubmenu to exists menu 1 of candidateMenuItem' "$menu_script" \
+  || fail "the menu probe does not identify native runner submenus"
+grep -Fq 'if menuItemName is "" then' "$menu_script" \
+  || fail "the menu probe does not explicitly handle separator items"
+grep -Fq 'if menuItemEnabled or menuItemHasSubmenu then' "$menu_script" \
+  || fail "the menu probe can skip an unnamed non-separator item"
+grep -Fq 'if menuItemHasSubmenu then' "$menu_script" \
+  || fail "the menu probe does not type runner rows from submenu ownership"
+grep -Fq 'set recordType to "runner"' "$menu_script" \
+  || fail "the menu probe does not emit runner records for native submenus"
+grep -Fq 'set recordType to "static"' "$menu_script" \
+  || fail "the menu probe does not emit static records for native Text/Button rows"
 if grep -Fq 'set records to {}' "$menu_script"; then
   fail "the menu probe uses AppleScript's reserved process records collection"
 fi
 grep -Fq 'set menuRecords to {}' "$menu_script" \
   || fail "the menu probe does not initialize its nonreserved record collection"
 grep -Fq 'set end of menuRecords to recordType & tab' "$menu_script" \
-  || fail "the menu probe does not emit one typed record per visible AX child"
+  || fail "the menu probe does not emit one typed record per named native menu item"
 grep -Fq 'set joinedMenuRecords to menuRecords as text' "$menu_script" \
   || fail "the menu probe does not join the nonreserved record collection"
 grep -Fq 'return joinedMenuRecords' "$menu_script" \
@@ -520,27 +634,70 @@ lifecycle_exposure_count="$(grep -Fc 'set menuExposed to selected of statusItem'
 [ "$lifecycle_exposure_count" -eq 3 ] \
   || fail "all three lifecycle actions must wait for AXSelected"
 assert_status_open_transitions "$lifecycle_script" 3 "all three lifecycle actions"
-lifecycle_visible_children_count="$(grep -Fc 'value of attribute "AXVisibleChildren" of targetMenu' "$lifecycle_script" || true)"
-[ "$lifecycle_visible_children_count" -eq 3 ] \
-  || fail "all three lifecycle actions must inspect visible children after exposure"
-visible_menu_guard_count="$(grep -Fc 'if (count of visibleMenuItems) is 0 then error' "$lifecycle_script" || true)"
-[ "$visible_menu_guard_count" -eq 3 ] \
-  || fail "all three lifecycle actions must reject an exposed menu with no visible children"
-if grep -Fq 'every menu item of targetMenu' "$lifecycle_script"; then
-  fail "a lifecycle action searches cached AXChildren instead of its exposed AXVisibleChildren"
+assert_exact_process_binding "$lifecycle_script" "the lifecycle probe"
+if grep -Eq 'AXVisibleChildren|visibleMenuItem|staticMenuIdentifier|dev\.standfast\.quick-menu\.|every menu item of targetMenu' \
+  "$lifecycle_script"; then
+  fail "a lifecycle action depends on coercible AX children or unavailable custom identifiers"
 fi
-visible_menu_loop_count="$(grep -Fc 'repeat with visibleMenuItem in visibleMenuItems' "$lifecycle_script" || true)"
-[ "$visible_menu_loop_count" -eq 3 ] \
-  || fail "all three lifecycle actions must search their exposed AXVisibleChildren"
-visible_menu_title_count="$(grep -Fc 'value of attribute "AXTitle" of visibleMenuItem as text' "$lifecycle_script" || true)"
-[ "$visible_menu_title_count" -eq 3 ] \
-  || fail "all three lifecycle actions must read titles from exposed AXVisibleChildren"
-visible_menu_resolution_count="$(grep -Fc 'set targetMenuItem to contents of visibleMenuItem' "$lifecycle_script" || true)"
-[ "$visible_menu_resolution_count" -eq 3 ] \
-  || fail "all three lifecycle actions must press an item from exposed AXVisibleChildren"
+lifecycle_menu_count_count="$(grep -Fc 'set menuItemCount to count of menu items of targetMenu' "$lifecycle_script" || true)"
+[ "$lifecycle_menu_count_count" -eq 3 ] \
+  || fail "all three lifecycle actions must snapshot native menu-item cardinality"
+lifecycle_menu_guard_count="$(grep -Fc 'if menuItemCount is 0 then error' "$lifecycle_script" || true)"
+[ "$lifecycle_menu_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must reject an exposed menu with no native items"
+lifecycle_menu_loop_count="$(grep -Fc 'repeat with menuItemIndex from 1 to menuItemCount' "$lifecycle_script" || true)"
+[ "$lifecycle_menu_loop_count" -eq 3 ] \
+  || fail "all three lifecycle actions must traverse stable native menu-item specifiers"
+lifecycle_candidate_ref_count="$(grep -Fc 'set candidateMenuItem to a reference to menu item menuItemIndex of targetMenu' "$lifecycle_script" || true)"
+[ "$lifecycle_candidate_ref_count" -eq 3 ] \
+  || fail "all three lifecycle actions must retain one stable indexed native item"
+lifecycle_role_guard_count="$(grep -Fc 'if (role of candidateMenuItem as text) is not "AXMenuItem" then' "$lifecycle_script" || true)"
+[ "$lifecycle_role_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must reject non-NSMenu accessibility roles"
+lifecycle_menu_title_count="$(grep -Fc 'set rawMenuItemName to name of candidateMenuItem' "$lifecycle_script" || true)"
+[ "$lifecycle_menu_title_count" -eq 3 ] \
+  || fail "all three lifecycle actions must read stable native menu-item titles"
+assert_indexed_menu_reads_fail_closed "$lifecycle_script" 3 \
+  "a lifecycle action"
+lifecycle_item_state_count="$(grep -Fc 'set menuItemEnabled to enabled of candidateMenuItem' "$lifecycle_script" || true)"
+[ "$lifecycle_item_state_count" -eq 3 ] \
+  || fail "all three lifecycle actions must distinguish native separators from buttons"
+lifecycle_item_submenu_count="$(grep -Fc 'set menuItemHasSubmenu to exists menu 1 of candidateMenuItem' "$lifecycle_script" || true)"
+[ "$lifecycle_item_submenu_count" -eq 3 ] \
+  || fail "all three lifecycle actions must read native submenu ownership"
+lifecycle_separator_count="$(grep -Fc 'if menuItemName is "" then' "$lifecycle_script" || true)"
+[ "$lifecycle_separator_count" -eq 3 ] \
+  || fail "all three lifecycle actions must handle separators explicitly"
+lifecycle_separator_guard_count="$(grep -Fc 'if menuItemEnabled or menuItemHasSubmenu then' "$lifecycle_script" || true)"
+[ "$lifecycle_separator_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must reject unnamed non-separator items"
+lifecycle_index_copy_count="$(grep -Fc 'set targetMenuItemIndex to menuItemIndex as integer' "$lifecycle_script" || true)"
+[ "$lifecycle_index_copy_count" -eq 3 ] \
+  || fail "all three lifecycle actions must copy, not retain, the loop index"
+lifecycle_submenu_count="$(grep -Fc 'not (exists menu 1 of candidateMenuItem)' "$lifecycle_script" || true)"
+[ "$lifecycle_submenu_count" -eq 3 ] \
+  || fail "all three lifecycle actions must distinguish actions from runner submenus"
+lifecycle_unique_action_count="$(grep -Fc 'if targetMenuItemMatchCount is not 1 then error' "$lifecycle_script" || true)"
+[ "$lifecycle_unique_action_count" -eq 3 ] \
+  || fail "all three lifecycle actions must reject missing or ambiguous native actions"
+target_menu_ref_count="$(grep -Fc 'set targetMenuItem to a reference to menu item targetMenuItemIndex of targetMenu' "$lifecycle_script" || true)"
+[ "$target_menu_ref_count" -eq 3 ] \
+  || fail "all three lifecycle actions must re-resolve the selected native item"
+target_role_guard_count="$(grep -Fc 'if (role of targetMenuItem as text) is not "AXMenuItem" then' "$lifecycle_script" || true)"
+[ "$target_role_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must revalidate the selected native role"
+target_title_guard_count="$(grep -Fc 'if (name of targetMenuItem as text) is not targetItemName then' "$lifecycle_script" || true)"
+[ "$target_title_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must revalidate the selected native title"
+target_submenu_guard_count="$(grep -Fc 'if exists menu 1 of targetMenuItem then' "$lifecycle_script" || true)"
+[ "$target_submenu_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must reject a selected runner submenu"
+target_enabled_guard_count="$(grep -Fc 'if not (enabled of targetMenuItem) then' "$lifecycle_script" || true)"
+[ "$target_enabled_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must reject a disabled Text row"
 menu_item_press_count="$(grep -Fc 'perform action "AXPress" of targetMenuItem' "$lifecycle_script" || true)"
 [ "$menu_item_press_count" -eq 3 ] \
-  || fail "all three visible lifecycle menu items must be invoked through AXPress"
+  || fail "all three lifecycle actions must invoke the uniquely indexed native action"
 grep -Fq 'system attribute "CHECK_LANGUAGE"' "$lifecycle_script" \
   || fail "the lifecycle probe does not reuse the one validated menu language"
 if grep -Fq 'click statusItem' "$lifecycle_script"; then
@@ -597,10 +754,10 @@ if grep -Eq 'processWindowCount|controlSingleton|settingsSingleton|settingsIniti
   "$lifecycle_script"; then
   fail "the lifecycle probe still assumes its target is the process singleton"
 fi
-control_action_resolution_count="$(grep -Fc 'visibleName is controlCenterItemName' "$lifecycle_script" || true)"
+control_action_resolution_count="$(grep -Fc 'set targetItemName to controlCenterItemName' "$lifecycle_script" || true)"
 [ "$control_action_resolution_count" -eq 2 ] \
   || fail "the lifecycle probe must invoke Control Center before and after Settings"
-settings_action_resolution_count="$(grep -Fc 'visibleName is settingsItemName' "$lifecycle_script" || true)"
+settings_action_resolution_count="$(grep -Fc 'set targetItemName to settingsItemName' "$lifecycle_script" || true)"
 [ "$settings_action_resolution_count" -eq 1 ] \
   || fail "the lifecycle probe must invoke Settings once between Control actions"
 grep -Fq 'set settingsMainAfterControl to value of attribute "AXMain" of settingsWindow as boolean' \
@@ -843,12 +1000,6 @@ grep -Fq 'dev.standfast.scene.control-center' "$SCENE_REGISTRY" \
   || fail "the Control Center window has no stable AX identity"
 grep -Fq 'dev.standfast.scene.settings' "$SCENE_REGISTRY" \
   || fail "the Settings window has no stable AX identity"
-static_identifier_count="$(grep -Fc '"dev.standfast.quick-menu.static"' "$QUICK_MENU" || true)"
-[ "$static_identifier_count" -eq 5 ] \
-  || fail "every static quick-menu element must expose the stable static AX identifier"
-runner_identifier_count="$(grep -Fc '"dev.standfast.quick-menu.runner"' "$QUICK_MENU" || true)"
-[ "$runner_identifier_count" -eq 1 ] \
-  || fail "the runner submenu must expose exactly the generic runner AX identifier"
 front_then_activate="$(awk '
   /window\.makeKeyAndOrderFront\(nil\)/ { stage = 1; next }
   stage == 1 && /activateApplication\(\)/ { count += 1; stage = 0 }

@@ -44,7 +44,26 @@ menuStatus=0
 menu="$(CHECK_PID="$PID" osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
 tell application "System Events"
   set targetPID to (system attribute "CHECK_PID") as integer
-  tell (first process whose unix id is targetPID)
+  set targetProcessCount to count of (every application process whose unix id is targetPID)
+  if targetProcessCount is not 1 then
+    error "supplied PID does not identify exactly one Accessibility application process: " & targetPID
+  end if
+  set targetSystemEventsID to id of first application process whose unix id is targetPID
+  set targetProcess to a reference to application process id targetSystemEventsID
+  set resolvedPID to unix id of targetProcess as integer
+  if resolvedPID is not targetPID then
+    error "System Events resolved another process for PID " & targetPID
+  end if
+  set targetProcessName to name of targetProcess as text
+  set homonymousProcessCount to count of (every application process whose name is targetProcessName)
+  if homonymousProcessCount is not 1 then
+    error "refusing ambiguous Accessibility process name: " & targetProcessName
+  end if
+  tell targetProcess
+    set auditedPID to unix id as integer
+    if auditedPID is not targetPID then
+      error "Accessibility process identity changed before the menu audit"
+    end if
     if not (exists menu bar item 1 of menu bar 2) then return ""
       set pollAttemptLimit to 50
       set pollDelaySeconds to 0.1
@@ -82,33 +101,34 @@ tell application "System Events"
       error "status menu did not become exposed through AXPress; the GUI session may be locked"
     end if
       set targetMenu to menu 1 of statusItem
-      set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
-      if (count of visibleMenuItems) is 0 then error "exposed status menu has no visible items"
+      set menuItemCount to count of menu items of targetMenu
+      if menuItemCount is 0 then error "exposed status menu has no native items"
       set menuRecords to {}
-      repeat with visibleMenuItem in visibleMenuItems
-        set visibleName to ""
-        try
-          set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
-        end try
-        if visibleName is "" then
-          try
-            set visibleName to value of attribute "AXValue" of visibleMenuItem as text
-          end try
+      repeat with menuItemIndex from 1 to menuItemCount
+        set candidateMenuItem to a reference to menu item menuItemIndex of targetMenu
+        set menuItemRole to role of candidateMenuItem as text
+        if menuItemRole is not "AXMenuItem" then
+          error "unexpected native status-menu role: " & menuItemRole
         end if
-        set visibleIdentifier to ""
-        try
-          set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
-        end try
-        set recordType to "unknown"
-        if visibleIdentifier is "dev.standfast.quick-menu.static" then
-          set recordType to "static"
-        else if visibleIdentifier is "dev.standfast.quick-menu.runner" then
-          set recordType to "runner"
+        set rawMenuItemName to name of candidateMenuItem
+        set menuItemName to ""
+        if rawMenuItemName is not missing value then
+          set menuItemName to rawMenuItemName as text
         end if
-        if recordType is "unknown" then
-          set visibleName to visibleIdentifier & " — " & visibleName
+        set menuItemEnabled to enabled of candidateMenuItem
+        set menuItemHasSubmenu to exists menu 1 of candidateMenuItem
+        if menuItemName is "" then
+          if menuItemEnabled or menuItemHasSubmenu then
+            error "unnamed native status-menu item is not a separator"
+          end if
+        else
+          if menuItemHasSubmenu then
+            set recordType to "runner"
+          else
+            set recordType to "static"
+          end if
+          set end of menuRecords to recordType & tab & menuItemName
         end if
-        set end of menuRecords to recordType & tab & visibleName
       end repeat
       perform action "AXCancel" of targetMenu
       set menuClosedAfterCancel to false
@@ -126,6 +146,10 @@ tell application "System Events"
     set text item delimiters of AppleScript to linefeed
     set joinedMenuRecords to menuRecords as text
     set text item delimiters of AppleScript to previousDelimiters
+    set finalResolvedPID to unix id as integer
+    if finalResolvedPID is not targetPID then
+      error "Accessibility process identity changed during the menu audit"
+    end if
     return joinedMenuRecords
   end tell
 end tell
@@ -251,10 +275,28 @@ tell application "System Events"
   else
     error "unsupported validated menu language: " & menuLanguage
   end if
-  set staticMenuIdentifier to "dev.standfast.quick-menu.static"
   set controlWindowIdentifier to "dev.standfast.scene.control-center"
   set settingsWindowIdentifier to "dev.standfast.scene.settings"
-  tell (first process whose unix id is targetPID)
+  set targetProcessCount to count of (every application process whose unix id is targetPID)
+  if targetProcessCount is not 1 then
+    error "supplied PID does not identify exactly one Accessibility application process: " & targetPID
+  end if
+  set targetSystemEventsID to id of first application process whose unix id is targetPID
+  set targetProcess to a reference to application process id targetSystemEventsID
+  set resolvedPID to unix id of targetProcess as integer
+  if resolvedPID is not targetPID then
+    error "System Events resolved another process for PID " & targetPID
+  end if
+  set targetProcessName to name of targetProcess as text
+  set homonymousProcessCount to count of (every application process whose name is targetProcessName)
+  if homonymousProcessCount is not 1 then
+    error "refusing ambiguous Accessibility process name: " & targetProcessName
+  end if
+  tell targetProcess
+    set auditedPID to unix id as integer
+    if auditedPID is not targetPID then
+      error "Accessibility process identity changed before the lifecycle audit"
+    end if
     set pollAttemptLimit to 50
     set pollDelaySeconds to 0.1
 
@@ -312,22 +354,42 @@ tell application "System Events"
     end repeat
     if not menuExposed then
       error "status menu did not become exposed for Control Center; the GUI session may be locked"
-    end if
+      end if
       set targetMenu to menu 1 of statusItem
-      set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
-      if (count of visibleMenuItems) is 0 then error "exposed Control Center menu has no visible items"
-      set targetMenuItem to missing value
-      repeat with visibleMenuItem in visibleMenuItems
-        try
-          set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
-          set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
-          if visibleName is controlCenterItemName and visibleIdentifier is staticMenuIdentifier then
-            set targetMenuItem to contents of visibleMenuItem
-            exit repeat
+      set menuItemCount to count of menu items of targetMenu
+      if menuItemCount is 0 then error "exposed Control Center menu has no native items"
+      set targetItemName to controlCenterItemName
+      set targetMenuItemIndex to 0
+      set targetMenuItemMatchCount to 0
+      repeat with menuItemIndex from 1 to menuItemCount
+        set candidateMenuItem to a reference to menu item menuItemIndex of targetMenu
+        if (role of candidateMenuItem as text) is not "AXMenuItem" then
+          error "unexpected native Control Center menu-item role"
+        end if
+        set rawMenuItemName to name of candidateMenuItem
+        set menuItemName to ""
+        if rawMenuItemName is not missing value then
+          set menuItemName to rawMenuItemName as text
+        end if
+        set menuItemEnabled to enabled of candidateMenuItem
+        set menuItemHasSubmenu to exists menu 1 of candidateMenuItem
+        if menuItemName is "" then
+          if menuItemEnabled or menuItemHasSubmenu then
+            error "unnamed Control Center menu item is not a separator"
           end if
-        end try
+        else
+          if menuItemName is targetItemName and not (exists menu 1 of candidateMenuItem) then
+            set targetMenuItemMatchCount to targetMenuItemMatchCount + 1
+            set targetMenuItemIndex to menuItemIndex as integer
+          end if
+        end if
       end repeat
-    if targetMenuItem is missing value then error "visible Control Center menu item missing"
+    if targetMenuItemMatchCount is not 1 then error "Control Center menu action missing or ambiguous"
+    set targetMenuItem to a reference to menu item targetMenuItemIndex of targetMenu
+    if (role of targetMenuItem as text) is not "AXMenuItem" then error "Control Center action has unexpected role"
+    if (name of targetMenuItem as text) is not targetItemName then error "Control Center action changed before AXPress"
+    if exists menu 1 of targetMenuItem then error "Control Center action became a submenu"
+    if not (enabled of targetMenuItem) then error "Control Center action is disabled"
     perform action "AXPress" of targetMenuItem
 
     set controlWindow to missing value
@@ -404,22 +466,42 @@ tell application "System Events"
     end repeat
     if not menuExposed then
       error "status menu did not become exposed for Settings; the GUI session may be locked"
-    end if
+      end if
       set targetMenu to menu 1 of statusItem
-      set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
-      if (count of visibleMenuItems) is 0 then error "exposed Settings menu has no visible items"
-      set targetMenuItem to missing value
-      repeat with visibleMenuItem in visibleMenuItems
-        try
-          set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
-          set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
-          if visibleName is settingsItemName and visibleIdentifier is staticMenuIdentifier then
-            set targetMenuItem to contents of visibleMenuItem
-            exit repeat
+      set menuItemCount to count of menu items of targetMenu
+      if menuItemCount is 0 then error "exposed Settings menu has no native items"
+      set targetItemName to settingsItemName
+      set targetMenuItemIndex to 0
+      set targetMenuItemMatchCount to 0
+      repeat with menuItemIndex from 1 to menuItemCount
+        set candidateMenuItem to a reference to menu item menuItemIndex of targetMenu
+        if (role of candidateMenuItem as text) is not "AXMenuItem" then
+          error "unexpected native Settings menu-item role"
+        end if
+        set rawMenuItemName to name of candidateMenuItem
+        set menuItemName to ""
+        if rawMenuItemName is not missing value then
+          set menuItemName to rawMenuItemName as text
+        end if
+        set menuItemEnabled to enabled of candidateMenuItem
+        set menuItemHasSubmenu to exists menu 1 of candidateMenuItem
+        if menuItemName is "" then
+          if menuItemEnabled or menuItemHasSubmenu then
+            error "unnamed Settings menu item is not a separator"
           end if
-        end try
+        else
+          if menuItemName is targetItemName and not (exists menu 1 of candidateMenuItem) then
+            set targetMenuItemMatchCount to targetMenuItemMatchCount + 1
+            set targetMenuItemIndex to menuItemIndex as integer
+          end if
+        end if
       end repeat
-    if targetMenuItem is missing value then error "visible Settings menu item missing"
+    if targetMenuItemMatchCount is not 1 then error "Settings menu action missing or ambiguous"
+    set targetMenuItem to a reference to menu item targetMenuItemIndex of targetMenu
+    if (role of targetMenuItem as text) is not "AXMenuItem" then error "Settings action has unexpected role"
+    if (name of targetMenuItem as text) is not targetItemName then error "Settings action changed before AXPress"
+    if exists menu 1 of targetMenuItem then error "Settings action became a submenu"
+    if not (enabled of targetMenuItem) then error "Settings action is disabled"
     perform action "AXPress" of targetMenuItem
 
     set settingsWindow to missing value
@@ -540,20 +622,40 @@ tell application "System Events"
       error "status menu did not become exposed for Control Center return; the GUI session may be locked"
     end if
     set targetMenu to menu 1 of statusItem
-    set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
-    if (count of visibleMenuItems) is 0 then error "exposed Control Center return menu has no visible items"
-    set targetMenuItem to missing value
-    repeat with visibleMenuItem in visibleMenuItems
-      try
-        set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
-        set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
-        if visibleName is controlCenterItemName and visibleIdentifier is staticMenuIdentifier then
-          set targetMenuItem to contents of visibleMenuItem
-          exit repeat
+    set menuItemCount to count of menu items of targetMenu
+    if menuItemCount is 0 then error "exposed Control Center return menu has no native items"
+    set targetItemName to controlCenterItemName
+    set targetMenuItemIndex to 0
+    set targetMenuItemMatchCount to 0
+    repeat with menuItemIndex from 1 to menuItemCount
+      set candidateMenuItem to a reference to menu item menuItemIndex of targetMenu
+      if (role of candidateMenuItem as text) is not "AXMenuItem" then
+        error "unexpected native Control Center return menu-item role"
+      end if
+      set rawMenuItemName to name of candidateMenuItem
+      set menuItemName to ""
+      if rawMenuItemName is not missing value then
+        set menuItemName to rawMenuItemName as text
+      end if
+      set menuItemEnabled to enabled of candidateMenuItem
+      set menuItemHasSubmenu to exists menu 1 of candidateMenuItem
+      if menuItemName is "" then
+        if menuItemEnabled or menuItemHasSubmenu then
+          error "unnamed Control Center return menu item is not a separator"
         end if
-      end try
+      else
+        if menuItemName is targetItemName and not (exists menu 1 of candidateMenuItem) then
+          set targetMenuItemMatchCount to targetMenuItemMatchCount + 1
+          set targetMenuItemIndex to menuItemIndex as integer
+        end if
+      end if
     end repeat
-    if targetMenuItem is missing value then error "visible Control Center return menu item missing"
+    if targetMenuItemMatchCount is not 1 then error "Control Center return action missing or ambiguous"
+    set targetMenuItem to a reference to menu item targetMenuItemIndex of targetMenu
+    if (role of targetMenuItem as text) is not "AXMenuItem" then error "Control Center return action has unexpected role"
+    if (name of targetMenuItem as text) is not targetItemName then error "Control Center return action changed before AXPress"
+    if exists menu 1 of targetMenuItem then error "Control Center return action became a submenu"
+    if not (enabled of targetMenuItem) then error "Control Center return action is disabled"
     perform action "AXPress" of targetMenuItem
 
     set controlReturned to false
@@ -676,6 +778,10 @@ tell application "System Events"
     end repeat
 
     set statusItemAlive to exists menu bar item 1 of menu bar 2
+    set finalResolvedPID to unix id as integer
+    if finalResolvedPID is not targetPID then
+      error "Accessibility process identity changed during the lifecycle audit"
+    end if
     set lifecycleRecord to (targetsInitialAbsent as text) & "|" & (controlOpened as text) & "|" & ¬
       (controlMainInitially as text) & "|" & (controlFocusedInitially as text) & "|" & ¬
       (settingsAbsentAfterInitialControl as text) & "|" & (settingsOpened as text) & "|" & ¬
