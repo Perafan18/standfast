@@ -238,7 +238,13 @@ public struct JobLogReader: Sendable {
       // second line is the one that ended. Folding them together would let a
       // completion at the top of one log close a job left dangling at the
       // bottom of the log before it, and hand it hours of somebody else's time.
-      guard let events = tailEvents(of: log) else { return nil }
+      // A rotated log is historical evidence, not the source of the current
+      // state. If one remains unreadable, stop at that boundary: older history
+      // may be incomplete, but poisoning the readable active log would hide
+      // current jobs, version and future notifications on every refresh. The
+      // active log above still fails closed because it alone can describe work
+      // happening now.
+      guard let events = tailEvents(of: log) else { break }
       let records = fold(events, into: [])
       budget -= min(size(of: log) ?? 0, tailWindow)
       known += records.count

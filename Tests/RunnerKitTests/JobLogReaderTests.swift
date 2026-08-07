@@ -97,35 +97,34 @@ private func job(
   #expect(reader.activeLog == nil)
 }
 
-@Test func anUnreadableHistoricalLogMakesAColdReadUnavailable() throws {
-  // The active listener can be perfectly readable while an older log needed
-  // to build the retained history is not. Installing a partial cold cache here
-  // would both declare a false empty baseline and prevent that older log from
-  // being retried on the next refresh.
+@Test func anUnreadableHistoricalLogEndsHistoryWithoutPoisoningTheActiveLog() throws {
+  // A rotated listener log can stay unreadable forever (wrong type, stale
+  // permissions) while the active listener keeps recording real work. History
+  // before that boundary may be incomplete, but the current log must remain
+  // available and keep advancing instead of retrying a poisoned cold start on
+  // every refresh.
   let box = try ListenerLogSandbox()
   defer { box.cleanUp() }
   let historical = box.diagnostics.appendingPathComponent(
     "Runner_20260805-000000-utc.log")
   try FileManager.default.createDirectory(
     at: historical, withIntermediateDirectories: true)
-  _ = try box.writeLog(startedAt: "20260806-000000", [])
+  let active = try box.writeLog(
+    startedAt: "20260806-000000",
+    job("current", from: "2026-08-06 00:00:00Z", to: "2026-08-06 00:00:10Z"))
   var reader = JobLogReader()
 
-  let unavailable = reader.reading(diagnosticsIn: box.diagnostics)
-  #expect(unavailable.history == .empty)
-  #expect(!unavailable.isAvailable)
-  #expect(reader.activeLog == nil)
+  let initial = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(initial.isAvailable)
+  #expect(initial.history.records.map(\.name) == ["current"])
+  #expect(reader.activeLog?.lastPathComponent == active.lastPathComponent)
 
-  try FileManager.default.removeItem(at: historical)
-  try box.writeLog(
-    startedAt: "20260805-000000",
-    job(
-      "testflight", from: "2026-08-05 20:36:14Z", to: "2026-08-05 20:38:59Z",
-      "Failed"))
-  let recovered = reader.reading(diagnosticsIn: box.diagnostics)
-  #expect(recovered.isAvailable)
-  #expect(recovered.history.records.map(\.name) == ["testflight"])
-  #expect(recovered.history.records.map(\.result) == [.failed])
+  try box.append(
+    startedJob("next", at: "2026-08-06 00:01:00Z") + "\n", to: active)
+  let advanced = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(advanced.isAvailable)
+  #expect(advanced.history.records.map(\.name) == ["next", "current"])
+  #expect(advanced.history.running?.name == "next")
 }
 
 @Test func theWorkerLogsBesideItAreNeverOpened() throws {
