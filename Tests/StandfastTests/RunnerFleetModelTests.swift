@@ -109,6 +109,15 @@ private func waitUntil(
 
 private enum TestWaitFailure: Error { case timedOut }
 
+private struct CouldNotLaunchCommandRunner: CommandRunning {
+  func run(
+    _ executable: String, _ arguments: [String], workingDirectory: URL?
+  ) throws -> CommandResult {
+    throw CommandError.couldNotLaunch(
+      executable: executable, underlying: NSError(domain: "test", code: 1))
+  }
+}
+
 // MARK: - Reading the machine
 
 @Test @MainActor func listsWhatIsInstalledWithTheStateOfEachRunner() async throws {
@@ -781,6 +790,174 @@ private enum TestWaitFailure: Error { case timedOut }
   await fleet.quiesce()
 
   #expect(box.probeCount > before)
+}
+
+// MARK: - Service-operation outcomes
+
+@Test @MainActor func aServiceActionPublishesInFlightBeforeItsCommandReturns() async throws
+{
+  // Removing the synchronous publication lets a menu click look ignored until
+  // a blocked `svc.sh` returns, even though this runner is already reserved.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+
+  #expect(fleet.operations[runner.label]?.action == .start)
+  #expect(fleet.operations[runner.label]?.phase == .inFlight)
+  #expect(fleet.snapshots[0].operation?.phase == .inFlight)
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor func aReturnedServiceCommandIsAcceptedNotAProvedRunnerState() async throws
+{
+  for (kind, action) in [
+    (RunnerRow.Action.Kind.start, ServiceOperationAction.start),
+    (.stop, .stop), (.restart, .restart),
+  ] {
+    let box = try FleetSandbox(serviceRunning: false)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let fleet = model(box)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.perform(kind, on: runner)
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label]?.action == action)
+    #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+  }
+}
+
+@Test @MainActor func serviceCommandFailuresPublishTheirSpecificOutcome() async throws {
+  let cases: [(any CommandRunning, RunnerRow.Action.Kind, ServiceOperationPhase)] = [
+    (TimingOutCommandRunner(), .start, .uncertain(.commandTimedOut)),
+    (FailingCommandRunner(), .start, .failed(.unexpectedFailure)),
+    (CouldNotLaunchCommandRunner(), .stop, .failed(.commandCouldNotLaunch)),
+  ]
+  for (commands, kind, phase) in cases {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let fleet = model(box, commands: commands)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.perform(kind, on: runner)
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label]?.phase == phase)
+  }
+}
+
+@Test @MainActor func aMissingServiceScriptPublishesTheSpecificFailure() async throws {
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner(withScript: false)
+  let fleet = model(box)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  await fleet.quiesce()
+
+  #expect(fleet.operations[runner.label]?.phase == .failed(.scriptMissing))
+}
+
+@Test @MainActor func restartSeparatesAFailedStartFromATimedOutStart() async throws {
+  for (commands, phase) in [
+    (
+      FailingVerbCommandRunner(failingVerb: "start") as any CommandRunning,
+      ServiceOperationPhase.failed(.restartStartFailed)
+    ),
+    (
+      TimingOutVerbCommandRunner(timingOutVerb: "start") as any CommandRunning,
+      .uncertain(.restartStartTimedOut)
+    ),
+  ] {
+    let box = try FleetSandbox(serviceRunning: true)
+    defer { box.cleanUp() }
+    try box.addRunner()
+    let fleet = model(box, commands: commands)
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.restart(runner)
+    await fleet.quiesce()
+
+    #expect(fleet.operations[runner.label]?.phase == phase)
+  }
+}
+
+@Test @MainActor func eachRunnerRetainsItsOwnOutcomeAndANewActionOnlyReplacesItsOwn()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "first", scope: "widget")
+  try box.addRunner(name: "second", scope: "gadget")
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  let fleet = model(box, commands: commands)
+  await fleet.quiesce()
+  let first = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "first" }?.runner)
+  let second = try #require(
+    fleet.snapshots.first { $0.runner.displayName == "second" }?.runner)
+
+  fleet.stop(first)
+  try await commands.waitForInvocationCount(1)
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.operations[first.label]?.phase == .requestAccepted)
+
+  fleet.stop(second)
+  try await commands.waitForInvocationCount(2)
+  commands.release()
+  await fleet.quiesce()
+  #expect(fleet.operations[second.label]?.phase == .requestAccepted)
+
+  fleet.start(first)
+  try await commands.waitForInvocationCount(3)
+  #expect(fleet.operations[first.label]?.phase == .inFlight)
+  #expect(fleet.operations[second.label]?.phase == .requestAccepted)
+  commands.release()
+  await fleet.quiesce()
+}
+
+@Test @MainActor
+func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
+  async throws
+{
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+  await fleet.quiesce()
+  let runner = fleet.snapshots[0].runner
+
+  fleet.start(runner)
+  await fleet.quiesce()
+  #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+
+  box.set(discoveryFailure: .launchAgentsUnreadable(box.launchAgents))
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.operations[runner.label]?.phase == .requestAccepted)
+
+  box.set(discoveryFailure: nil)
+  try box.removeRunner()
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(fleet.operations[runner.label] == nil)
 }
 
 // MARK: - Telling somebody who is not looking at the menu

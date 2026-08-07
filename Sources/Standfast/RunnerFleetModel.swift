@@ -37,6 +37,9 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// is applied. The row uses this to reject clicks before they can become
   /// silent no-ops in the model.
   let isServiceActionReserved: Bool
+  /// What the last requested service mutation established. This never claims a
+  /// runner state: a request returning only means its command returned.
+  let operation: ServiceOperation?
   var id: String { runner.label }
 
   init(
@@ -44,7 +47,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
     isJobHistoryAvailable: Bool = true, stateReadAt: Date? = nil,
     version: RunnerVersion? = nil,
-    isServiceActionReserved: Bool = false
+    isServiceActionReserved: Bool = false, operation: ServiceOperation? = nil
   ) {
     self.runner = runner
     self.display = display
@@ -55,6 +58,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     self.stateReadAt = stateReadAt ?? readAt
     self.version = version
     self.isServiceActionReserved = isServiceActionReserved
+    self.operation = operation
   }
 }
 
@@ -91,6 +95,9 @@ enum FleetNotice: Equatable {
 @MainActor
 final class RunnerFleetModel: ObservableObject {
   @Published private(set) var snapshots: [RunnerSnapshot] = []
+  /// The most recent service-operation outcome for each installed runner.
+  /// Labels are durable identities; display names can collide and change.
+  @Published private(set) var operations: [String: ServiceOperation] = [:]
   @Published private(set) var notice: FleetNotice?
   /// When the scan behind what is on screen *started* reading, and nil until
   /// one has. Stamped at the start rather than on arrival on purpose: a `gh`
@@ -458,6 +465,7 @@ final class RunnerFleetModel: ObservableObject {
     // A runner that has been uninstalled since it was started would otherwise
     // leave its deadline behind, with nothing left to ever read and clear it.
     settling.keepOnly(retainedLabels)
+    operations = operations.filter { retainedLabels.contains($0.key) }
     // And its log reader would hold a few hundred parsed jobs for a runner
     // that no longer exists, for as long as the app runs.
     jobLogs = scan.readers.filter { retainedLabels.contains($0.key) }
@@ -487,7 +495,8 @@ final class RunnerFleetModel: ObservableObject {
         stateReadAt: scan.stateReadAt[index],
         version: jobReading.isAvailable
           ? scan.versions[index] : previousVersions[runner.label],
-        isServiceActionReserved: serviceActionsInFlight.contains(runner.label))
+        isServiceActionReserved: serviceActionsInFlight.contains(runner.label),
+        operation: operations[runner.label])
     }
     activityEvidence = activityEvidence.filter { retainedLabels.contains($0.key) }
     for snapshot in snapshots {
@@ -558,7 +567,7 @@ final class RunnerFleetModel: ObservableObject {
         isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
         stateReadAt: snapshot.stateReadAt,
         version: snapshot.version,
-        isServiceActionReserved: true)
+        isServiceActionReserved: true, operation: operations[label])
     }
     return true
   }
@@ -580,7 +589,7 @@ final class RunnerFleetModel: ObservableObject {
   /// has to remember.
   func start(_ runner: DiscoveredRunner) {
     guard acquireServiceAction(for: runner.label) else { return }
-    perform(on: runner, thenSettles: true) { controller, directory in
+    perform(action: .start, on: runner, thenSettles: true) { controller, directory in
       try await controller.start(in: directory)
     }
   }
@@ -595,7 +604,7 @@ final class RunnerFleetModel: ObservableObject {
     // must never be reported back to the person who ordered it — not even when
     // the reading arrives early.
     let expectedStop = watcher.expectStop(for: runner.label, action: .stop, at: clock())
-    perform(on: runner, thenSettles: false, expectedStop: expectedStop) {
+    perform(action: .stop, on: runner, thenSettles: false, expectedStop: expectedStop) {
       controller, directory in
       try await controller.stop(in: directory)
     }
@@ -607,7 +616,7 @@ final class RunnerFleetModel: ObservableObject {
     // to anything reading `launchctl` in the 1.5s gap.
     let expectedStop = watcher.expectStop(
       for: runner.label, action: .restart, at: clock())
-    perform(on: runner, thenSettles: true, expectedStop: expectedStop) {
+    perform(action: .restart, on: runner, thenSettles: true, expectedStop: expectedStop) {
       controller, directory in
       try await controller.restart(in: directory)
     }
@@ -618,6 +627,7 @@ final class RunnerFleetModel: ObservableObject {
   }
 
   private func perform(
+    action: ServiceOperationAction,
     on runner: DiscoveredRunner,
     thenSettles: Bool,
     expectedStop: ExpectedStopHandle? = nil,
@@ -627,13 +637,25 @@ final class RunnerFleetModel: ObservableObject {
     let directory = runner.directory
     let label = runner.label
     let id = UUID()
+    publishOperation(
+      .init(action: action, phase: .inFlight, changedAt: clock()), for: label)
     actions[id] = Task {
       var ranSomething = true
       var stopResult = ExpectedStopResult.none
       do {
         try await work(controller, directory)
+        publishOperation(
+          .init(action: action, phase: .requestAccepted, changedAt: clock()), for: label)
         if expectedStop != nil { stopResult = .completed(.actionCompleted) }
       } catch let failure as RestartStartFailure {
+        publishOperation(
+          .init(
+            action: action,
+            phase: failure.timedOut
+              ? .uncertain(.restartStartTimedOut)
+              : .failed(.restartStartFailed),
+            changedAt: clock()),
+          for: label)
         // Stop completed before ServiceController attempted Start. Whatever
         // happened in the second half, a stopped re-probe belongs to this
         // restart and must retain its expected-stop intent.
@@ -643,6 +665,9 @@ final class RunnerFleetModel: ObservableObject {
         }
         ranSomething = failure.timedOut
       } catch CommandError.timedOut {
+        publishOperation(
+          .init(action: action, phase: .uncertain(.commandTimedOut), changedAt: clock()),
+          for: label)
         // The command was killed at the deadline, which says nothing at all
         // about whether it worked. `svc.sh start` is a `launchctl load` and a
         // handful of shell; when it takes more than thirty seconds it is the
@@ -656,7 +681,22 @@ final class RunnerFleetModel: ObservableObject {
         // holds back `.disconnected` and a failed start reports `.stopped`.
         // That is the cheaper of the two mistakes by a wide margin.
         if expectedStop != nil { stopResult = .completed(.stopUncertain) }
+      } catch ServiceControlError.scriptMissing {
+        publishOperation(
+          .init(action: action, phase: .failed(.scriptMissing), changedAt: clock()),
+          for: label)
+        ranSomething = false
+        if expectedStop != nil { stopResult = .cancelled }
+      } catch CommandError.couldNotLaunch {
+        publishOperation(
+          .init(action: action, phase: .failed(.commandCouldNotLaunch), changedAt: clock()),
+          for: label)
+        ranSomething = false
+        if expectedStop != nil { stopResult = .cancelled }
       } catch {
+        publishOperation(
+          .init(action: action, phase: .failed(.unexpectedFailure), changedAt: clock()),
+          for: label)
         // This is a definite failure rather than a timeout. A missing `svc.sh`
         // throws before a process is launched, and opening a window here would
         // dress a half-uninstalled runner up as "Starting…" for thirty seconds
@@ -682,6 +722,21 @@ final class RunnerFleetModel: ObservableObject {
       try? await Task.sleep(for: .seconds(probeDelay))
       refresh()
       actions[id] = nil
+    }
+  }
+
+  private func publishOperation(_ operation: ServiceOperation, for label: String) {
+    operations[label] = operation
+    snapshots = snapshots.map { snapshot in
+      guard snapshot.runner.label == label else { return snapshot }
+      return RunnerSnapshot(
+        runner: snapshot.runner, display: snapshot.display,
+        qualifier: snapshot.qualifier, jobs: snapshot.jobs, readAt: snapshot.readAt,
+        isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
+        stateReadAt: snapshot.stateReadAt,
+        version: snapshot.version,
+        isServiceActionReserved: snapshot.isServiceActionReserved,
+        operation: operation)
     }
   }
 }

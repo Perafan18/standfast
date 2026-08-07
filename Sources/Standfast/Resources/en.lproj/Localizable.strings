@@ -90,6 +90,23 @@
 "job.result.canceled" = "Canceled";
 "job.result.interrupted" = "Interrupted";
 
+"operation.inFlight.title" = "%@ request in progress";
+"operation.inFlight.detail" = "Wait for %@ to return.";
+"operation.accepted.title" = "%@ request sent";
+"operation.accepted.detail" = "%@ returned, but the runner state is not confirmed. Refresh now.";
+"operation.timedOut.title" = "%@ request timed out";
+"operation.timedOut.detail" = "%@ may still have run. Wait, then Refresh now.";
+"operation.scriptMissing.title" = "%@ request could not run";
+"operation.scriptMissing.detail" = "svc.sh is missing. Reinstall the runner, then try %@ again.";
+"operation.couldNotLaunch.title" = "%@ request could not launch";
+"operation.couldNotLaunch.detail" = "Check the runner directory, then try %@ again.";
+"operation.unexpectedFailure.title" = "%@ request failed";
+"operation.unexpectedFailure.detail" = "Check the runner files, then try %@ again.";
+"operation.restartStartFailed.title" = "Restart stopped the runner, but could not start it";
+"operation.restartStartFailed.detail" = "Check the runner files, then try Start.";
+"operation.restartStartTimedOut.title" = "Restart stopped the runner, but start timed out";
+"operation.restartStartTimedOut.detail" = "Start may still have run. Wait, then Refresh now.";
+
 "thermal.serious" = "This Mac is hot and macOS is slowing it down";
 "thermal.critical" = "This Mac is very hot and macOS is slowing it right down";
 "thermal.slowingJobs" = "That is why the job is taking longer than usual";

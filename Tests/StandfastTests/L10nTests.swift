@@ -78,6 +78,19 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.cleanupLogsTitle(2, "a"), L10n.cleanupLogsEffect(1),
     L10n.cleanupLogsEffect(2), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
     L10n.cleanupPartiallyFailed("a"),
+    L10n.serviceOperationInFlightTitle("a"), L10n.serviceOperationInFlightDetail("a"),
+    L10n.serviceOperationAcceptedTitle("a"), L10n.serviceOperationAcceptedDetail("a"),
+    L10n.serviceOperationTimedOutTitle("a"), L10n.serviceOperationTimedOutDetail("a"),
+    L10n.serviceOperationScriptMissingTitle("a"),
+    L10n.serviceOperationScriptMissingDetail("a"),
+    L10n.serviceOperationCouldNotLaunchTitle("a"),
+    L10n.serviceOperationCouldNotLaunchDetail("a"),
+    L10n.serviceOperationUnexpectedFailureTitle("a"),
+    L10n.serviceOperationUnexpectedFailureDetail("a"),
+    L10n.serviceOperationRestartStartFailedTitle,
+    L10n.serviceOperationRestartStartFailedDetail,
+    L10n.serviceOperationRestartStartTimedOutTitle,
+    L10n.serviceOperationRestartStartTimedOutDetail,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -130,6 +143,14 @@ private func speaking(_ localization: String) throws -> Bundle {
       "cleanup.standfastTrash.effect", "cleanup.logs.title.one", "cleanup.logs.title",
       "cleanup.logs.effect.one", "cleanup.logs.effect",
       "cleanup.refused", "cleanup.failed", "cleanup.partiallyFailed",
+      "operation.inFlight.title", "operation.inFlight.detail",
+      "operation.accepted.title", "operation.accepted.detail",
+      "operation.timedOut.title", "operation.timedOut.detail",
+      "operation.scriptMissing.title", "operation.scriptMissing.detail",
+      "operation.couldNotLaunch.title", "operation.couldNotLaunch.detail",
+      "operation.unexpectedFailure.title", "operation.unexpectedFailure.detail",
+      "operation.restartStartFailed.title", "operation.restartStartFailed.detail",
+      "operation.restartStartTimedOut.title", "operation.restartStartTimedOut.detail",
     ])
   #expect(everyKey == reached)
 }
@@ -242,6 +263,12 @@ private func speaking(_ localization: String) throws -> Bundle {
     "disk.standfastTrash": 1, "disk.logs": 1,
     "disk.measuredAgo": 1,
     "menu.runnerVersion": 1, "menu.runnerVersion.update": 2,
+    "operation.inFlight.title": 1, "operation.inFlight.detail": 1,
+    "operation.accepted.title": 1, "operation.accepted.detail": 1,
+    "operation.timedOut.title": 1, "operation.timedOut.detail": 1,
+    "operation.scriptMissing.title": 1, "operation.scriptMissing.detail": 1,
+    "operation.couldNotLaunch.title": 1, "operation.couldNotLaunch.detail": 1,
+    "operation.unexpectedFailure.title": 1, "operation.unexpectedFailure.detail": 1,
   ]
   for language in ["en", "es"] {
     let catalogue = try catalogue(language)

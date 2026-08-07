@@ -95,6 +95,8 @@ struct RunnerRow: Equatable {
   /// What this runner is building and how long it has been at it, and nil when
   /// it is not building anything.
   let progress: String?
+  /// The last requested service-operation outcome, if there is one to report.
+  let operation: ServiceOperationPresentation?
   let actions: [Action]
   /// The jobs before this one, newest first.
   let recentJobs: [RecentJob]
@@ -180,6 +182,7 @@ extension RunnerSnapshot {
       // four buttons belonging to nobody.
       title: L10n.runnerRow(name, display.summary),
       progress: jobProgress?.line,
+      operation: operation?.presentation,
       // Every action reads this runner's own state. Nothing here consults the
       // fleet summary, which is for the icon and only the icon.
       actions: [

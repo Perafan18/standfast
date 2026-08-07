@@ -90,6 +90,23 @@
 "job.result.canceled" = "Cancelado";
 "job.result.interrupted" = "Interrumpido";
 
+"operation.inFlight.title" = "Solicitud de %@ en curso";
+"operation.inFlight.detail" = "Espera a que termine %@.";
+"operation.accepted.title" = "Solicitud de %@ enviada";
+"operation.accepted.detail" = "%@ terminó, pero el estado del runner no está confirmado. Actualizar ahora.";
+"operation.timedOut.title" = "La solicitud de %@ agotó el tiempo";
+"operation.timedOut.detail" = "%@ podría haberse ejecutado. Espera y luego Actualizar ahora.";
+"operation.scriptMissing.title" = "No se pudo ejecutar la solicitud de %@";
+"operation.scriptMissing.detail" = "Falta svc.sh. Reinstala el runner y luego prueba %@ otra vez.";
+"operation.couldNotLaunch.title" = "No se pudo iniciar la solicitud de %@";
+"operation.couldNotLaunch.detail" = "Revisa el directorio del runner y luego prueba %@ otra vez.";
+"operation.unexpectedFailure.title" = "Falló la solicitud de %@";
+"operation.unexpectedFailure.detail" = "Revisa los archivos del runner y luego prueba %@ otra vez.";
+"operation.restartStartFailed.title" = "Reiniciar detuvo el runner, pero no pudo arrancarlo";
+"operation.restartStartFailed.detail" = "Revisa los archivos del runner y luego prueba Arrancar.";
+"operation.restartStartTimedOut.title" = "Reiniciar detuvo el runner, pero arrancar agotó el tiempo";
+"operation.restartStartTimedOut.detail" = "Arrancar podría haberse ejecutado. Espera y luego Actualizar ahora.";
+
 "thermal.serious" = "Esta Mac está caliente y macOS la está ralentizando";
 "thermal.critical" = "Esta Mac está muy caliente y macOS la está ralentizando al máximo";
 "thermal.slowingJobs" = "Por eso el job está tardando más de lo normal";

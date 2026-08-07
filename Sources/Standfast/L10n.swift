@@ -92,6 +92,51 @@ enum L10n {
   static let jobCanceled = t("job.result.canceled")
   static let jobInterrupted = t("job.result.interrupted")
 
+  static func serviceOperationInFlightTitle(_ action: String) -> String {
+    String(format: t("operation.inFlight.title"), action)
+  }
+  static func serviceOperationInFlightDetail(_ action: String) -> String {
+    String(format: t("operation.inFlight.detail"), action)
+  }
+  static func serviceOperationAcceptedTitle(_ action: String) -> String {
+    String(format: t("operation.accepted.title"), action)
+  }
+  static func serviceOperationAcceptedDetail(_ action: String) -> String {
+    String(format: t("operation.accepted.detail"), action)
+  }
+  static func serviceOperationTimedOutTitle(_ action: String) -> String {
+    String(format: t("operation.timedOut.title"), action)
+  }
+  static func serviceOperationTimedOutDetail(_ action: String) -> String {
+    String(format: t("operation.timedOut.detail"), action)
+  }
+  static func serviceOperationScriptMissingTitle(_ action: String) -> String {
+    String(format: t("operation.scriptMissing.title"), action)
+  }
+  static func serviceOperationScriptMissingDetail(_ action: String) -> String {
+    String(format: t("operation.scriptMissing.detail"), action)
+  }
+  static func serviceOperationCouldNotLaunchTitle(_ action: String) -> String {
+    String(format: t("operation.couldNotLaunch.title"), action)
+  }
+  static func serviceOperationCouldNotLaunchDetail(_ action: String) -> String {
+    String(format: t("operation.couldNotLaunch.detail"), action)
+  }
+  static func serviceOperationUnexpectedFailureTitle(_ action: String) -> String {
+    String(format: t("operation.unexpectedFailure.title"), action)
+  }
+  static func serviceOperationUnexpectedFailureDetail(_ action: String) -> String {
+    String(format: t("operation.unexpectedFailure.detail"), action)
+  }
+  static let serviceOperationRestartStartFailedTitle = t(
+    "operation.restartStartFailed.title")
+  static let serviceOperationRestartStartFailedDetail = t(
+    "operation.restartStartFailed.detail")
+  static let serviceOperationRestartStartTimedOutTitle = t(
+    "operation.restartStartTimedOut.title")
+  static let serviceOperationRestartStartTimedOutDetail = t(
+    "operation.restartStartTimedOut.detail")
+
   /// A runner's name and its state on one line. Localised because the dash and
   /// the spacing around it are not punctuation every language writes the same.
   static func runnerRow(_ name: String, _ state: String) -> String {
@@ -390,6 +435,27 @@ enum L10n {
     "job.result.failed": "Failed",
     "job.result.canceled": "Canceled",
     "job.result.interrupted": "Interrupted",
+    "operation.inFlight.title": "%@ request in progress",
+    "operation.inFlight.detail": "Wait for %@ to return.",
+    "operation.accepted.title": "%@ request sent",
+    "operation.accepted.detail":
+      "%@ returned, but the runner state is not confirmed. Refresh now.",
+    "operation.timedOut.title": "%@ request timed out",
+    "operation.timedOut.detail": "%@ may still have run. Wait, then Refresh now.",
+    "operation.scriptMissing.title": "%@ request could not run",
+    "operation.scriptMissing.detail":
+      "svc.sh is missing. Reinstall the runner, then try %@ again.",
+    "operation.couldNotLaunch.title": "%@ request could not launch",
+    "operation.couldNotLaunch.detail": "Check the runner directory, then try %@ again.",
+    "operation.unexpectedFailure.title": "%@ request failed",
+    "operation.unexpectedFailure.detail": "Check the runner files, then try %@ again.",
+    "operation.restartStartFailed.title":
+      "Restart stopped the runner, but could not start it",
+    "operation.restartStartFailed.detail": "Check the runner files, then try Start.",
+    "operation.restartStartTimedOut.title":
+      "Restart stopped the runner, but start timed out",
+    "operation.restartStartTimedOut.detail":
+      "Start may still have run. Wait, then Refresh now.",
     "thermal.serious": "This Mac is hot and macOS is slowing it down",
     "thermal.critical": "This Mac is very hot and macOS is slowing it right down",
     "thermal.slowingJobs": "That is why the job is taking longer than usual",
