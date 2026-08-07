@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 566 tests, ~1s
+make test      # 601 tests, ~1s
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
@@ -223,9 +223,10 @@ thing standing between a bump and an app that reports last release's version for
 
 So a release is, in order:
 
-1. Bump `CFBundleShortVersionString` and the formula's `url` tag together, in one commit.
-2. In `CHANGELOG.md`, replace `— unreleased` on that version's heading with the date,
-   and open a new heading above it.
+1. Bump `CFBundleShortVersionString`, increment `CFBundleVersion`, and update the formula's
+   `url` tag together, in one commit.
+2. In `CHANGELOG.md`, replace `— Unreleased` on that version's heading with the date, and
+   open a new Unreleased heading above it.
 3. **Sign**: `./Scripts/build-app.sh`, and read the line it prints. It must name the
    Developer ID Application certificate — if it says "Signed ad-hoc", stop.
 4. **Notarise, staple and verify**: `./Scripts/notarize.sh`. It submits, waits for
@@ -242,4 +243,5 @@ the user's own machine, so what Homebrew installs is signed ad-hoc by their own 
 and never touches Gatekeeper — which is why building from source is the default. The
 notarised bundle is what a direct download needs.
 
-`CFBundleVersion` is the build number and is deliberately not tied to any of this.
+`CFBundleVersion` is the monotonically increasing build number. It does not have to equal a
+semantic-version component, but every published bundle still needs a new one.

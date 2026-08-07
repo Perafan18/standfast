@@ -4,10 +4,59 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — Unreleased
+
+This section describes the current source tree, not a published release. Tagging, signing,
+notarization, the final Homebrew formula SHA, and release publication remain pending work
+owned by the release manager.
+
+### Added
+
+- **Honest, per-runner service-operation outcomes.** Start, Stop, and Restart now report
+  their in-flight, request-accepted, uncertain, or failed outcome under the runner that was
+  acted on. A returned `svc.sh` command is never presented as proof of the next runner
+  state, a timeout admits the result is uncertain, and Restart distinguishes a completed
+  Stop from a failed or timed-out Start phase.
+- **A singleton Standfast Control Center** with one scrolling column of native runner
+  cards. Each card keeps the complete operational picture together: local and GitHub state,
+  current work, service controls, the latest operation outcome, recent jobs, runner version,
+  manual disk measurement and safe cleanup, logs, and the appropriate GitHub destination.
+- **A bounded quick menu** for a three-second glance. It shows the aggregate fleet state,
+  up to three runners needing attention or doing work, discovery and thermal alerts,
+  freshness, Refresh, Open Standfast, Settings, and Quit. A conclusively stopped runner may
+  offer Start; Stop, Restart, history, maintenance, preferences, and confirmations stay out
+  of the quick surface.
+- **A separate Settings scene** for notification choices, SleepGuard, and Open at Login,
+  using the same long-lived preference state as the rest of the app.
+- **Accessibility semantics for the new surfaces.** The menu-bar item exposes the product
+  name and aggregate state, runner cards and operation feedback expose names and values,
+  decorative duplicate text is hidden from assistive technology, and native controls keep
+  keyboard order and focus. State is never conveyed by color or motion alone; v0.5 adds no
+  state animation that needs a Reduce Motion alternative.
+- **An original Standfast app icon:** a text-free sentinel/beacon, compiled into every macOS
+  icon size and included inside the signed resource seal. Live status remains the job of
+  semantic SF Symbols in the menu bar rather than the product icon.
+
+### Changed
+
+- Repository runners now open that repository's workflow-runs page. Organization and
+  enterprise runners instead open their honest runner-settings page; Standfast no longer
+  labels those registration destinations as run history.
+- The operational interface uses native `GroupBox`, `LabeledContent`, `ControlGroup`,
+  `Form`, and system semantic styles, with no custom color or type scale in the app UI.
+
+### Fixed
+
+- Review follow-ups keep runner progress, operation feedback, and Start inside one runner
+  submenu so detail cannot silently exceed the quick menu's top-level row budget.
+- The packaging/AX audit now checks a singleton main and focused Control Center, bounds its
+  Settings close attempts, verifies every required icon representation, and confirms the
+  opaque 1024×1024 source and sealed `.icns` rather than checking only that an icon exists.
+
 **0.4.0 is the first public release.** The three sections below it are development
 milestones that were built and reviewed in sequence but never published separately, so
-everything in this file ships at once. They are kept apart because each one answers a
-different question about the app, and collapsing them would lose that.
+everything in those sections shipped at once. They are kept apart because each one answers
+a different question about the app, and collapsing them would lose that.
 
 ## [0.4.0] — 2026-08-06
 
