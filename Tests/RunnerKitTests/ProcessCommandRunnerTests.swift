@@ -106,13 +106,15 @@ private func runAgainstADeadline(
 ) -> Box? {
   let box = Box()
   let finished = DispatchSemaphore(value: 0)
-  DispatchQueue.global().async {
-    do { box.result = try runner.run(executable, arguments) } catch { box.error = error }
-    finished.signal()
+  Thread.detachNewThread {
+    autoreleasepool {
+      do { box.result = try runner.run(executable, arguments) } catch { box.error = error }
+      finished.signal()
+    }
   }
   guard finished.wait(timeout: .now() + 30) == .success else {
     Issue.record(
-      "\(executable) never came back: it is blocked writing into a pipe nobody drains")
+      "\(executable) never came back: its process runner or watchdog is blocked")
     return nil
   }
   return box
