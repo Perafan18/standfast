@@ -210,6 +210,34 @@ key_like_runner_output="$(
 )"
 assert_contains "$key_like_runner_output" "$LIFECYCLE_SUCCESS"
 
+fleet_named_runner_dir="$TEST_ROOT/captured-fleet-named-runner"
+mkdir -p "$fleet_named_runner_dir"
+fleet_named_runner_output=""
+if ! fleet_named_runner_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$fleet_named_runner_dir" \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tFleet — build-mac · Ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+    "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "the AX smoke rejected a legitimate Fleet-prefixed runner: $fleet_named_runner_output"
+fi
+assert_contains "$fleet_named_runner_output" "$LIFECYCLE_SUCCESS"
+
+flota_named_runner_dir="$TEST_ROOT/captured-flota-named-runner"
+mkdir -p "$flota_named_runner_dir"
+flota_named_runner_output=""
+if ! flota_named_runner_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$flota_named_runner_dir" \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tFlota — mac-mini-m4 · Ejecutando\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+    "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "the AX smoke rejected a legitimate Flota-prefixed runner: $flota_named_runner_output"
+fi
+assert_contains "$flota_named_runner_output" "$LIFECYCLE_SUCCESS"
+
 non_boundary_key_dir="$TEST_ROOT/captured-non-boundary-key"
 mkdir -p "$non_boundary_key_dir"
 non_boundary_key_output="$(

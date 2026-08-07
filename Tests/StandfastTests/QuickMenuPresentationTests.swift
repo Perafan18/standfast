@@ -146,6 +146,48 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
     ])
 }
 
+@Test func delimiterContainingNamesStayDistinctWhenStatesConverge() {
+  let separatedStates = [
+    quickSnapshot(
+      "build · widget", .resolved(.idle),
+      label: "actions.runner.test.delimited", agentId: 101),
+    quickSnapshot(
+      "build", .resolved(.stopped),
+      scope: .repository(owner: "acme", name: "widget"),
+      label: "actions.runner.test.widget", agentId: 102),
+    quickSnapshot(
+      "build", .resolved(.busy),
+      scope: .repository(owner: "acme", name: "gadget"),
+      label: "actions.runner.test.gadget", agentId: 103),
+  ]
+  let convergedStates = [
+    quickSnapshot(
+      "build · widget", .resolved(.idle),
+      label: "actions.runner.test.delimited", agentId: 101),
+    quickSnapshot(
+      "build", .resolved(.idle),
+      scope: .repository(owner: "acme", name: "widget"),
+      label: "actions.runner.test.widget", agentId: 102),
+    quickSnapshot(
+      "build", .resolved(.busy),
+      scope: .repository(owner: "acme", name: "gadget"),
+      label: "actions.runner.test.gadget", agentId: 103),
+  ]
+
+  #expect(
+    echoes(in: quickMenu(separatedStates)).map(\.title) == [
+      "build · widget · #101 · \(L10n.stateReadyShort)",
+      "build · widget · #102 · \(L10n.stateStoppedShort)",
+      "build · gadget · \(L10n.stateRunningShort)",
+    ])
+  #expect(
+    echoes(in: quickMenu(convergedStates)).map(\.title) == [
+      "build · widget · #101 · \(L10n.stateReadyShort)",
+      "build · widget · #102 · \(L10n.stateReadyShort)",
+      "build · gadget · \(L10n.stateRunningShort)",
+    ])
+}
+
 @Test func everyRunnerRemainsVisibleInDiscoveryOrderAcrossStates() {
   let snapshots = [
     quickSnapshot("ready", .resolved(.idle)),

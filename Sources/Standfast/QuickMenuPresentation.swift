@@ -95,6 +95,14 @@ extension QuickMenuPresentation {
   private struct RunnerIdentity {
     let name: String
     var qualifier: String?
+    var discriminators: [Int] = []
+
+    var rendered: String {
+      let base = qualifier.map { L10n.quickMenuRunner(name, $0) } ?? name
+      return discriminators.reduce(base) { identity, discriminator in
+        L10n.quickMenuScopeWithID(identity, discriminator)
+      }
+    }
   }
 
   private static let thermalLinesShown = 2
@@ -143,21 +151,33 @@ extension QuickMenuPresentation {
         }
       }
     }
+
+    while true {
+      let collisions = Dictionary(
+        grouping: identities.indices, by: { identities[$0].rendered }
+      ).values.filter { $0.count > 1 }
+      guard !collisions.isEmpty else { break }
+
+      for collision in collisions {
+        let agentIDs = collision.map { snapshots[$0].runner.agentId }
+        let discriminators =
+          Set(agentIDs).count == collision.count
+          ? agentIDs : Array(1...collision.count)
+        for (index, discriminator) in zip(collision, discriminators) {
+          identities[index].discriminators.append(discriminator)
+        }
+      }
+    }
     return identities
   }
 
   private static func runnerEcho(
     for snapshot: RunnerSnapshot, identity: RunnerIdentity
   ) -> RunnerEcho {
-    let title: String
-    if let qualifier = identity.qualifier {
-      title = L10n.quickMenuRunnerInScope(
-        identity.name, qualifier, snapshot.display.shortSummary)
-    } else {
-      title = L10n.quickMenuRunner(identity.name, snapshot.display.shortSummary)
-    }
     return RunnerEcho(
-      id: snapshot.id, title: title, longState: snapshot.display.summary,
+      id: snapshot.id,
+      title: L10n.quickMenuRunner(identity.rendered, snapshot.display.shortSummary),
+      longState: snapshot.display.summary,
       progress: snapshot.jobProgress?.line, operation: snapshot.operation?.presentation,
       canStart: snapshot.display == .resolved(.stopped) && !snapshot.isServiceActionReserved
     )

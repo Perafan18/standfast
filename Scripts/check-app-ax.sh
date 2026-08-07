@@ -176,11 +176,6 @@ while IFS= read -r menuRecord || [ -n "$menuRecord" ]; do
       runnerText="${menuRecord#*$'\t'}"
       [ -n "$runnerText" ] \
         || fail "empty runner AX menu record"
-      case "$runnerText" in
-        "Fleet — "*|"Flota — "*)
-          fail "aggregate Fleet/Flota row escaped into the quick menu: $runnerText"
-          ;;
-      esac
       if [ -n "$runnerMenu" ]; then
         runnerMenu="$runnerMenu"$'\n'"$runnerText"
       else
