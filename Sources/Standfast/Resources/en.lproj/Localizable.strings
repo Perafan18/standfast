@@ -58,6 +58,9 @@
 
 "menu.runnerRow" = "%@ — %@";
 "menu.runnerInScope" = "%@ (%@)";
+"menu.quickRunner" = "%@ · %@";
+"menu.quickRunnerScoped" = "%@ · %@ · %@";
+"menu.quickRunnerScopeID" = "%@ · #%lld";
 
 "disk.toolCache" = "Tool cache — %@";
 "disk.actionCache" = "Downloaded actions — %@";

@@ -63,6 +63,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.checkedJustNow, L10n.checkedNever, L10n.jobSucceeded, L10n.jobFailed,
     L10n.jobCanceled, L10n.jobInterrupted,
     L10n.runnerRow("a", "b"), L10n.runnerInScope("a", "b"),
+    L10n.quickMenuRunner("a", "b"), L10n.quickMenuRunnerInScope("a", "b", "c"),
+    L10n.quickMenuScopeWithID("a", 1),
     L10n.jobRunning("a", "b"), L10n.jobRunningWithTypical("a", "b", "c"),
     L10n.jobRow("a", "b", "c"), L10n.jobRowNoDuration("a", "b"), L10n.checkedAgo("a"),
     L10n.durationHoursMinutes(1, 2), L10n.durationMinutesSeconds(1, 2),
@@ -127,6 +129,7 @@ private func speaking(_ localization: String) throws -> Bundle {
       "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
       "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
       "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
+      "menu.quickRunner", "menu.quickRunnerScoped", "menu.quickRunnerScopeID",
       "menu.notify", "menu.notify.jobFailed", "menu.notify.disconnected",
       "menu.notify.stopped", "menu.notify.blocked", "menu.preventSleep",
       "menu.preventSleep.lid", "thermal.serious", "thermal.critical",
@@ -350,6 +353,30 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
 }
 
+@Test func quickMenuRunnerIdentityFormatsAreExactInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.quickMenuRunner("build-mac", "Ready", in: [english])
+      == "build-mac · Ready")
+  #expect(
+    L10n.quickMenuRunnerInScope(
+      "mac-mini-m4", "nest-rules-app", "Ready", in: [english])
+      == "mac-mini-m4 · nest-rules-app · Ready")
+  #expect(
+    L10n.quickMenuRunnerInScope(
+      "mac-mini-m4", "acme/standfast", "Running", in: [english])
+      == "mac-mini-m4 · acme/standfast · Running")
+  #expect(
+    L10n.quickMenuScopeWithID("acme/standfast", 123, in: [english])
+      == "acme/standfast · #123")
+  #expect(
+    L10n.quickMenuRunnerInScope(
+      "mac-mini-m4", "acme/standfast", "Ejecutando", in: [spanish])
+      == "mac-mini-m4 · acme/standfast · Ejecutando")
+}
+
 @Test func everyFormatKeepsThePlaceholdersItsCallSitePasses() throws {
   // A translation that dropped one silently erases whichever fact it stood for
   // — the job's name, how long it has been going, or what it usually takes —
@@ -378,6 +405,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     "disk.standfastTrash": 1, "disk.logs": 1,
     "disk.measuredAgo": 1,
     "menu.runnerVersion": 1, "menu.runnerVersion.update": 2,
+    "menu.quickRunner": 2, "menu.quickRunnerScoped": 3,
+    "menu.quickRunnerScopeID": 1,
     "operation.inFlight.title": 1, "operation.inFlight.detail": 1,
     "operation.accepted.title": 1, "operation.accepted.detail": 1,
     "operation.timedOut.title": 1, "operation.timedOut.detail": 1,

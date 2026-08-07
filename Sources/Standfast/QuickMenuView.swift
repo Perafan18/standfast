@@ -28,9 +28,6 @@ struct QuickMenuView: View {
     case .text(let line):
       Text(line)
         .accessibilityIdentifier("dev.standfast.quick-menu.static")
-    case .runnerText(let runner):
-      Text(runner.title)
-        .accessibilityIdentifier("dev.standfast.quick-menu.runner")
     case .runnerMenu(let runner):
       RunnerEchoMenu(runner: runner, fleet: fleet)
     case .refresh:
@@ -67,6 +64,7 @@ private struct RunnerEchoMenu: View {
 
   var body: some View {
     Menu {
+      Text(runner.longState)
       if let progress = runner.progress { Text(progress) }
       if let operation = runner.operation {
         Label(operation.title, systemImage: operation.symbolName)
@@ -85,5 +83,7 @@ private struct RunnerEchoMenu: View {
       Text(runner.title)
     }
     .accessibilityIdentifier("dev.standfast.quick-menu.runner")
+    .accessibilityLabel(runner.title)
+    .accessibilityValue(runner.longState)
   }
 }

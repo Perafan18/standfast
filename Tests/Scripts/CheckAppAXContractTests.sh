@@ -116,7 +116,7 @@ printf '%s\n' \
   '  printf "%s\n" "$call_count" > "$count_file"' \
   '  cat > "$STANDFAST_OSASCRIPT_CAPTURE_DIR/call-$call_count.applescript"' \
   '  case "$call_count" in' \
-  '    1) printf "%b\n" "${STANDFAST_OSASCRIPT_MENU_OUTPUT:-static\tFleet idle\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit}" ;;' \
+  '    1) printf "%b\n" "${STANDFAST_OSASCRIPT_MENU_OUTPUT:-runner\tbuild-mac · Ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit}" ;;' \
   '    2)' \
   '      printf "%s\n" "${CHECK_LANGUAGE:-}" > "$STANDFAST_OSASCRIPT_CAPTURE_DIR/call-2.language"' \
   '      [ "${STANDFAST_OSASCRIPT_LIFECYCLE_ABORT:-0}" != 1 ] || exit 1' \
@@ -205,7 +205,7 @@ key_like_runner_output="$(
   PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
     STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
     STANDFAST_OSASCRIPT_CAPTURE_DIR="$key_like_runner_dir" \
-    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tstate.idle — Idle — ready for jobs\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tstate.idle · build-mac · Ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
     "$AX_CHECK" "$$" 2>&1
 )"
 assert_contains "$key_like_runner_output" "$LIFECYCLE_SUCCESS"
@@ -227,7 +227,7 @@ spanish_output="$(
   PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
     STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
     STANDFAST_OSASCRIPT_CAPTURE_DIR="$spanish_dir" \
-    STANDFAST_OSASCRIPT_MENU_OUTPUT='static\tFlota inactiva\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tmac-mini-m4 · Ejecutando\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
     "$AX_CHECK" "$$" 2>&1
 )"
 assert_contains "$spanish_output" "$LIFECYCLE_SUCCESS"
@@ -273,6 +273,26 @@ expect_menu_output_rejected \
   "runner-action-spoof" \
   'runner\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
   "one complete English or Spanish static action set"
+expect_menu_output_rejected \
+  "english-fleet-aggregate" \
+  'static\tFleet — Ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "aggregate Fleet/Flota row escaped into the quick menu"
+expect_menu_output_rejected \
+  "spanish-fleet-aggregate" \
+  'static\tFlota — Listo\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+  "aggregate Fleet/Flota row escaped into the quick menu"
+expect_menu_output_rejected \
+  "runner-without-separator" \
+  'runner\tbuild-mac Ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "runner AX menu record has no concrete identity and localized short state"
+expect_menu_output_rejected \
+  "runner-without-identity" \
+  'runner\t · Ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "runner AX menu record has no concrete identity and localized short state"
+expect_menu_output_rejected \
+  "runner-with-long-state" \
+  'runner\tbuild-mac · Idle — ready for jobs\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "runner AX menu record has no concrete identity and localized short state"
 
 for raw_key in \
   menu.controlCenter \
@@ -317,6 +337,8 @@ grep -Fq 'repeat with visibleMenuItem in visibleMenuItems' "$menu_script" \
   || fail "the menu probe does not enumerate the exposed AXVisibleChildren"
 grep -Fq 'value of attribute "AXTitle" of visibleMenuItem' "$menu_script" \
   || fail "the menu probe does not read titles from exposed AXVisibleChildren"
+grep -Fq 'value of attribute "AXValue" of visibleMenuItem' "$menu_script" \
+  || fail "the menu probe does not fall back to AXValue for runner identity"
 grep -Fq 'value of attribute "AXIdentifier" of visibleMenuItem' "$menu_script" \
   || fail "the menu probe does not type exposed records from stable AX identifiers"
 grep -Fq 'dev.standfast.quick-menu.static' "$menu_script" \
@@ -659,8 +681,8 @@ static_identifier_count="$(grep -Fc '"dev.standfast.quick-menu.static"' "$QUICK_
 [ "$static_identifier_count" -eq 5 ] \
   || fail "every static quick-menu element must expose the stable static AX identifier"
 runner_identifier_count="$(grep -Fc '"dev.standfast.quick-menu.runner"' "$QUICK_MENU" || true)"
-[ "$runner_identifier_count" -eq 2 ] \
-  || fail "both runner quick-menu shapes must expose the stable runner AX identifier"
+[ "$runner_identifier_count" -eq 1 ] \
+  || fail "the runner submenu must expose exactly the generic runner AX identifier"
 front_then_activate="$(awk '
   /window\.makeKeyAndOrderFront\(nil\)/ { stage = 1; next }
   stage == 1 && /activateApplication\(\)/ { count += 1; stage = 0 }

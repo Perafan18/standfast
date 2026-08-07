@@ -209,6 +209,25 @@ enum L10n {
     String(format: t("menu.runnerRow"), name, state)
   }
 
+  static func quickMenuRunner(
+    _ name: String, _ state: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("menu.quickRunner", in: bundles), name, state)
+  }
+
+  static func quickMenuRunnerInScope(
+    _ name: String, _ scope: String, _ state: String,
+    in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("menu.quickRunnerScoped", in: bundles), name, scope, state)
+  }
+
+  static func quickMenuScopeWithID(
+    _ scope: String, _ id: Int, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("menu.quickRunnerScopeID", in: bundles), scope, Int64(id))
+  }
+
   static func quickMenuFleet(
     _ state: String, overflowCount: Int = 0,
     in bundles: [Bundle]? = nil
@@ -483,6 +502,9 @@ enum L10n {
     "menu.runnerVersion.update": "Runner %@ — %@ is available",
     "menu.runnerRow": "%@ — %@",
     "menu.runnerInScope": "%@ (%@)",
+    "menu.quickRunner": "%@ · %@",
+    "menu.quickRunnerScoped": "%@ · %@ · %@",
+    "menu.quickRunnerScopeID": "%@ · #%lld",
     "disk.toolCache": "Tool cache — %@",
     "disk.actionCache": "Downloaded actions — %@",
     "disk.checkout": "Repository checkouts — %@",

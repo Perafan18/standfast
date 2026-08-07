@@ -971,9 +971,9 @@ func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
 @Test @MainActor
 func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   // A terminal receipt in the nominal five-minute scan-wall-clock window may
-  // occupy a quick-menu echo, but it must not leave an otherwise idle runner
-  // there forever. The scan at 4m 59s retains it; the scan at exactly 5m
-  // removes it from every projection when the wall clock advances normally.
+  // add detail to a quick-menu runner, but it must not remain there forever.
+  // The scan at 4m 59s retains it; the scan at exactly 5m removes the receipt
+  // from every projection while the runner itself remains identifiable.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
@@ -1005,9 +1005,9 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   #expect(fleet.snapshots[0].operation == nil)
   #expect(fleet.controlCenterCards().first?.operation == nil)
   #expect(
-    !fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
+    fleet.quickMenuPresentation(thermalLines: []).items.contains { item in
       guard case .runner(let echo) = item else { return false }
-      return echo.id == runner.label
+      return echo.id == runner.label && echo.operation == nil
     })
 }
 

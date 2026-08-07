@@ -90,6 +90,11 @@ tell application "System Events"
         try
           set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
         end try
+        if visibleName is "" then
+          try
+            set visibleName to value of attribute "AXValue" of visibleMenuItem as text
+          end try
+        end if
         set visibleIdentifier to ""
         try
           set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
@@ -145,6 +150,7 @@ echo "    menu records: $menu"
 # so raw localization-key checks apply exclusively to AX-typed static rows;
 # submenu and catalogue traversal belongs to a separate runtime gate.
 staticMenu=""
+runnerMenu=""
 while IFS= read -r menuRecord || [ -n "$menuRecord" ]; do
   case "$menuRecord" in
     static$'\t'*)
@@ -155,6 +161,11 @@ while IFS= read -r menuRecord || [ -n "$menuRecord" ]; do
         | grep -Eq '(^| — )(menu|state|job|duration|thermal|notification)\.'; then
         fail "raw localization key escaped into static AX menu content: $staticText"
       fi
+      case "$staticText" in
+        "Fleet — "*|"Flota — "*)
+          fail "aggregate Fleet/Flota row escaped into the quick menu: $staticText"
+          ;;
+      esac
       if [ -n "$staticMenu" ]; then
         staticMenu="$staticMenu"$'\n'"$staticText"
       else
@@ -165,6 +176,16 @@ while IFS= read -r menuRecord || [ -n "$menuRecord" ]; do
       runnerText="${menuRecord#*$'\t'}"
       [ -n "$runnerText" ] \
         || fail "empty runner AX menu record"
+      case "$runnerText" in
+        "Fleet — "*|"Flota — "*)
+          fail "aggregate Fleet/Flota row escaped into the quick menu: $runnerText"
+          ;;
+      esac
+      if [ -n "$runnerMenu" ]; then
+        runnerMenu="$runnerMenu"$'\n'"$runnerText"
+      else
+        runnerMenu="$runnerText"
+      fi
       ;;
     *)
       fail "unknown AX menu record type: ${menuRecord:-empty record}"
@@ -196,6 +217,28 @@ elif [ "$spanishActionCount" -eq 3 ] && [ "$englishActionCount" -eq 0 ]; then
 else
   fail "the packaged menu did not expose one complete English or Spanish static action set"
 fi
+
+while IFS= read -r runnerText || [ -n "$runnerText" ]; do
+  [ -n "$runnerText" ] || continue
+  runnerIdentity="${runnerText% · *}"
+  runnerState="${runnerText##* · }"
+  validRunnerState=false
+  if [ "$menuLanguage" = en ]; then
+    case "$runnerState" in
+      Ready|Running|Disconnected|Stopped|Starting|Unknown) validRunnerState=true ;;
+    esac
+  else
+    case "$runnerState" in
+      Listo|Ejecutando|Desconectado|Detenido|Arrancando|Desconocido)
+        validRunnerState=true
+        ;;
+    esac
+  fi
+  if [ "$runnerIdentity" = "$runnerText" ] || [ -z "$runnerIdentity" ] \
+    || [ "$validRunnerState" != true ]; then
+    fail "runner AX menu record has no concrete identity and localized short state: $runnerText"
+  fi
+done <<< "$runnerMenu"
 
 echo "==> Exercising Control Center and Settings through Accessibility"
 : > "$AX_STDERR_FILE"
