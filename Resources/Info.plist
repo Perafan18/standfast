@@ -10,6 +10,8 @@
 	<string>Standfast</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.standfast.app</string>
+	<key>CFBundleIconFile</key>
+	<string>Standfast</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLocalizations</key>

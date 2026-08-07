@@ -51,6 +51,13 @@ fail() {
 
 plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist" 2>/dev/null; }
 
+SOURCE_ICON="$ROOT/Resources/AppIcon.png"
+[ -f "$SOURCE_ICON" ] || fail "Resources/AppIcon.png is missing"
+source_icon_dimensions="$(sips -g pixelWidth -g pixelHeight "$SOURCE_ICON" 2>/dev/null \
+  | awk '/pixelWidth:/ { width = $2 } /pixelHeight:/ { height = $2 } END { print width "x" height }')"
+[ "$source_icon_dimensions" = "1024x1024" ] \
+  || fail "Resources/AppIcon.png is $source_icon_dimensions, not 1024x1024"
+
 echo "==> Assembling the bundle"
 "$ROOT/Scripts/build-app.sh" >/dev/null
 cp -R "$ROOT/.build/Standfast.app" "$APP"
@@ -59,9 +66,15 @@ echo "==> Checking the bundle's shape"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist does not lint"
 [ -x "$APP/Contents/MacOS/Standfast" ] || fail "no executable in Contents/MacOS"
 [ "$(plist CFBundleIdentifier)" = "dev.standfast.app" ] || fail "wrong bundle identifier"
+[ "$(plist CFBundleIconFile)" = "Standfast" ] || fail "wrong bundle icon name"
 [ "$(plist LSUIElement)" = "true" ] || fail "LSUIElement is not set: this app would take a Dock tile"
 [ -d "$APP/Contents/Resources/Standfast_Standfast.bundle" ] \
   || fail "the SwiftPM resource bundle did not make it into the app"
+APP_ICON="$APP/Contents/Resources/Standfast.icns"
+[ -f "$APP_ICON" ] || fail "Standfast.icns is missing from the bundle"
+app_icon_format="$(sips -g format "$APP_ICON" 2>/dev/null \
+  | awk '/format:/ { print $2 }')"
+[ "$app_icon_format" = "icns" ] || fail "Standfast.icns is not an ICNS file"
 # The identifier `codesign` reports, not the one Info.plist claims. Until the
 # bundle is signed the two differ — SwiftPM leaves the executable linker-signed
 # as `Standfast` with Info.plist unbound — and an app with no bundle identity
