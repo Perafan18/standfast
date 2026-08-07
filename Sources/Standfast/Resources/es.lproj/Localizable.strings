@@ -4,6 +4,10 @@
 "menu.openOnGitHub" = "Abrir en GitHub";
 "menu.refreshNow" = "Actualizar ahora";
 "menu.quit" = "Salir";
+"menu.fleet" = "Flota — %@";
+"menu.moreRunners" = "%@ runners más necesitan atención";
+"menu.controlCenter" = "Abrir Standfast";
+"menu.settings" = "Configuración";
 "menu.recentJobs" = "Trabajos recientes";
 "menu.openAtLogin" = "Abrir al iniciar sesión";
 "menu.openAtLogin.failed" = "No se pudo activar Abrir al iniciar sesión";

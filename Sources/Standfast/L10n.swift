@@ -11,6 +11,8 @@ enum L10n {
   static let openOnGitHub = t("menu.openOnGitHub")
   static let refreshNow = t("menu.refreshNow")
   static let quit = t("menu.quit")
+  static let controlCenter = t("menu.controlCenter")
+  static let settings = t("menu.settings")
   static let recentJobs = t("menu.recentJobs")
   static let openAtLogin = t("menu.openAtLogin")
   static let openAtLoginFailed = t("menu.openAtLogin.failed")
@@ -141,6 +143,14 @@ enum L10n {
   /// the spacing around it are not punctuation every language writes the same.
   static func runnerRow(_ name: String, _ state: String) -> String {
     String(format: t("menu.runnerRow"), name, state)
+  }
+
+  static func quickMenuFleet(_ state: String) -> String {
+    String(format: t("menu.fleet"), state)
+  }
+
+  static func quickMenuMoreRunners(_ count: Int) -> String {
+    String(format: t("menu.moreRunners"), String(count))
   }
 
   /// The job in flight and how long it has been going.
@@ -341,6 +351,10 @@ enum L10n {
     "menu.openOnGitHub": "Open on GitHub",
     "menu.refreshNow": "Refresh now",
     "menu.quit": "Quit",
+    "menu.fleet": "Fleet — %@",
+    "menu.moreRunners": "%@ more runners need attention",
+    "menu.controlCenter": "Open Standfast",
+    "menu.settings": "Settings",
     "menu.recentJobs": "Recent jobs",
     "menu.openAtLogin": "Open at login",
     "menu.openAtLogin.failed": "Open at login could not be turned on",

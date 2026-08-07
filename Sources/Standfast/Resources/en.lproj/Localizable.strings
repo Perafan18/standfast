@@ -4,6 +4,10 @@
 "menu.openOnGitHub" = "Open on GitHub";
 "menu.refreshNow" = "Refresh now";
 "menu.quit" = "Quit";
+"menu.fleet" = "Fleet — %@";
+"menu.moreRunners" = "%@ more runners need attention";
+"menu.controlCenter" = "Open Standfast";
+"menu.settings" = "Settings";
 "menu.recentJobs" = "Recent jobs";
 "menu.openAtLogin" = "Open at login";
 "menu.openAtLogin.failed" = "Open at login could not be turned on";

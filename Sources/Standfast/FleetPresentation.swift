@@ -259,4 +259,13 @@ enum FleetSummary {
   static func symbolName(for displays: [DisplayState]) -> String {
     summarising(displays)?.symbolName ?? noRunnersSymbolName
   }
+
+  /// What VoiceOver says after the menu-bar image's product label.
+  ///
+  /// This is deliberately the aggregate display, not a count assembled from
+  /// individual runners: the icon carries the aggregate state, and saying a
+  /// different state would make its label and value disagree.
+  static func accessibilityValue(for display: DisplayState?) -> String {
+    display?.summary ?? L10n.noRunnersFound
+  }
 }

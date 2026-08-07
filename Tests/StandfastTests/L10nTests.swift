@@ -43,7 +43,9 @@ private func speaking(_ localization: String) throws -> Bundle {
   }
   let everyString = [
     L10n.start, L10n.stop, L10n.restart, L10n.openOnGitHub, L10n.refreshNow,
-    L10n.quit, L10n.recentJobs, L10n.openAtLogin, L10n.openAtLoginFailed,
+    L10n.quit, L10n.quickMenuFleet(L10n.stateIdle), L10n.quickMenuMoreRunners(1),
+    L10n.controlCenter, L10n.settings, L10n.recentJobs, L10n.openAtLogin,
+    L10n.openAtLoginFailed,
     L10n.openAtLoginNeedsApproval, L10n.openAtLoginUnavailable,
     L10n.notifyMe, L10n.notifyJobFailed, L10n.notifyDisconnected, L10n.notifyStopped,
     L10n.notificationsBlocked, L10n.preventSleep, L10n.preventSleepLidNotice,
@@ -109,6 +111,7 @@ private func speaking(_ localization: String) throws -> Bundle {
   let reached = Set(
     [
       "menu.start", "menu.stop", "menu.restart", "menu.openOnGitHub",
+      "menu.fleet", "menu.moreRunners", "menu.controlCenter", "menu.settings",
       "menu.refreshNow", "menu.quit", "menu.recentJobs", "menu.openAtLogin",
       "menu.openAtLogin.failed", "menu.openAtLogin.needsApproval",
       "menu.openAtLogin.unavailable", "menu.runnerRow", "menu.runnerInScope",
@@ -241,6 +244,7 @@ private func speaking(_ localization: String) throws -> Bundle {
   // — the job's name, how long it has been going, or what it usually takes —
   // and `String(format:)` will not say a word about it.
   let expected = [
+    "menu.fleet": 1, "menu.moreRunners": 1,
     "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
     "job.rowNoDuration": 2, "state.checkedAgo": 1,
     // A banner is read out of the corner of an eye. A translation that dropped
