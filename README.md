@@ -240,7 +240,7 @@ uploads `_diag` contents and stores no credentials of its own; see
 ## Building from source
 
 ```sh
-swift package clean && swift test  # 601 tests; no installed runner required
+swift package clean && swift test  # 611 tests; no installed runner required
 make app                           # assembles .build/Standfast.app
 make check                         # tests, isolates the bundle, then launches it
 ```
