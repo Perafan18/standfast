@@ -74,6 +74,22 @@ enum ControlCenterEmptyPresentation: Equatable {
   }
 }
 
+enum ControlCenterNoticePresentation: Equatable {
+  case launchAgentsUnavailable(directory: String)
+  case unreadableRunners(paths: [String])
+
+  static func building(notice: FleetNotice?) -> Self? {
+    switch notice {
+    case .launchAgentsUnreadable(let directory):
+      .launchAgentsUnavailable(directory: PathText.abbreviated(directory))
+    case .unreadable(let paths):
+      .unreadableRunners(paths: paths.map(PathText.abbreviated))
+    case nil, .noRunnersInstalled:
+      nil
+    }
+  }
+}
+
 struct ControlCenterHeaderPresentation: Equatable {
   let summary: String
   let shortSummary: String
@@ -133,6 +149,8 @@ enum RunnerFocusPresentation: Equatable {
 struct RunnerCardPresentation: Equatable, Identifiable {
   let id: String
   let title: String
+  /// The compact badge copy; `state` keeps the full recovery detail.
+  let compactState: String
   let state: String
   let stateSymbolName: String
   let scope: String
@@ -173,6 +191,7 @@ extension RunnerCardPresentation {
     return Self(
       id: snapshot.id,
       title: snapshot.runner.displayName,
+      compactState: snapshot.display.shortSummary,
       state: snapshot.display.summary,
       stateSymbolName: snapshot.display.symbolName,
       scope: snapshot.runner.scope.displayName,
@@ -261,4 +280,5 @@ struct ControlCenterPresentation: Equatable {
   let header: ControlCenterHeaderPresentation
   let cards: [RunnerCardPresentation]
   let empty: ControlCenterEmptyPresentation?
+  let notice: ControlCenterNoticePresentation?
 }

@@ -136,6 +136,42 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(subject.title != "build-mac (acme/widget)")
 }
 
+@Test func everyCardKeepsCompactStateSeparateFromItsLongStateDetail() {
+  let cases: [(DisplayState, String, String)] = [
+    (.resolved(.idle), L10n.stateReadyShort, L10n.stateIdle),
+    (.resolved(.busy), L10n.stateRunningShort, L10n.stateBusy),
+    (
+      .resolved(.disconnected), L10n.stateDisconnectedShort,
+      L10n.stateDisconnected
+    ),
+    (.resolved(.stopped), L10n.stateStoppedShort, L10n.stateStopped),
+    (.starting, L10n.stateStartingShort, L10n.stateStarting),
+  ]
+
+  for (display, compact, detail) in cases {
+    let subject = card(controlCenterSnapshot(display))
+    #expect(subject.compactState == compact)
+    #expect(subject.state == detail)
+  }
+}
+
+@Test func everyUnknownSharesCompactUnknownButKeepsItsLongRecoveryReason() {
+  let cases: [(UnknownReason, String)] = [
+    (.cliUnavailable, L10n.stateUnknownNoCLI),
+    (.notAuthenticated, L10n.stateUnknownNotAuthenticated),
+    (.noAnswer, L10n.stateUnknownNoAnswer),
+    (.serviceStateUnreadable, L10n.stateUnknownNoLocalAnswer),
+  ]
+  let subjects = cases.map { reason, _ in
+    card(controlCenterSnapshot(.resolved(.unknown(reason))))
+  }
+
+  #expect(
+    subjects.map(\.compactState) == Array(repeating: L10n.stateUnknownShort, count: 4))
+  #expect(subjects.map(\.state) == cases.map { $0.1 })
+  #expect(Set(subjects.map(\.state)).count == 4)
+}
+
 @Test func aBusyRunnerCardNamesTheActiveJob() {
   let running = JobRecord(
     name: "testflight", startedAt: controlCenterNow.addingTimeInterval(-80))
@@ -429,6 +465,43 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(
     fleet.controlCenterPresentation(now: controlCenterNow).empty
       == .noRunnersInstalled)
+  #expect(fleet.controlCenterPresentation(now: controlCenterNow).notice == nil)
+}
+
+@Test @MainActor func mixedDiscoveryKeepsRecoveryNoticeBesideValidCards() async throws {
+  let sandbox = try FleetSandbox(serviceRunning: true)
+  defer { sandbox.cleanUp() }
+  try sandbox.addRunner()
+  let unreadable = sandbox.launchAgents.appendingPathComponent(
+    "actions.runner.broken.plist")
+  try Data("not a property list".utf8).write(to: unreadable)
+  let fleet = presentationModel(sandbox)
+
+  await fleet.quiesce()
+
+  let subject = fleet.controlCenterPresentation(now: controlCenterNow)
+  #expect(subject.cards.count == 1)
+  #expect(subject.empty == nil)
+  guard case .unreadableRunners(let paths)? = subject.notice else {
+    Issue.record("mixed discovery lost its unreadable-runner notice")
+    return
+  }
+  #expect(paths.count == 1)
+  #expect(paths[0].hasSuffix("/LaunchAgents/actions.runner.broken.plist"))
+}
+
+@Test @MainActor func healthyRunnerHasNeitherEmptyStateNorRecoveryNotice() async throws {
+  let sandbox = try FleetSandbox(serviceRunning: true)
+  defer { sandbox.cleanUp() }
+  try sandbox.addRunner()
+  let fleet = presentationModel(sandbox)
+
+  await fleet.quiesce()
+
+  let subject = fleet.controlCenterPresentation(now: controlCenterNow)
+  #expect(subject.cards.count == 1)
+  #expect(subject.empty == nil)
+  #expect(subject.notice == nil)
 }
 
 @Test @MainActor func aConclusiveUninstallRemovesItsCard() async throws {

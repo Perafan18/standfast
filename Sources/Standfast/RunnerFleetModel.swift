@@ -585,7 +585,8 @@ final class RunnerFleetModel: ObservableObject {
     return ControlCenterPresentation(
       header: .building(snapshots: snapshots, readAt: lastReadAt, now: now),
       cards: cards,
-      empty: cards.isEmpty ? .building(notice: notice) : nil)
+      empty: cards.isEmpty ? .building(notice: notice) : nil,
+      notice: .building(notice: notice))
   }
 
   // MARK: - Acting
