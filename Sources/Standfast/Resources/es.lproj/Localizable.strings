@@ -147,6 +147,8 @@
 "operation.couldNotLaunch.detail" = "Revisa el directorio del runner y luego prueba %@ otra vez.";
 "operation.unexpectedFailure.title" = "Falló la solicitud de %@";
 "operation.unexpectedFailure.detail" = "Revisa los archivos del runner y luego prueba %@ otra vez.";
+"operation.confirmationUnavailable.title" = "Confirmación de %@ no disponible";
+"operation.confirmationUnavailable.detail" = "Abre el Centro de control de Standfast y luego prueba %@ otra vez.";
 "operation.restartStartFailed.title" = "Reiniciar detuvo el runner, pero no pudo arrancarlo";
 "operation.restartStartFailed.detail" = "Revisa los archivos del runner y luego prueba Arrancar.";
 "operation.restartStartTimedOut.title" = "Reiniciar detuvo el runner, pero arrancar agotó el tiempo";

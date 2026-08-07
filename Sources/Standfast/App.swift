@@ -2,11 +2,23 @@ import SwiftUI
 
 @main
 struct StandfastApp: App {
-  @StateObject private var fleet = RunnerFleetModel(
-    serviceConfirmation: ServiceAlertConfirmation())
+  @StateObject private var fleet: RunnerFleetModel
   @StateObject private var loginItem = LoginItem()
   @StateObject private var thermal = ThermalMonitor()
-  @StateObject private var sceneActivation = SceneActivationCoordinator.live()
+  @StateObject private var sceneActivation: SceneActivationCoordinator
+
+  @MainActor
+  init() {
+    let windowRegistry = SceneWindowRegistry()
+    _fleet = StateObject(
+      wrappedValue: RunnerFleetModel(
+        serviceConfirmation: ServiceAlertConfirmation(
+          parentWindow:
+            ServiceAlertConfirmation.controlCenterParentWindow(in: windowRegistry))))
+    _sceneActivation = StateObject(
+      wrappedValue:
+        SceneActivationCoordinator.live(windowRegistry: windowRegistry))
+  }
 
   var body: some Scene {
     MenuBarExtra {

@@ -129,7 +129,9 @@ struct SceneActivationCoordinatorTests {
 
   @MainActor
   @Test func liveSceneActivationSchedulesAnotherExactWindowObservation() async throws {
-    let coordinator = SceneActivationCoordinator.live()
+    let registry = SceneWindowRegistry()
+    let coordinator = SceneActivationCoordinator.live(windowRegistry: registry)
+    #expect(coordinator.windowRegistry === registry)
     let window = RecordingSceneWindow()
     var eventContinuation: AsyncStream<String>.Continuation?
     let events = AsyncStream<String> { eventContinuation = $0 }
@@ -144,6 +146,74 @@ struct SceneActivationCoordinatorTests {
 
     let event = try await Self.firstEvent(in: events, timeout: .seconds(1))
     #expect(event == "makeKeyAndOrderFront")
+  }
+
+  @MainActor
+  @Test func serviceConfirmationParentIsControlCenterEvenWhenSettingsIsKeyAndMain() {
+    let registry = SceneWindowRegistry()
+    let controlCenter = RecordingSceneWindow()
+    let settings = RecordingSceneWindow()
+    defer {
+      controlCenter.close()
+      settings.close()
+    }
+    registry.register(controlCenter, for: .controlCenter)
+    registry.register(settings, for: .settings)
+    controlCenter.orderFront(nil)
+    settings.reportsKey = true
+    settings.reportsMain = true
+    let parent = ServiceAlertConfirmation.controlCenterParentWindow(in: registry)
+
+    #expect(settings.isKeyWindow)
+    #expect(settings.isMainWindow)
+    #expect(parent() === controlCenter)
+  }
+
+  @MainActor
+  @Test func serviceConfirmationParentNeverFallsBackFromMissingOrInvalidControlCenter() {
+    let registry = SceneWindowRegistry()
+    let settings = RecordingSceneWindow()
+    defer { settings.close() }
+    registry.register(settings, for: .settings)
+    settings.reportsKey = true
+    settings.reportsMain = true
+    let parent = ServiceAlertConfirmation.controlCenterParentWindow(in: registry)
+
+    #expect(parent() == nil)
+
+    let invalidControlCenter = RecordingSceneWindow()
+    defer { invalidControlCenter.close() }
+    registry.register(invalidControlCenter, for: .controlCenter)
+    invalidControlCenter.setAccessibilityIdentifier("wrong-scene")
+
+    #expect(parent() == nil)
+  }
+
+  @Test func appWiresOneRegistryIntoActivationAndServiceConfirmation() {
+    let repository = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let appURL = repository.appendingPathComponent("Sources/Standfast/App.swift")
+    let confirmationURL = repository.appendingPathComponent(
+      "Sources/Standfast/ServiceActionConfirmation.swift")
+    let app = (try? String(contentsOf: appURL, encoding: .utf8)) ?? ""
+    let confirmation =
+      (try? String(contentsOf: confirmationURL, encoding: .utf8)) ?? ""
+
+    #expect(app.components(separatedBy: "SceneWindowRegistry()").count == 2)
+    #expect(
+      app.contains(
+        "SceneActivationCoordinator.live(windowRegistry: windowRegistry)"))
+    #expect(
+      app.contains(
+        "ServiceAlertConfirmation.controlCenterParentWindow(in: windowRegistry)"))
+    #expect(
+      confirmation.contains("windowRegistry.window(for: .controlCenter)"))
+    #expect(!confirmation.contains(".keyWindow"))
+    #expect(!confirmation.contains(".mainWindow"))
+    #expect(!confirmation.contains("runModal"))
+    #expect(confirmation.contains("beginSheetModal"))
   }
 
   @MainActor
@@ -418,6 +488,29 @@ struct SceneActivationCoordinatorTests {
   }
 
   @MainActor
+  @Test func aScheduledPollDoesNotRetainTheCoordinator() {
+    let registry = SceneWindowRegistry()
+    var scheduled: [SceneActivationCoordinator.ScheduledPoll] = []
+    var coordinator: SceneActivationCoordinator? = SceneActivationCoordinator(
+      windowRegistry: registry,
+      pollsUntilSoftTimeout: 1,
+      pollsUntilHardTimeout: 1,
+      activateApplication: {},
+      schedulePoll: { scheduled.append($0) },
+      reportSoftTimeout: { _ in },
+      reportHardTimeout: { _ in })
+    weak let weakCoordinator = coordinator
+
+    coordinator?.openAndActivate(.controlCenter, openScene: {})
+    #expect(scheduled.count == 1)
+    coordinator = nil
+
+    #expect(weakCoordinator == nil)
+    scheduled.removeFirst()()
+    #expect(scheduled.isEmpty)
+  }
+
+  @MainActor
   @Test func sceneActivationDoesNotRequireTheExactWindowToBecomeMain() {
     let registry = SceneWindowRegistry()
     let settings = RecordingSceneWindow()
@@ -470,10 +563,14 @@ struct SceneActivationCoordinatorTests {
     var allowsKey = true
     var allowsMain = true
     var reportsMiniaturized = false
+    var reportsKey = false
+    var reportsMain = false
 
     override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { allowsMain }
     override var isMiniaturized: Bool { reportsMiniaturized }
+    override var isKeyWindow: Bool { reportsKey || super.isKeyWindow }
+    override var isMainWindow: Bool { reportsMain || super.isMainWindow }
 
     convenience init() {
       self.init(

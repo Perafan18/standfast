@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import RunnerKit
@@ -72,25 +73,27 @@ private struct RefusingConfirmation: CleanupConfirming {
 
 @MainActor
 private struct AcceptingServiceConfirmation: ServiceActionConfirming {
-  func confirm(_ prompt: ServiceActionPrompt) async -> Bool { true }
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
+    .accepted
+  }
 }
 
 @MainActor
 private final class RecordingServiceConfirmation: ServiceActionConfirming {
   private(set) var prompts: [ServiceActionPrompt] = []
-  private var answers: [CheckedContinuation<Bool, Never>] = []
+  private var answers: [CheckedContinuation<ServiceActionConfirmationResult, Never>] = []
   private let immediateAnswer: Bool?
 
   init(immediateAnswer: Bool? = nil) { self.immediateAnswer = immediateAnswer }
 
-  func confirm(_ prompt: ServiceActionPrompt) async -> Bool {
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
     prompts.append(prompt)
-    if let immediateAnswer { return immediateAnswer }
+    if let immediateAnswer { return immediateAnswer ? .accepted : .cancelled }
     return await withCheckedContinuation { answers.append($0) }
   }
 
   func answer(_ accepted: Bool) {
-    answers.removeFirst().resume(returning: accepted)
+    answers.removeFirst().resume(returning: accepted ? .accepted : .cancelled)
   }
 }
 
@@ -98,9 +101,9 @@ private final class RecordingServiceConfirmation: ServiceActionConfirming {
 private final class CountingServiceConfirmation: ServiceActionConfirming {
   private(set) var calls = 0
 
-  func confirm(_ prompt: ServiceActionPrompt) async -> Bool {
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
     calls += 1
-    return false
+    return .cancelled
   }
 }
 
@@ -713,6 +716,43 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   #expect(commands.invocations.isEmpty)
   #expect(fleet.operations[runner.label] == nil)
   #expect(!fleet.snapshots[0].isServiceActionReserved)
+}
+
+@Test @MainActor
+func unavailableBusyStopRunsNothingAndPublishesTerminalFeedback() async throws {
+  for invalidRegistry in [false, true] {
+    let box = try FleetSandbox(
+      serviceRunning: true, remote: .init(online: true, busy: true))
+    defer { box.cleanUp() }
+    let directory = try box.addRunner()
+    try box.writeListenerLog(
+      in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+      finished: nil)
+    let registry = SceneWindowRegistry()
+    let invalidWindow = NSWindow()
+    if invalidRegistry {
+      registry.register(invalidWindow, for: .controlCenter)
+      invalidWindow.setAccessibilityIdentifier("wrong-scene")
+    }
+    let commands = RecordingCommandRunner()
+    let fleet = model(
+      box, commands: commands,
+      serviceConfirmation: ServiceAlertConfirmation(
+        parentWindow:
+          ServiceAlertConfirmation.controlCenterParentWindow(in: registry)))
+    await fleet.quiesce()
+    let runner = fleet.snapshots[0].runner
+
+    fleet.stop(runner)
+    await fleet.quiesce()
+
+    #expect(commands.invocations.isEmpty)
+    #expect(
+      fleet.operations[runner.label]?.phase == .failed(.confirmationUnavailable))
+    #expect(
+      fleet.snapshots[0].operation?.phase == .failed(.confirmationUnavailable))
+    #expect(!fleet.snapshots[0].isServiceActionReserved)
+  }
 }
 
 @Test @MainActor func acceptingUnchangedBusyStopInvokesTheControllerOnce() async throws {

@@ -303,6 +303,7 @@ lifecycle_output="$(
     "$AX_CHECK" "$$" 2>&1
 )"
 assert_contains "$lifecycle_output" "$LIFECYCLE_SUCCESS"
+assert_not_contains "$lifecycle_output" "AX COVERAGE REDUCED"
 [ "$(<"$capture_dir/call-2.language")" = en ] \
   || fail "the English menu language was not passed to the lifecycle probe"
 
@@ -456,6 +457,25 @@ non_boundary_key_output="$(
     "$AX_CHECK" "$$" 2>&1
 )"
 assert_contains "$non_boundary_key_output" "$LIFECYCLE_SUCCESS"
+assert_contains "$non_boundary_key_output" \
+  "AX COVERAGE REDUCED: zero runner records; runner row identity/state parsing was not exercised"
+
+last_delimiter_dir="$TEST_ROOT/captured-last-runner-delimiter"
+mkdir -p "$last_delimiter_dir"
+last_delimiter_output=""
+if ! last_delimiter_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$last_delimiter_dir" \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tfoo · bar · Listo\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+    "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "the AX smoke did not split the runner identity from the last delimiter: $last_delimiter_output"
+fi
+assert_contains "$last_delimiter_output" "$LIFECYCLE_SUCCESS"
+assert_contains "$last_delimiter_output" \
+  "runner parsed: identity=foo · bar | state=Listo"
+assert_not_contains "$last_delimiter_output" "AX COVERAGE REDUCED"
 
 spanish_dir="$TEST_ROOT/captured-spanish-menu"
 mkdir -p "$spanish_dir"

@@ -92,7 +92,8 @@ final class SceneActivationCoordinator: ObservableObject {
     }
 
     if remainingPolls > 0 {
-      schedulePoll {
+      schedulePoll { [weak self] in
+        guard let self else { return }
         self.poll(
           request,
           phase: phase,
@@ -121,10 +122,9 @@ extension SceneActivationCoordinator {
     subsystem: "dev.standfast.app",
     category: "SceneActivation")
 
-  static func live() -> SceneActivationCoordinator {
-    let registry = SceneWindowRegistry()
+  static func live(windowRegistry: SceneWindowRegistry) -> SceneActivationCoordinator {
     return SceneActivationCoordinator(
-      windowRegistry: registry,
+      windowRegistry: windowRegistry,
       pollsUntilSoftTimeout: 10,
       pollsUntilHardTimeout: 40,
       activateApplication: {

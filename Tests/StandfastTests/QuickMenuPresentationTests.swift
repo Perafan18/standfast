@@ -33,7 +33,7 @@ private func quickMenu(
   _ snapshots: [RunnerSnapshot], notice: FleetNotice? = nil, thermal: [String] = []
 ) -> QuickMenuPresentation {
   let overview = FleetOverviewPresentation.building(
-    snapshots: snapshots, notice: notice, readAt: nil)
+    snapshots: snapshots, notice: notice)
   return QuickMenuPresentation.building(
     snapshots: snapshots, overview: overview, thermalLines: thermal,
     readAt: nil, now: quickMenuNow)
@@ -132,7 +132,7 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
   ]
   let menu = QuickMenuPresentation.building(
     snapshots: snapshots,
-    overview: .building(snapshots: snapshots, notice: nil, readAt: nil),
+    overview: .building(snapshots: snapshots, notice: nil),
     thermalLines: [], readAt: nil, now: quickMenuNow,
     identityFormatting: formatting)
 

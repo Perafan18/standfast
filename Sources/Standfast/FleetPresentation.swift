@@ -327,7 +327,7 @@ struct FleetOverviewPresentation: Equatable {
   let attention: String?
 
   static func building(
-    snapshots: [RunnerSnapshot], notice: FleetNotice?, readAt: Date?
+    snapshots: [RunnerSnapshot], notice: FleetNotice?
   ) -> Self {
     let recovery = FleetRecoveryPresentation.building(notice)
     let state: State
@@ -338,9 +338,7 @@ struct FleetOverviewPresentation: Equatable {
     } else if notice == .noRunnersInstalled {
       state = .noRunnersInstalled
     } else {
-      // This is normally the initial `readAt == nil` state. A nil notice after
-      // a later read is still inconclusive and must not invent a clean empty
-      // result either.
+      // A nil notice is inconclusive and must not invent a clean empty result.
       state = .checking
     }
     let attentionCount = snapshots.count { $0.display.needsAttention }

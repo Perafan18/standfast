@@ -250,6 +250,18 @@ enum L10n {
   static func serviceOperationUnexpectedFailureDetail(_ action: String) -> String {
     String(format: t("operation.unexpectedFailure.detail"), action)
   }
+  static func serviceOperationConfirmationUnavailableTitle(
+    _ action: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("operation.confirmationUnavailable.title", in: bundles), action)
+  }
+  static func serviceOperationConfirmationUnavailableDetail(
+    _ action: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("operation.confirmationUnavailable.detail", in: bundles), action)
+  }
   static let serviceOperationRestartStartFailedTitle = t(
     "operation.restartStartFailed.title")
   static let serviceOperationRestartStartFailedDetail = t(
@@ -644,6 +656,9 @@ enum L10n {
     "operation.couldNotLaunch.detail": "Check the runner directory, then try %@ again.",
     "operation.unexpectedFailure.title": "%@ request failed",
     "operation.unexpectedFailure.detail": "Check the runner files, then try %@ again.",
+    "operation.confirmationUnavailable.title": "%@ confirmation unavailable",
+    "operation.confirmationUnavailable.detail":
+      "Open the Standfast Control Center, then try %@ again.",
     "operation.restartStartFailed.title":
       "Restart stopped the runner, but could not start it",
     "operation.restartStartFailed.detail": "Check the runner files, then try Start.",

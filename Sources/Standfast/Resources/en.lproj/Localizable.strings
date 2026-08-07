@@ -147,6 +147,8 @@
 "operation.couldNotLaunch.detail" = "Check the runner directory, then try %@ again.";
 "operation.unexpectedFailure.title" = "%@ request failed";
 "operation.unexpectedFailure.detail" = "Check the runner files, then try %@ again.";
+"operation.confirmationUnavailable.title" = "%@ confirmation unavailable";
+"operation.confirmationUnavailable.detail" = "Open the Standfast Control Center, then try %@ again.";
 "operation.restartStartFailed.title" = "Restart stopped the runner, but could not start it";
 "operation.restartStartFailed.detail" = "Check the runner files, then try Start.";
 "operation.restartStartTimedOut.title" = "Restart stopped the runner, but start timed out";

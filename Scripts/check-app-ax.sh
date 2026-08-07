@@ -212,6 +212,10 @@ while IFS= read -r menuRecord || [ -n "$menuRecord" ]; do
   esac
 done <<< "$menu"
 
+if [ -z "$runnerMenu" ]; then
+  echo "==> AX COVERAGE REDUCED: zero runner records; runner row identity/state parsing was not exercised" >&2
+fi
+
 static_has() {
   printf '%s\n' "$staticMenu" | grep -Fxq -- "$1"
 }
@@ -257,6 +261,8 @@ while IFS= read -r runnerText || [ -n "$runnerText" ]; do
     || [ "$validRunnerState" != true ]; then
     fail "runner AX menu record has no concrete identity and localized short state: $runnerText"
   fi
+  printf '    runner parsed: identity=%s | state=%s\n' \
+    "$runnerIdentity" "$runnerState"
 done <<< "$runnerMenu"
 
 echo "==> Exercising Control Center and Settings through Accessibility"

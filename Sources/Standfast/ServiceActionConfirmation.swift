@@ -80,7 +80,13 @@ struct ServiceActionPrompt: Equatable, Sendable {
 
 @MainActor
 protocol ServiceActionConfirming {
-  func confirm(_ prompt: ServiceActionPrompt) async -> Bool
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult
+}
+
+enum ServiceActionConfirmationResult: Equatable, Sendable {
+  case accepted
+  case cancelled
+  case unavailable
 }
 
 @MainActor
@@ -97,14 +103,26 @@ protocol ServiceAlertPresenting: AnyObject {
 }
 
 struct ServiceAlertConfirmation: ServiceActionConfirming {
+  typealias ParentWindowProvider = @MainActor () -> NSWindow?
+
   private let presenter: any ServiceAlertPresenting
 
-  init(presenter: any ServiceAlertPresenting = NativeServiceAlertPresenter()) {
+  init(parentWindow: @escaping ParentWindowProvider) {
+    presenter = NativeServiceAlertPresenter(parentWindow: parentWindow)
+  }
+
+  init(presenter: any ServiceAlertPresenting) {
     self.presenter = presenter
   }
 
-  func confirm(_ prompt: ServiceActionPrompt) async -> Bool {
-    guard !Task.isCancelled else { return false }
+  static func controlCenterParentWindow(
+    in windowRegistry: SceneWindowRegistry
+  ) -> ParentWindowProvider {
+    { windowRegistry.window(for: .controlCenter) }
+  }
+
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
+    guard !Task.isCancelled else { return .cancelled }
     let session = ServiceAlertAwaitingSession()
     return await withTaskCancellationHandler {
       await session.present(prompt, using: presenter)
@@ -116,13 +134,13 @@ struct ServiceAlertConfirmation: ServiceActionConfirming {
 
 @MainActor
 private final class ServiceAlertAwaitingSession {
-  private var continuation: CheckedContinuation<Bool, Never>?
+  private var continuation: CheckedContinuation<ServiceActionConfirmationResult, Never>?
   private var presentation: (any ServiceAlertPresentation)?
-  private var result: Bool?
+  private var result: ServiceActionConfirmationResult?
 
   func present(
     _ prompt: ServiceActionPrompt, using presenter: any ServiceAlertPresenting
-  ) async -> Bool {
+  ) async -> ServiceActionConfirmationResult {
     await withCheckedContinuation { continuation in
       if let result {
         continuation.resume(returning: result)
@@ -130,17 +148,17 @@ private final class ServiceAlertAwaitingSession {
       }
       self.continuation = continuation
       guard !Task.isCancelled else {
-        complete(false, dismissing: true)
+        complete(.cancelled, dismissing: true)
         return
       }
       guard
         let presentation = presenter.present(
           prompt,
           completion: { [weak self] accepted in
-            self?.complete(accepted, dismissing: false)
+            self?.complete(accepted ? .accepted : .cancelled, dismissing: false)
           })
       else {
-        complete(false, dismissing: false)
+        complete(Task.isCancelled ? .cancelled : .unavailable, dismissing: false)
         return
       }
       // A presenter is allowed to complete synchronously. The native sheet
@@ -157,18 +175,20 @@ private final class ServiceAlertAwaitingSession {
   }
 
   func cancel() {
-    complete(false, dismissing: true)
+    complete(.cancelled, dismissing: true)
   }
 
-  private func complete(_ accepted: Bool, dismissing: Bool) {
-    guard result == nil else { return }
-    result = accepted
+  private func complete(
+    _ result: ServiceActionConfirmationResult, dismissing: Bool
+  ) {
+    guard self.result == nil else { return }
+    self.result = result
     let presentation = presentation
     self.presentation = nil
     let continuation = continuation
     self.continuation = nil
     if dismissing { presentation?.dismiss() }
-    continuation?.resume(returning: accepted)
+    continuation?.resume(returning: result)
   }
 }
 
@@ -195,12 +215,10 @@ private final class NativeServiceAlertPresentation: ServiceAlertPresentation {
 
 @MainActor
 private final class NativeServiceAlertPresenter: ServiceAlertPresenting {
-  private let parentWindow: @MainActor () -> NSWindow?
+  private let parentWindow: ServiceAlertConfirmation.ParentWindowProvider
 
   init(
-    parentWindow: @escaping @MainActor () -> NSWindow? = {
-      NSApp.keyWindow ?? NSApp.mainWindow
-    }
+    parentWindow: @escaping ServiceAlertConfirmation.ParentWindowProvider
   ) {
     self.parentWindow = parentWindow
   }

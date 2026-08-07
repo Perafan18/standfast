@@ -5,7 +5,9 @@ import RunnerKit
 
 @MainActor
 struct RejectingServiceConfirmation: ServiceActionConfirming {
-  func confirm(_ prompt: ServiceActionPrompt) async -> Bool { false }
+  func confirm(_ prompt: ServiceActionPrompt) async -> ServiceActionConfirmationResult {
+    .cancelled
+  }
 }
 
 /// The banners this app tried to put on screen, and the permission it asked

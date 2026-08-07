@@ -108,6 +108,8 @@ private func l10nSource() -> String {
     L10n.serviceOperationCouldNotLaunchDetail("a"),
     L10n.serviceOperationUnexpectedFailureTitle("a"),
     L10n.serviceOperationUnexpectedFailureDetail("a"),
+    L10n.serviceOperationConfirmationUnavailableTitle("a"),
+    L10n.serviceOperationConfirmationUnavailableDetail("a"),
     L10n.serviceOperationRestartStartFailedTitle,
     L10n.serviceOperationRestartStartFailedDetail,
     L10n.serviceOperationRestartStartTimedOutTitle,
@@ -190,6 +192,8 @@ private func l10nSource() -> String {
       "operation.scriptMissing.title", "operation.scriptMissing.detail",
       "operation.couldNotLaunch.title", "operation.couldNotLaunch.detail",
       "operation.unexpectedFailure.title", "operation.unexpectedFailure.detail",
+      "operation.confirmationUnavailable.title",
+      "operation.confirmationUnavailable.detail",
       "operation.restartStartFailed.title", "operation.restartStartFailed.detail",
       "operation.restartStartTimedOut.title", "operation.restartStartTimedOut.detail",
       "app.statusItem", "controlCenter.title", "controlCenter.noRunners.description",
@@ -205,6 +209,33 @@ private func l10nSource() -> String {
       "settings.startup.footer", "settings.version",
     ])
   #expect(everyKey == reached)
+}
+
+@Test func confirmationUnavailableFeedbackHasEnglishSpanishAndFallbackParity() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableTitle(
+      "Stop", in: [english]) == "Stop confirmation unavailable")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableDetail(
+      "Stop", in: [english])
+      == "Open the Standfast Control Center, then try Stop again.")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableTitle(
+      "Detener", in: [spanish]) == "Confirmación de Detener no disponible")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableDetail(
+      "Detener", in: [spanish])
+      == "Abre el Centro de control de Standfast y luego prueba Detener otra vez.")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableTitle(
+      "Stop", in: []) == "Stop confirmation unavailable")
+  #expect(
+    L10n.serviceOperationConfirmationUnavailableDetail(
+      "Stop", in: [])
+      == "Open the Standfast Control Center, then try Stop again.")
 }
 
 @Test func obsoleteFleetOverflowLocalizationIsAbsentEverywhere() throws {
@@ -508,6 +539,8 @@ private func l10nSource() -> String {
     "operation.scriptMissing.title": 1, "operation.scriptMissing.detail": 1,
     "operation.couldNotLaunch.title": 1, "operation.couldNotLaunch.detail": 1,
     "operation.unexpectedFailure.title": 1, "operation.unexpectedFailure.detail": 1,
+    "operation.confirmationUnavailable.title": 1,
+    "operation.confirmationUnavailable.detail": 1,
     "controlCenter.action.start": 1, "controlCenter.action.stop": 1,
     "controlCenter.action.restart": 1,
     "service.confirm.stop.title": 1, "service.confirm.restart.title": 1,

@@ -575,7 +575,7 @@ final class RunnerFleetModel: ObservableObject {
 
   /// The one fleet-level readiness value every app surface consumes.
   var overview: FleetOverviewPresentation {
-    .building(snapshots: snapshots, notice: notice, readAt: lastReadAt)
+    .building(snapshots: snapshots, notice: notice)
   }
 
   /// The bounded menu projection, built only from values the latest scan has
@@ -766,26 +766,39 @@ final class RunnerFleetModel: ObservableObject {
     let id = UUID()
     serviceConfirmationTasks[id] = Task { [weak self, confirmation] in
       guard !Task.isCancelled else { return }
-      let accepted = await confirmation.confirm(prompt)
+      let result = await confirmation.confirm(prompt)
       guard let self else { return }
       finishServiceConfirmation(
-        id: id, label: label, prompt: prompt, accepted: accepted)
+        id: id, label: label, prompt: prompt, result: result)
     }
   }
 
   private func finishServiceConfirmation(
-    id: UUID, label: String, prompt: ServiceActionPrompt, accepted: Bool
+    id: UUID, label: String, prompt: ServiceActionPrompt,
+    result: ServiceActionConfirmationResult
   ) {
     defer {
       serviceConfirmationsInFlight.remove(label)
       serviceConfirmationTasks[id] = nil
     }
-    guard !Task.isCancelled, accepted,
+    guard !Task.isCancelled,
       let snapshot = snapshots.first(where: { $0.id == label }),
       prompt.stillMatches(snapshot),
-      canPerformServiceActionIgnoringConfirmation(prompt.action, on: snapshot),
-      acquireServiceAction(for: label)
+      canPerformServiceActionIgnoringConfirmation(prompt.action, on: snapshot)
     else { return }
+    switch result {
+    case .cancelled:
+      return
+    case .unavailable:
+      publishOperation(
+        .init(
+          action: prompt.action, phase: .failed(.confirmationUnavailable),
+          changedAt: clock()),
+        for: label)
+      return
+    case .accepted:
+      guard acquireServiceAction(for: label) else { return }
+    }
     // Main-actor code from the latest lookup through acquisition and dispatch:
     // no suspension or re-entrancy point can invalidate the checked snapshot.
     dispatch(prompt.action, on: snapshot.runner)

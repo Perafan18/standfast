@@ -16,6 +16,7 @@ enum ServiceOperationAction: Equatable, Sendable {
 }
 
 enum ServiceOperationCause: Equatable, Sendable {
+  case confirmationUnavailable
   case commandTimedOut
   case scriptMissing
   case commandCouldNotLaunch
@@ -95,6 +96,11 @@ extension ServiceOperation {
       .init(
         title: L10n.serviceOperationUnexpectedFailureTitle(actionTitle),
         detail: L10n.serviceOperationUnexpectedFailureDetail(actionTitle),
+        symbolName: "exclamationmark.triangle", isInFlight: false)
+    case .failed(.confirmationUnavailable):
+      .init(
+        title: L10n.serviceOperationConfirmationUnavailableTitle(actionTitle),
+        detail: L10n.serviceOperationConfirmationUnavailableDetail(actionTitle),
         symbolName: "exclamationmark.triangle", isInFlight: false)
     case .failed(.restartStartFailed):
       .init(

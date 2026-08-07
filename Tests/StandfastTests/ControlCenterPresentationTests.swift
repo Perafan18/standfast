@@ -255,7 +255,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 @Test func timelineDateMovesTheHeaderAcrossTheFreshnessBoundary() {
   let readAt = Date(timeIntervalSince1970: 1_000)
   let overview = FleetOverviewPresentation.building(
-    snapshots: [controlCenterSnapshot()], notice: nil, readAt: readAt)
+    snapshots: [controlCenterSnapshot()], notice: nil)
   let fresh = ControlCenterHeaderPresentation.building(
     overview: overview, readAt: readAt,
     now: readAt.addingTimeInterval(FleetStatus.justNow - 0.1))
@@ -380,7 +380,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   ]
   let readAt = controlCenterNow.addingTimeInterval(-245)
   let overview = FleetOverviewPresentation.building(
-    snapshots: snapshots, notice: nil, readAt: readAt)
+    snapshots: snapshots, notice: nil)
 
   let subject = ControlCenterHeaderPresentation.building(
     overview: overview, readAt: readAt, now: controlCenterNow)
@@ -400,7 +400,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   ]
   let subject = ControlCenterHeaderPresentation.building(
     overview: .building(
-      snapshots: snapshots, notice: nil, readAt: controlCenterNow),
+      snapshots: snapshots, notice: nil),
     readAt: controlCenterNow, now: controlCenterNow)
 
   #expect(subject.summary == L10n.stateIdle)
@@ -410,7 +410,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
 @Test func anUnreadInitialHeaderIsActivelyChecking() {
   let subject = ControlCenterHeaderPresentation.building(
-    overview: .building(snapshots: [], notice: nil, readAt: nil),
+    overview: .building(snapshots: [], notice: nil),
     readAt: nil, now: controlCenterNow)
 
   #expect(subject.summary == L10n.checkingRunners)
@@ -529,6 +529,24 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(subject.operation == operation.presentation)
   #expect(subject.operation?.title == L10n.serviceOperationRestartStartTimedOutTitle)
   #expect(subject.operation?.symbolName == "questionmark.circle")
+}
+
+@Test func confirmationUnavailableIsTerminalActionableCardFeedback() {
+  let operation = ServiceOperation(
+    action: .stop, phase: .failed(.confirmationUnavailable),
+    changedAt: controlCenterNow)
+
+  let subject = card(controlCenterSnapshot(operation: operation))
+
+  #expect(subject.operation == operation.presentation)
+  #expect(
+    subject.operation?.title
+      == L10n.serviceOperationConfirmationUnavailableTitle(L10n.stop))
+  #expect(
+    subject.operation?.detail
+      == L10n.serviceOperationConfirmationUnavailableDetail(L10n.stop))
+  #expect(subject.operation?.symbolName == "exclamationmark.triangle")
+  #expect(subject.operation?.isInFlight == false)
 }
 
 @Test func anInFlightOperationIsTheOnlyThingThatOutranksTheCurrentJob() {
@@ -742,7 +760,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
 @Test func emptyControlCenterUsesInstallGuidanceOnlyForANoRunnerNotice() {
   let overview = FleetOverviewPresentation.building(
-    snapshots: [], notice: .noRunnersInstalled, readAt: controlCenterNow)
+    snapshots: [], notice: .noRunnersInstalled)
   #expect(
     ControlCenterEmptyPresentation.building(overview: overview)
       == .noRunnersInstalled)
@@ -752,8 +770,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   let overview = FleetOverviewPresentation.building(
     snapshots: [],
     notice: .launchAgentsUnreadable(
-      URL(fileURLWithPath: "/tmp/Library/LaunchAgents")),
-    readAt: controlCenterNow)
+      URL(fileURLWithPath: "/tmp/Library/LaunchAgents")))
   #expect(
     ControlCenterEmptyPresentation.building(overview: overview)
       == .launchAgentsUnavailable(directory: "/tmp/Library/LaunchAgents"))
@@ -765,7 +782,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
     notice: .unreadable([
       URL(fileURLWithPath: "/tmp/actions.runner.a.plist"),
       URL(fileURLWithPath: "/tmp/actions.runner.b.plist"),
-    ]), readAt: controlCenterNow)
+    ]))
   #expect(
     ControlCenterEmptyPresentation.building(overview: overview)
       == .unreadableRunners(paths: [

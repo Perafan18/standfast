@@ -28,7 +28,7 @@ private struct FleetSurfaceProjection {
     snapshots: [RunnerSnapshot], notice: FleetNotice?, readAt: Date?
   ) {
     overview = .building(
-      snapshots: snapshots, notice: notice, readAt: readAt)
+      snapshots: snapshots, notice: notice)
     quickMenu = .building(
       snapshots: snapshots, overview: overview, thermalLines: [],
       readAt: readAt, now: overviewNow)
@@ -37,6 +37,27 @@ private struct FleetSurfaceProjection {
     empty = .building(overview: overview)
     self.notice = .building(overview: overview)
   }
+}
+
+@Test func fleetOverviewBuilderDoesNotCarryTheUnusedReadTimestamp() {
+  let repository = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+  let presentationURL = repository.appendingPathComponent(
+    "Sources/Standfast/FleetPresentation.swift")
+  let modelURL = repository.appendingPathComponent(
+    "Sources/Standfast/RunnerFleetModel.swift")
+  let presentation =
+    (try? String(contentsOf: presentationURL, encoding: .utf8)) ?? ""
+  let model = (try? String(contentsOf: modelURL, encoding: .utf8)) ?? ""
+
+  #expect(
+    !presentation.contains(
+      "snapshots: [RunnerSnapshot], notice: FleetNotice?, readAt: Date?"))
+  #expect(
+    !model.contains(
+      ".building(snapshots: snapshots, notice: notice, readAt: lastReadAt)"))
 }
 
 private func discoveryLines(

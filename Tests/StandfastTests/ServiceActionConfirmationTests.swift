@@ -39,7 +39,7 @@ final class FakeServiceAlertPresenter: ServiceAlertPresenting {
 
 @MainActor
 private final class ServiceAlertResultProbe {
-  var answer: Bool?
+  var answer: ServiceActionConfirmationResult?
 }
 
 private enum ServiceAlertTestFailure: Error {
@@ -220,7 +220,7 @@ func serviceAlertConfirmationSuspendsAndLetsMainActorRefreshWhileOpen() async th
   #expect(refreshes == 1)
   #expect(result.answer == nil)
   presenter.finish(true)
-  #expect(await task.value)
+  #expect(await task.value == .accepted)
 }
 
 @Test @MainActor func serviceAlertConfirmationReturnsTheSheetAnswer() async throws {
@@ -235,7 +235,7 @@ func serviceAlertConfirmationSuspendsAndLetsMainActorRefreshWhileOpen() async th
 
     presenter.finish(answer)
 
-    #expect(await task.value == answer)
+    #expect(await task.value == (answer ? .accepted : .cancelled))
   }
 }
 
@@ -246,7 +246,7 @@ func serviceAlertConfirmationSuspendsAndLetsMainActorRefreshWhileOpen() async th
   let prompt = try #require(
     ServiceActionPrompt(action: .stop, snapshot: promptSnapshot(), bundles: []))
 
-  #expect(await confirmation.confirm(prompt) == false)
+  #expect(await confirmation.confirm(prompt) == .unavailable)
   #expect(presenter.presentations.isEmpty)
 }
 
@@ -261,7 +261,7 @@ func serviceAlertConfirmationSuspendsAndLetsMainActorRefreshWhileOpen() async th
   let task = Task { @MainActor in await confirmation.confirm(prompt) }
   task.cancel()
 
-  #expect(await task.value == false)
+  #expect(await task.value == .cancelled)
   #expect(presenter.prompts.isEmpty)
 }
 
@@ -284,7 +284,7 @@ func serviceAlertConfirmationSuspendsAndLetsMainActorRefreshWhileOpen() async th
   presenter.finish(true)
 
   #expect(dismissalsBeforeCompletion == 1)
-  #expect(await task.value == false)
+  #expect(await task.value == .cancelled)
   #expect(presenter.presentations[0].dismissals == 1)
 }
 
@@ -302,6 +302,6 @@ func serviceAlertConfirmationSuspendsAndLetsMainActorRefreshWhileOpen() async th
   task.cancel()
   presenter.finish(false)
 
-  #expect(await task.value)
+  #expect(await task.value == .accepted)
   #expect(presenter.presentations[0].dismissals == 0)
 }
