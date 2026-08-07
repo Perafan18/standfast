@@ -4,6 +4,9 @@ import SwiftUI
 /// detail, honest empty states, and recovery notices scroll independently.
 struct ControlCenterView: View {
   @ObservedObject private var fleet: RunnerFleetModel
+  /// Invalidation-only: the body still derives exclusively from the fleet's
+  /// complete presentation, which reads this model's published memory.
+  @ObservedObject private var housekeeping: HousekeepingModel
 
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -11,6 +14,7 @@ struct ControlCenterView: View {
 
   init(fleet: RunnerFleetModel) {
     self.fleet = fleet
+    housekeeping = fleet.housekeeping
   }
 
   private var palette: StandfastPalette {

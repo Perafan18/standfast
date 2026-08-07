@@ -1,5 +1,8 @@
+import AppKit
+import Combine
 import Foundation
 import RunnerKit
+import SwiftUI
 import Testing
 
 @testable import Standfast
@@ -13,6 +16,81 @@ private func standfastSource(_ name: String) -> String {
     .deletingLastPathComponent()
   let source = repository.appendingPathComponent("Sources/Standfast/\(name)")
   return (try? String(contentsOf: source, encoding: .utf8)) ?? ""
+}
+
+private func reflectedReference<T: AnyObject>(
+  _ type: T.Type, in value: Any, remainingDepth: Int = 3
+) -> T? {
+  if let reference = value as? T { return reference }
+  guard remainingDepth > 0 else { return nil }
+  for child in Mirror(reflecting: value).children {
+    if let reference = reflectedReference(
+      type, in: child.value, remainingDepth: remainingDepth - 1)
+    {
+      return reference
+    }
+  }
+  return nil
+}
+
+private struct ProminentForegroundRenderProbe: View {
+  let foregroundInsideLabel: Bool
+
+  private var sentinel: Color {
+    Color(.sRGB, red: 1, green: 0, blue: 1, opacity: 1)
+  }
+
+  var body: some View {
+    if foregroundInsideLabel {
+      Button {
+      } label: {
+        Label("Sentinel", systemImage: "square.fill")
+          .foregroundStyle(sentinel)
+      }
+      .buttonStyle(.borderedProminent)
+    } else {
+      Button {
+      } label: {
+        Label("Sentinel", systemImage: "square.fill")
+      }
+      .foregroundStyle(sentinel)
+      .buttonStyle(.borderedProminent)
+    }
+  }
+}
+
+@MainActor
+private func sentinelPixelCount<V: View>(in root: V) throws -> Int {
+  let size = NSSize(width: 260, height: 90)
+  let rendered =
+    root
+    .font(.system(size: 28, weight: .bold))
+    .tint(Color(.sRGB, red: 0, green: 0.3, blue: 0.7, opacity: 1))
+    .frame(width: size.width, height: size.height)
+    .background(Color.white)
+    .environment(\.colorScheme, .light)
+  let hosting = NSHostingView(rootView: rendered)
+  hosting.frame = NSRect(origin: .zero, size: size)
+  hosting.layoutSubtreeIfNeeded()
+  hosting.displayIfNeeded()
+  let bitmap = try #require(
+    hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+  hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+
+  var count = 0
+  for x in 0..<bitmap.pixelsWide {
+    for y in 0..<bitmap.pixelsHigh {
+      guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
+        continue
+      }
+      if color.redComponent > 0.75, color.greenComponent < 0.35,
+        color.blueComponent > 0.75, color.alphaComponent > 0.5
+      {
+        count += 1
+      }
+    }
+  }
+  return count
 }
 
 private func controlCenterSnapshot(
@@ -69,6 +147,29 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   func createDirectory(at url: URL) throws {}
   func move(_ url: URL, to destination: URL) throws {}
   func remove(_ url: URL) throws {}
+}
+
+@Test @MainActor func controlCenterObservesTheFleetsExactHousekeepingPublisher()
+  async throws
+{
+  let sandbox = try FleetSandbox()
+  defer { sandbox.cleanUp() }
+  let fleet = presentationModel(sandbox)
+  await fleet.quiesce()
+  let view = ControlCenterView(fleet: fleet)
+  let wrapper = try #require(
+    Mirror(reflecting: view).children.first { $0.label == "_housekeeping" }?.value)
+  let observed = try #require(
+    reflectedReference(HousekeepingModel.self, in: wrapper))
+
+  #expect(observed === fleet.housekeeping)
+  var publications = 0
+  let cancellation = observed.objectWillChange.sink { publications += 1 }
+
+  observed.keepOnly([])
+
+  #expect(publications > 0)
+  withExtendedLifetime(cancellation) {}
 }
 
 // MARK: - Stable accessibility identity
@@ -167,6 +268,30 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(!source.contains("detail: job.outcome.label"))
 }
 
+@Test func runnerCardSeparatorUsesTheMeasuredStructuralBoundary() {
+  let source = standfastSource("RunnerCardView.swift")
+  let compact = source.filter { !$0.isWhitespace }
+
+  #expect(!compact.contains("Divider()"))
+  #expect(
+    compact.contains(
+      "Rectangle().fill(palette.structuralBorder.color)"
+        + ".frame(height:StandfastTheme.Stroke.structural)"))
+  #expect(StandfastTheme.Stroke.structural >= 1)
+
+  for appearance in StandfastTheme.Appearance.allCases {
+    let standard = StandfastTheme.palette(for: appearance)
+    let increased = StandfastTheme.palette(for: appearance, increasedContrast: true)
+    let standardRatio = standard.structuralBorder.contrastRatio(
+      against: standard.surface)
+    let increasedRatio = increased.structuralBorder.contrastRatio(
+      against: increased.surface)
+
+    #expect(standardRatio >= 3)
+    #expect(increasedRatio >= standardRatio)
+  }
+}
+
 @Test func maintenanceActionsHaveDeterministicKindScopedAccessibilityIDs() {
   let runner = ControlCenterAccessibility.runner("/Users/me/actions-runner")
   let first = MaintenanceOffer.Kind.allCases.map(runner.maintenanceAction)
@@ -195,21 +320,35 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(controlCenter.contains("minWidth: StandfastTheme.controlCenterMinimumWidth"))
 }
 
-@Test func prominentRunnerActionsUseTheMeasuredButtonTextToken() {
-  let source = standfastSource("RunnerCardView.swift")
-  let foreground = ".foregroundStyle(palette.primaryButtonText.color)"
+@Test @MainActor func borderedProminentOverridesOnlyAnOutsideForeground() throws {
+  let outside = try sentinelPixelCount(
+    in: ProminentForegroundRenderProbe(foregroundInsideLabel: false))
+  let inside = try sentinelPixelCount(
+    in: ProminentForegroundRenderProbe(foregroundInsideLabel: true))
 
-  #expect(source.components(separatedBy: foreground).count - 1 == 2)
+  #expect(outside == 0)
+  #expect(inside > 20)
+}
+
+@Test func prominentRunnerActionsPutTheMeasuredTokenInsideEachLabel() {
+  let source = standfastSource("RunnerCardView.swift")
+  let compact = source.filter { !$0.isWhitespace }
+  let foregroundInsideLabel =
+    "Label(action.label,systemImage:action.symbolName)"
+    + ".foregroundStyle(foreground.color)"
+
   #expect(
-    source.contains(
-      "serviceButtonLabel(action)\n"
-        + "        \(foreground)\n"
-        + "        .buttonStyle(.borderedProminent)"))
+    compact.contains(
+      "serviceButtonLabel(action,foreground:palette.primaryButtonText)"))
   #expect(
-    source.contains(
-      "navigationButton(action)\n"
-        + "          \(foreground)\n"
-        + "          .buttonStyle(.borderedProminent)"))
+    compact.contains(
+      "navigationButton(action,foreground:palette.primaryButtonText)"))
+  #expect(compact.components(separatedBy: "foreground:nil").count - 1 == 2)
+  #expect(
+    compact.components(separatedBy: foregroundInsideLabel).count - 1 == 2)
+  #expect(
+    !compact.contains(
+      "ButtonLabel(action).foregroundStyle(palette.primaryButtonText.color)"))
 }
 
 // MARK: - Card projection

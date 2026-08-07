@@ -51,7 +51,9 @@ struct RunnerCardView: View {
       }
       serviceActions
       navigation
-      Divider()
+      Rectangle()
+        .fill(palette.structuralBorder.color)
+        .frame(height: StandfastTheme.Stroke.structural)
       history
       maintenance
     }
@@ -181,23 +183,31 @@ struct RunnerCardView: View {
   @ViewBuilder
   private func serviceButton(_ action: RunnerCardAction) -> some View {
     if action.isEnabled && action.emphasis == .prominent {
-      serviceButtonLabel(action)
-        .foregroundStyle(palette.primaryButtonText.color)
+      serviceButtonLabel(action, foreground: palette.primaryButtonText)
         .buttonStyle(.borderedProminent)
         .tint(palette.primaryButton.color)
     } else {
-      serviceButtonLabel(action)
+      serviceButtonLabel(action, foreground: nil)
         .buttonStyle(.bordered)
     }
   }
 
-  private func serviceButtonLabel(_ action: RunnerCardAction) -> some View {
+  private func serviceButtonLabel(
+    _ action: RunnerCardAction, foreground: StandfastSRGBColor?
+  ) -> some View {
     Button {
       performAction(action.kind)
     } label: {
-      Label(action.label, systemImage: action.symbolName)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .contentShape(Rectangle())
+      Group {
+        if let foreground {
+          Label(action.label, systemImage: action.symbolName)
+            .foregroundStyle(foreground.color)
+        } else {
+          Label(action.label, systemImage: action.symbolName)
+        }
+      }
+      .frame(maxWidth: .infinity, minHeight: 44)
+      .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
     .accessibilityLabel(action.accessibilityLabel)
@@ -208,25 +218,33 @@ struct RunnerCardView: View {
   private var navigation: some View {
     if let action = card.action(.openOnGitHub) {
       if action.isEnabled && action.emphasis == .prominent {
-        navigationButton(action)
-          .foregroundStyle(palette.primaryButtonText.color)
+        navigationButton(action, foreground: palette.primaryButtonText)
           .buttonStyle(.borderedProminent)
           .tint(palette.primaryButton.color)
       } else {
-        navigationButton(action)
+        navigationButton(action, foreground: nil)
           .buttonStyle(.bordered)
       }
     }
   }
 
-  private func navigationButton(_ action: RunnerCardAction) -> some View {
+  private func navigationButton(
+    _ action: RunnerCardAction, foreground: StandfastSRGBColor?
+  ) -> some View {
     let qualifiedLabel = L10n.runnerInScope(action.accessibilityLabel, card.title)
     return Button {
       performAction(action.kind)
     } label: {
-      Label(action.label, systemImage: action.symbolName)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .contentShape(Rectangle())
+      Group {
+        if let foreground {
+          Label(action.label, systemImage: action.symbolName)
+            .foregroundStyle(foreground.color)
+        } else {
+          Label(action.label, systemImage: action.symbolName)
+        }
+      }
+      .frame(maxWidth: .infinity, minHeight: 44)
+      .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
     .accessibilityLabel(qualifiedLabel)
