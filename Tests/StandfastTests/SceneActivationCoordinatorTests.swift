@@ -499,7 +499,8 @@ struct SceneActivationCoordinatorTests {
       schedulePoll: { scheduled.append($0) },
       reportSoftTimeout: { _ in },
       reportHardTimeout: { _ in })
-    weak let weakCoordinator = coordinator
+    weak var weakCoordinator: SceneActivationCoordinator?
+    weakCoordinator = coordinator
 
     coordinator?.openAndActivate(.controlCenter, openScene: {})
     #expect(scheduled.count == 1)

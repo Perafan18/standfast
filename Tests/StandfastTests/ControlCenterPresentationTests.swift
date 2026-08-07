@@ -423,6 +423,8 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
 @Test func aHealthyRunnerCardCarriesIdentityStateScopeAndItsRealCapabilities() throws {
   let subject = card(controlCenterSnapshot())
+  let expectedWorkflowRunsURL = try #require(
+    URL(string: "https://github.com/acme/widget/actions"))
 
   #expect(subject.id == "actions.runner.acme-widget.build-mac")
   #expect(subject.title == "build-mac")
@@ -434,9 +436,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(subject.actions.first { $0.kind == .start }?.isEnabled == false)
   #expect(subject.actions.first { $0.kind == .stop }?.isEnabled == true)
   #expect(subject.actions.first { $0.kind == .restart }?.isEnabled == true)
-  #expect(
-    subject.githubDestination
-      == .workflowRuns(try #require(URL(string: "https://github.com/acme/widget/actions"))))
+  #expect(subject.githubDestination == .workflowRuns(expectedWorkflowRunsURL))
   #expect(
     subject.actions.first { $0.kind == .openOnGitHub }?.label
       == L10n.viewRuns())
@@ -742,12 +742,12 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 @Test func organizationCardsLabelTheirHonestRunnerSettingsDestination() throws {
   let subject = card(
     controlCenterSnapshot(scope: .organization("acme")))
+  let expectedRunnerSettingsURL = try #require(
+    URL(string: "https://github.com/organizations/acme/settings/actions/runners"))
 
   #expect(
     subject.githubDestination
-      == .runnerSettings(
-        try #require(
-          URL(string: "https://github.com/organizations/acme/settings/actions/runners"))))
+      == .runnerSettings(expectedRunnerSettingsURL))
   #expect(
     subject.actions.first { $0.kind == .openOnGitHub }?.label
       == L10n.viewSettings())
