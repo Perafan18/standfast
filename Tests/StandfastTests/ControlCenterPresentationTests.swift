@@ -6,6 +6,15 @@ import Testing
 
 private let controlCenterNow = Date(timeIntervalSince1970: 1_785_962_174)
 
+private func standfastSource(_ name: String) -> String {
+  let repository = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+  let source = repository.appendingPathComponent("Sources/Standfast/\(name)")
+  return (try? String(contentsOf: source, encoding: .utf8)) ?? ""
+}
+
 private func controlCenterSnapshot(
   _ display: DisplayState = .resolved(.idle),
   scope: RunnerScope = .repository(owner: "acme", name: "widget"),
@@ -60,6 +69,81 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   func createDirectory(at url: URL) throws {}
   func move(_ url: URL, to destination: URL) throws {}
   func remove(_ url: URL) throws {}
+}
+
+// MARK: - Stable accessibility identity
+
+@Test func controlCenterAccessibilityRootsAreStableAndNonlocalized() {
+  #expect(ControlCenterAccessibility.header == "dev.standfast.control-center.header")
+  #expect(ControlCenterAccessibility.refresh == "dev.standfast.control-center.refresh")
+  #expect(ControlCenterAccessibility.notice == "dev.standfast.control-center.notice")
+}
+
+@Test func runnerAccessibilityIDsUseReversibleUTF8InsteadOfRuntimeHashing() {
+  let first = ControlCenterAccessibility.runner("a/b")
+  let repeated = ControlCenterAccessibility.runner("a/b")
+
+  #expect(first == repeated)
+  #expect(first.card == "dev.standfast.control-center.runner.612f62.card")
+  #expect(first.status == "dev.standfast.control-center.runner.612f62.status")
+  #expect(first.focus == "dev.standfast.control-center.runner.612f62.focus")
+  #expect(first.start.hasSuffix(".action.start"))
+  #expect(first.stop.hasSuffix(".action.stop"))
+  #expect(first.restart.hasSuffix(".action.restart"))
+  #expect(first.github.hasSuffix(".github"))
+  #expect(first.jobs.hasSuffix(".jobs"))
+  #expect(first.maintenance.hasSuffix(".maintenance"))
+}
+
+@Test func trickyDurableLabelsProduceUniqueAccessibilityNamespaces() {
+  let labels = ["runner.a/b", "runner/a.b", "ñ", "n\u{0303}", "🔥", "A B", ""]
+  let identifiers = labels.map { ControlCenterAccessibility.runner($0).card }
+
+  #expect(Set(identifiers).count == labels.count)
+}
+
+@Test func jobAccessibilityIDsUseAStableLocaleIndependentTimestamp() {
+  let runner = ControlCenterAccessibility.runner("a/b")
+  let instant = Date(timeIntervalSinceReferenceDate: 123.5)
+
+  #expect(
+    runner.job(instant)
+      == "dev.standfast.control-center.runner.612f62.jobs.job.405ee00000000000")
+}
+
+@Test func controlCenterSourceRendersOnlyTheCompletePresentation() {
+  let controlCenter = standfastSource("ControlCenterView.swift")
+
+  #expect(controlCenter.contains("fleet.controlCenterPresentation(now: Date())"))
+  #expect(!controlCenter.contains("fleet.controlCenterCards"))
+  #expect(!controlCenter.contains("fleet.snapshots"))
+}
+
+@Test func redesignedViewsUseOneSurfaceAndNativeDisclosureSections() {
+  let source =
+    standfastSource("ControlCenterView.swift")
+    + standfastSource("RunnerCardView.swift")
+
+  #expect(!source.contains("GroupBox"))
+  #expect(!source.contains("LabeledContent"))
+  #expect(!source.contains("ControlGroup"))
+  #expect(source.components(separatedBy: "DisclosureGroup").count - 1 == 2)
+  #expect(source.contains(".accessibilityElement(children: .contain)"))
+  #expect(!source.contains(".lineLimit(1)"))
+  #expect(
+    source.contains(
+      "L10n.runnerInScope(action.accessibilityLabel, card.title)"))
+  #expect(!source.contains("detail: job.outcome.label"))
+}
+
+@Test func controlCenterGeometryTokensAreWiredWithoutChangingItsSceneID() {
+  let app = standfastSource("App.swift")
+  let controlCenter = standfastSource("ControlCenterView.swift")
+
+  #expect(app.contains("id: \"control-center\""))
+  #expect(app.contains("width: StandfastTheme.controlCenterDefaultWidth"))
+  #expect(app.contains("height: StandfastTheme.controlCenterDefaultHeight"))
+  #expect(controlCenter.contains("minWidth: StandfastTheme.controlCenterMinimumWidth"))
 }
 
 // MARK: - Card projection

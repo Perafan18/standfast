@@ -28,7 +28,9 @@ struct StandfastApp: App {
             target: .controlCenter,
             registry: sceneActivation.windowRegistry))
     }
-    .defaultSize(width: 640, height: 720)
+    .defaultSize(
+      width: StandfastTheme.controlCenterDefaultWidth,
+      height: StandfastTheme.controlCenterDefaultHeight)
 
     Settings {
       SettingsView(

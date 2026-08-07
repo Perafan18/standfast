@@ -1,138 +1,174 @@
 import SwiftUI
 
-/// The operational authority: one native scrolling column, with one card for
-/// every runner the latest conclusive scan still says is installed.
+/// The operational authority: the fleet status stays visible while runner
+/// detail, honest empty states, and recovery notices scroll independently.
 struct ControlCenterView: View {
   @ObservedObject private var fleet: RunnerFleetModel
-  @ObservedObject private var housekeeping: HousekeepingModel
+
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
   init(fleet: RunnerFleetModel) {
     self.fleet = fleet
-    housekeeping = fleet.housekeeping
+  }
+
+  private var palette: StandfastPalette {
+    StandfastTheme.palette(
+      for: colorScheme == .dark ? .dark : .light,
+      increasedContrast: colorSchemeContrast == .increased,
+      reduceTransparency: reduceTransparency)
   }
 
   var body: some View {
-    let cards = fleet.controlCenterCards()
-    if cards.isEmpty {
-      let empty = ControlCenterEmptyPresentation.building(notice: fleet.notice)
-      ContentUnavailableView {
-        Label(empty.title, systemImage: empty.symbolName)
-      } description: {
-        VStack {
-          ForEach(empty.detailLines.indices, id: \.self) { index in
-            Text(empty.detailLines[index])
-          }
-        }
-      } actions: {
-        Button(L10n.refreshNow) { fleet.refresh() }
-      }
-    } else {
+    let presentation = fleet.controlCenterPresentation(now: Date())
+    VStack(spacing: 0) {
+      header(presentation.header)
+
       ScrollView {
-        LazyVStack(alignment: .leading) {
-          if let notice = fleet.notice {
-            GroupBox {
-              VStack(alignment: .leading) {
-                ForEach(notice.lines, id: \.self) { Text($0) }
-              }
-              .frame(maxWidth: .infinity, alignment: .leading)
+        LazyVStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
+          if let notice = presentation.notice {
+            noticeView(notice)
+          }
+
+          if let empty = presentation.empty {
+            emptyView(empty)
+          } else {
+            ForEach(presentation.cards) { card in
+              RunnerCardView(
+                card: card,
+                performAction: { action in
+                  fleet.perform(action, onRunnerID: card.id)
+                },
+                performMaintenance: { offer in
+                  fleet.performMaintenance(offer, onRunnerID: card.id)
+                })
             }
           }
-          ForEach(cards) { card in
-            runnerCard(card)
-          }
         }
-        .padding()
+        .padding(.horizontal, StandfastTheme.Spacing.large)
+        .padding(.vertical, StandfastTheme.Spacing.roomy)
       }
     }
+    .frame(minWidth: StandfastTheme.controlCenterMinimumWidth)
+    .frame(maxHeight: .infinity)
+    .background(Color(nsColor: .windowBackgroundColor))
   }
 
-  @ViewBuilder
-  private func runnerCard(_ card: RunnerCardPresentation) -> some View {
-    GroupBox {
-      VStack(alignment: .leading) {
-        LabeledContent(L10n.controlCenterStatus, value: card.state)
-        LabeledContent(L10n.controlCenterScope, value: card.scope)
-
-        if let progress = card.progress { Text(progress) }
-
-        if let operation = card.operation {
-          GroupBox {
-            VStack(alignment: .leading) {
-              Label(operation.title, systemImage: operation.symbolName)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(operation.title)
-                .accessibilityValue(operation.detail)
-              Text(operation.detail)
-                .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-          }
-        }
-
-        GroupBox(L10n.controlCenterService) {
-          ControlGroup {
-            ForEach(
-              card.actions.filter { $0.kind != .openOnGitHub }, id: \.kind
-            ) { action in
-              Button(action.label) {
-                fleet.perform(action.kind, onRunnerID: card.id)
-              }
-              .disabled(!action.isEnabled)
-            }
-          }
+  private func header(_ presentation: ControlCenterHeaderPresentation) -> some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: StandfastTheme.Spacing.standard) {
+        headerStatus(presentation)
+          .fixedSize(horizontal: true, vertical: false)
+        Spacer(minLength: StandfastTheme.Spacing.standard)
+        refreshButton
+      }
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
+        headerStatus(presentation)
+        refreshButton
           .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        if let action = card.actions.first(where: { $0.kind == .openOnGitHub }) {
-          Button(action.label) {
-            fleet.perform(action.kind, onRunnerID: card.id)
-          }
-          .disabled(!action.isEnabled)
-        }
-
-        if !card.recentJobs.isEmpty {
-          GroupBox(L10n.recentJobs) {
-            VStack(alignment: .leading) {
-              ForEach(card.recentJobs) { job in
-                Text(job.text)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-            }
-          }
-        }
-
-        maintenance(card.maintenance, runnerID: card.id)
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-    } label: {
-      Label(card.title, systemImage: card.stateSymbolName)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(card.title)
-        .accessibilityValue(card.state)
     }
+    .padding(.horizontal, StandfastTheme.Spacing.large)
+    .padding(.vertical, StandfastTheme.Spacing.standard)
+    .background(palette.surface.color)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(palette.structuralBorder.color)
+        .frame(height: StandfastTheme.Stroke.structural)
+    }
+    .accessibilityIdentifier(ControlCenterAccessibility.header)
   }
 
-  @ViewBuilder
-  private func maintenance(_ section: MaintenanceSection, runnerID: String) -> some View {
-    GroupBox(L10n.maintenance) {
-      VStack(alignment: .leading) {
-        if let version = section.version { Text(version) }
-        ForEach(section.usage, id: \.self) { Text($0) }
-        Text(section.measured)
-        ControlGroup {
-          ForEach(section.offers) { offer in
-            Button(role: offer.kind == .measure ? nil : .destructive) {
-              fleet.performMaintenance(offer.kind, onRunnerID: runnerID)
-            } label: {
-              Text(offer.label)
-            }
-            .disabled(!offer.isEnabled)
-          }
+  private func headerStatus(
+    _ presentation: ControlCenterHeaderPresentation
+  ) -> some View {
+    HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
+      Image(systemName: presentation.symbolName)
+        .font(.title2.weight(.semibold))
+        .foregroundStyle(palette.textPrimary.color)
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
+        Text(presentation.summary)
+          .font(.headline)
+          .foregroundStyle(palette.textPrimary.color)
+        if let attention = presentation.attention {
+          Text(attention)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(palette.attentionForeground.color)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        ForEach(section.notes, id: \.self) { Text($0) }
+        Text(presentation.freshness)
+          .font(.caption)
+          .foregroundStyle(palette.textSecondary.color)
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .accessibilityElement(children: .combine)
+  }
+
+  private var refreshButton: some View {
+    Button {
+      fleet.refresh()
+    } label: {
+      Label(L10n.refreshNow, systemImage: "arrow.clockwise")
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.bordered)
+    .keyboardShortcut("r", modifiers: .command)
+    .accessibilityIdentifier(ControlCenterAccessibility.refresh)
+  }
+
+  private func noticeView(
+    _ presentation: ControlCenterNoticePresentation
+  ) -> some View {
+    let content: (title: String, lines: [String]) =
+      switch presentation {
+      case .launchAgentsUnavailable(let directory):
+        (L10n.launchAgentsUnreadable, [directory])
+      case .unreadableRunners(let paths):
+        (L10n.someRunnersUnreadable, paths)
+      }
+
+    return HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
+      Image(systemName: "exclamationmark.triangle")
+        .foregroundStyle(palette.textPrimary.color)
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
+        Text(content.title)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(palette.textPrimary.color)
+        ForEach(content.lines, id: \.self) { line in
+          Text(line)
+            .font(.subheadline)
+            .foregroundStyle(palette.textSecondary.color)
+        }
+      }
+    }
+    .padding(.horizontal, StandfastTheme.Spacing.compact)
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier(ControlCenterAccessibility.notice)
+  }
+
+  private func emptyView(
+    _ presentation: ControlCenterEmptyPresentation
+  ) -> some View {
+    VStack(spacing: StandfastTheme.Spacing.compact) {
+      Image(systemName: presentation.symbolName)
+        .font(.system(size: 32, weight: .medium))
+        .foregroundStyle(palette.textPrimary.color)
+        .accessibilityHidden(true)
+      Text(presentation.title)
+        .font(.headline)
+        .foregroundStyle(palette.textPrimary.color)
+      ForEach(presentation.detailLines, id: \.self) { detail in
+        Text(detail)
+          .font(.body)
+          .foregroundStyle(palette.textSecondary.color)
+          .multilineTextAlignment(.center)
+      }
+    }
+    .frame(maxWidth: .infinity, minHeight: 320)
+    .padding(StandfastTheme.Spacing.large)
+    .accessibilityElement(children: .combine)
   }
 }
