@@ -84,12 +84,26 @@ tell application "System Events"
       set targetMenu to menu 1 of statusItem
       set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
       if (count of visibleMenuItems) is 0 then error "exposed status menu has no visible items"
-      set directMenuItems to every menu item of targetMenu
-      set names to {}
-      repeat with directMenuItem in directMenuItems
+      set records to {}
+      repeat with visibleMenuItem in visibleMenuItems
+        set visibleName to ""
         try
-          set end of names to name of directMenuItem as text
+          set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
         end try
+        set visibleIdentifier to ""
+        try
+          set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
+        end try
+        set recordType to "unknown"
+        if visibleIdentifier is "dev.standfast.quick-menu.static" then
+          set recordType to "static"
+        else if visibleIdentifier is "dev.standfast.quick-menu.runner" then
+          set recordType to "runner"
+        end if
+        if recordType is "unknown" then
+          set visibleName to visibleIdentifier & " — " & visibleName
+        end if
+        set end of records to recordType & tab & visibleName
       end repeat
       perform action "AXCancel" of targetMenu
       set menuClosedAfterCancel to false
@@ -105,9 +119,9 @@ tell application "System Events"
     if not menuClosedAfterCancel then error "status menu did not close after AXCancel"
     set previousDelimiters to text item delimiters of AppleScript
     set text item delimiters of AppleScript to linefeed
-    set joinedNames to names as text
+    set joinedRecords to records as text
     set text item delimiters of AppleScript to previousDelimiters
-    return joinedNames
+    return joinedRecords
   end tell
 end tell
 APPLESCRIPT
@@ -126,26 +140,107 @@ if [ -n "$menuError" ]; then
   printf '    osascript warning: %s\n' "$menuError" >&2
 fi
 
-echo "    menu: $menu"
-# Check the supported static actions instead of scanning the entire menu for
-# key-like text. Runner names are user data and may legitimately be values
-# such as `state.prod` or `menu.build`.
-printf '%s\n' "$menu" | grep -Fxq -e "Open Standfast" -e "Abrir Standfast" \
-  || fail "the packaged menu did not expose the localized Control Center action"
-printf '%s\n' "$menu" | grep -Fxq -e "Settings" -e "Configuración" \
-  || fail "the packaged menu did not expose the localized Settings action"
-printf '%s\n' "$menu" | grep -Fxq -e "Quit" -e "Salir" \
-  || fail "the packaged menu did not expose the localized Quit action"
+echo "    menu records: $menu"
+# Only direct top-level records are covered here. Runner titles are user data,
+# so raw localization-key checks apply exclusively to AX-typed static rows;
+# submenu and catalogue traversal belongs to a separate runtime gate.
+staticMenu=""
+while IFS= read -r menuRecord || [ -n "$menuRecord" ]; do
+  case "$menuRecord" in
+    static$'\t'*)
+      staticText="${menuRecord#*$'\t'}"
+      [ -n "$staticText" ] \
+        || fail "empty static AX menu record"
+      if printf '%s\n' "$staticText" \
+        | grep -Eq '(^| — )(menu|state|job|duration|thermal|notification)\.'; then
+        fail "raw localization key escaped into static AX menu content: $staticText"
+      fi
+      if [ -n "$staticMenu" ]; then
+        staticMenu="$staticMenu"$'\n'"$staticText"
+      else
+        staticMenu="$staticText"
+      fi
+      ;;
+    runner$'\t'*)
+      runnerText="${menuRecord#*$'\t'}"
+      [ -n "$runnerText" ] \
+        || fail "empty runner AX menu record"
+      ;;
+    *)
+      fail "unknown AX menu record type: ${menuRecord:-empty record}"
+      ;;
+  esac
+done <<< "$menu"
+
+static_has() {
+  printf '%s\n' "$staticMenu" | grep -Fxq -- "$1"
+}
+
+englishActionCount=0
+spanishActionCount=0
+for action in "Open Standfast" "Settings" "Quit"; do
+  if static_has "$action"; then
+    englishActionCount=$((englishActionCount + 1))
+  fi
+done
+for action in "Abrir Standfast" "Configuración" "Salir"; do
+  if static_has "$action"; then
+    spanishActionCount=$((spanishActionCount + 1))
+  fi
+done
+
+if [ "$englishActionCount" -eq 3 ] && [ "$spanishActionCount" -eq 0 ]; then
+  menuLanguage=en
+elif [ "$spanishActionCount" -eq 3 ] && [ "$englishActionCount" -eq 0 ]; then
+  menuLanguage=es
+else
+  fail "the packaged menu did not expose one complete English or Spanish static action set"
+fi
 
 echo "==> Exercising Control Center and Settings through Accessibility"
 : > "$AX_STDERR_FILE"
 windowsStatus=0
-windows="$(CHECK_PID="$PID" osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
+windows="$(CHECK_PID="$PID" CHECK_LANGUAGE="$menuLanguage" osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
 tell application "System Events"
   set targetPID to (system attribute "CHECK_PID") as integer
+  set menuLanguage to system attribute "CHECK_LANGUAGE"
+  if menuLanguage is "en" then
+    set controlCenterItemName to "Open Standfast"
+    set settingsItemName to "Settings"
+  else if menuLanguage is "es" then
+    set controlCenterItemName to "Abrir Standfast"
+    set settingsItemName to "Configuración"
+  else
+    error "unsupported validated menu language: " & menuLanguage
+  end if
+  set staticMenuIdentifier to "dev.standfast.quick-menu.static"
+  set controlWindowIdentifier to "dev.standfast.scene.control-center"
+  set settingsWindowIdentifier to "dev.standfast.scene.settings"
   tell (first process whose unix id is targetPID)
     set pollAttemptLimit to 50
-      set pollDelaySeconds to 0.1
+    set pollDelaySeconds to 0.1
+
+    set initialControlWindowCount to 0
+    set initialSettingsWindowCount to 0
+    repeat with candidateWindow in every window
+      try
+        set candidateIdentifier to value of attribute "AXIdentifier" of candidateWindow as text
+        if candidateIdentifier is controlWindowIdentifier then
+          set initialControlWindowCount to initialControlWindowCount + 1
+        else if candidateIdentifier is settingsWindowIdentifier then
+          set initialSettingsWindowCount to initialSettingsWindowCount + 1
+        end if
+      end try
+    end repeat
+    set targetsInitialAbsent to initialControlWindowCount is 0 and initialSettingsWindowCount is 0
+    if not targetsInitialAbsent then
+      error "identified Control Center or Settings window already existed before the lifecycle probe"
+    end if
+    set baselineWindows to {}
+    repeat with candidateWindow in every window
+      set end of baselineWindows to contents of candidateWindow
+    end repeat
+    set baselineWindowCount to count of baselineWindows
 
       set statusItem to menu bar item 1 of menu bar 2
       set menuClosedBeforePress to false
@@ -183,77 +278,63 @@ tell application "System Events"
       set targetMenu to menu 1 of statusItem
       set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
       if (count of visibleMenuItems) is 0 then error "exposed Control Center menu has no visible items"
-      set directMenuItems to every menu item of targetMenu
       set targetMenuItem to missing value
-      repeat with candidate in {"Open Standfast", "Abrir Standfast"}
-        set candidateName to candidate as text
-        repeat with directMenuItem in directMenuItems
-          try
-            set directName to name of directMenuItem as text
-            if directName is candidateName then
-              set targetMenuItem to contents of directMenuItem
-              exit repeat
-            end if
-          end try
-        end repeat
-        if targetMenuItem is not missing value then exit repeat
+      repeat with visibleMenuItem in visibleMenuItems
+        try
+          set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
+          set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
+          if visibleName is controlCenterItemName and visibleIdentifier is staticMenuIdentifier then
+            set targetMenuItem to contents of visibleMenuItem
+            exit repeat
+          end if
+        end try
       end repeat
     if targetMenuItem is missing value then error "visible Control Center menu item missing"
     perform action "AXPress" of targetMenuItem
 
     set controlWindow to missing value
-    set controlWindowCount to 0
-    set controlResolved to false
-    set controlSingleton to false
-    set controlMain to false
-    set controlFocused to false
+    set controlOpened to false
+    set controlMainInitially to false
+    set controlFocusedInitially to false
+    set settingsAbsentAfterInitialControl to false
     repeat with pollAttempt from 1 to pollAttemptLimit
       set controlWindow to missing value
-      set controlWindowCount to 0
-      set processWindowCount to count of windows
-      set controlResolved to false
-      set controlMain to false
-      set controlFocused to false
-      repeat with candidate in {"Standfast Control Center", "Centro de control de Standfast"}
-        set candidateWindows to every window whose name is (candidate as text)
-        set candidateCount to count of candidateWindows
-        set controlWindowCount to controlWindowCount + candidateCount
-        if not controlResolved and candidateCount > 0 then
-          set controlWindow to item 1 of candidateWindows
-          set controlResolved to true
-        end if
-      end repeat
-      set controlSingleton to controlWindowCount is 1 and processWindowCount is 1
-      if controlResolved and controlSingleton then
+      set controlMatchCount to 0
+      set settingsMatchCount to 0
+      set controlMainInitially to false
+      set controlFocusedInitially to false
+      repeat with candidateWindow in every window
         try
-          set controlMain to value of attribute "AXMain" of controlWindow as boolean
-          set controlFocused to value of attribute "AXFocused" of controlWindow as boolean
+          set candidateIdentifier to value of attribute "AXIdentifier" of candidateWindow as text
+          if candidateIdentifier is controlWindowIdentifier then
+            set controlMatchCount to controlMatchCount + 1
+            if controlWindow is missing value then set controlWindow to contents of candidateWindow
+          else if candidateIdentifier is settingsWindowIdentifier then
+            set settingsMatchCount to settingsMatchCount + 1
+          end if
+        end try
+      end repeat
+      set controlOpened to controlMatchCount is 1
+      set settingsAbsentAfterInitialControl to settingsMatchCount is 0
+      if controlOpened then
+        try
+          set controlMainInitially to value of attribute "AXMain" of controlWindow as boolean
+          set controlFocusedInitially to value of attribute "AXFocused" of controlWindow as boolean
         end try
       end if
-      if controlResolved and controlSingleton and controlMain and controlFocused then exit repeat
+      if controlOpened and settingsAbsentAfterInitialControl and controlMainInitially and controlFocusedInitially then exit repeat
       delay pollDelaySeconds
     end repeat
-    if not controlResolved and (count of windows) is 0 then
-      error "Control Center action produced no window after AXPress on an exposed menu; the GUI session may be locked"
+    if not controlOpened then
+      error "Control Center action produced no window with AXIdentifier " & controlWindowIdentifier & " after AXPress on an exposed menu; the GUI session may be locked"
+    end if
+    if not settingsAbsentAfterInitialControl then
+      error "Settings window appeared while opening the initial Control Center window"
+    end if
+    if not controlMainInitially or not controlFocusedInitially then
+      error "identified Control Center window did not become main and focused"
     end if
 
-    set controlReady to controlResolved and controlSingleton and controlMain and controlFocused
-    if controlReady then
-      set closeButtons to every button of controlWindow whose subrole is "AXCloseButton"
-      if (count of closeButtons) is 0 then error "Control Center close button missing"
-      set closeButton to item 1 of closeButtons
-      perform action "AXPress" of closeButton
-    end if
-    set controlClosed to false
-    repeat with pollAttempt from 1 to pollAttemptLimit
-      if (count of windows) is 0 then
-        set controlClosed to true
-        exit repeat
-      end if
-      delay pollDelaySeconds
-    end repeat
-
-      set settingsInitialEmpty to (count of windows) is 0
       set menuClosedBeforePress to false
       try
         if selected of statusItem then
@@ -289,75 +370,244 @@ tell application "System Events"
       set targetMenu to menu 1 of statusItem
       set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
       if (count of visibleMenuItems) is 0 then error "exposed Settings menu has no visible items"
-      set directMenuItems to every menu item of targetMenu
       set targetMenuItem to missing value
-      repeat with candidate in {"Settings", "Configuración"}
-        set candidateName to candidate as text
-        repeat with directMenuItem in directMenuItems
-          try
-            set directName to name of directMenuItem as text
-            if directName is candidateName then
-              set targetMenuItem to contents of directMenuItem
-              exit repeat
-            end if
-          end try
-        end repeat
-        if targetMenuItem is not missing value then exit repeat
+      repeat with visibleMenuItem in visibleMenuItems
+        try
+          set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
+          set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
+          if visibleName is settingsItemName and visibleIdentifier is staticMenuIdentifier then
+            set targetMenuItem to contents of visibleMenuItem
+            exit repeat
+          end if
+        end try
       end repeat
     if targetMenuItem is missing value then error "visible Settings menu item missing"
     perform action "AXPress" of targetMenuItem
 
     set settingsWindow to missing value
-    set settingsWindowCount to 0
     set settingsOpened to false
-    set settingsSingleton to false
-    set settingsMain to false
-    set settingsFocused to false
+    set controlRetainedForSettings to false
+    set settingsMainAfterControl to false
+    set settingsFocusedAfterControl to false
     repeat with pollAttempt from 1 to pollAttemptLimit
+      set controlWindow to missing value
       set settingsWindow to missing value
-      set settingsWindowCount to count of windows
-      set settingsOpened to settingsWindowCount > 0
-      set settingsSingleton to settingsWindowCount is 1
-      set settingsMain to false
-      set settingsFocused to false
-      if settingsSingleton then
-        set settingsWindow to window 1
+      set controlMatchCount to 0
+      set settingsMatchCount to 0
+      set settingsMainAfterControl to false
+      set settingsFocusedAfterControl to false
+      repeat with candidateWindow in every window
         try
-          set settingsMain to value of attribute "AXMain" of settingsWindow as boolean
-          set settingsFocused to value of attribute "AXFocused" of settingsWindow as boolean
+          set candidateIdentifier to value of attribute "AXIdentifier" of candidateWindow as text
+          if candidateIdentifier is controlWindowIdentifier then
+            set controlMatchCount to controlMatchCount + 1
+            if controlWindow is missing value then set controlWindow to contents of candidateWindow
+          else if candidateIdentifier is settingsWindowIdentifier then
+            set settingsMatchCount to settingsMatchCount + 1
+            if settingsWindow is missing value then set settingsWindow to contents of candidateWindow
+          end if
+        end try
+      end repeat
+      set controlRetainedForSettings to controlMatchCount is 1
+      set settingsOpened to settingsMatchCount is 1
+      if settingsOpened then
+        try
+          set settingsMainAfterControl to value of attribute "AXMain" of settingsWindow as boolean
+          set settingsFocusedAfterControl to value of attribute "AXFocused" of settingsWindow as boolean
         end try
       end if
-      if settingsOpened and settingsSingleton and settingsMain and settingsFocused then exit repeat
+      if controlRetainedForSettings and settingsOpened and settingsMainAfterControl and settingsFocusedAfterControl then exit repeat
       delay pollDelaySeconds
     end repeat
     if not settingsOpened then
-      error "Settings action produced no window after AXPress on an exposed menu; the GUI session may be locked"
+      error "Settings action produced no window with AXIdentifier " & settingsWindowIdentifier & " after AXPress on an exposed menu; the GUI session may be locked"
+    end if
+    if not controlRetainedForSettings then
+      error "Control Center window was lost while opening Settings"
+    end if
+    if not settingsMainAfterControl or not settingsFocusedAfterControl then
+      error "identified Settings window did not become main and focused after Control Center"
     end if
 
-    set settingsReady to settingsInitialEmpty and settingsOpened and settingsSingleton and ¬
-      settingsMain and settingsFocused
-    if settingsReady then
-      set closeButtons to every button of settingsWindow whose subrole is "AXCloseButton"
-      if (count of closeButtons) is 0 then error "Settings close button missing"
-      set closeButton to item 1 of closeButtons
-      perform action "AXPress" of closeButton
-    end if
-    repeat with pollAttempt from 1 to pollAttemptLimit
-      if (count of windows) is 0 then
-        exit repeat
+    set menuClosedBeforePress to false
+    try
+      if selected of statusItem then
+        perform action "AXCancel" of menu 1 of statusItem
       end if
+    end try
+    repeat with pollAttempt from 1 to pollAttemptLimit
+      try
+        set menuClosedBeforePress to not (selected of statusItem)
+      on error
+        set menuClosedBeforePress to false
+      end try
+      if menuClosedBeforePress then exit repeat
       delay pollDelaySeconds
     end repeat
-    set remainingWindows to count of windows
-    set settingsClosed to remainingWindows is 0
+    if not menuClosedBeforePress then
+      error "status menu did not become closed before Control Center return AXPress"
+    end if
+    perform action "AXPress" of statusItem
+    set menuExposed to false
+    repeat with pollAttempt from 1 to pollAttemptLimit
+      try
+        set menuExposed to selected of statusItem
+      on error
+        set menuExposed to false
+      end try
+      if menuExposed then exit repeat
+      delay pollDelaySeconds
+    end repeat
+    if not menuExposed then
+      error "status menu did not become exposed for Control Center return; the GUI session may be locked"
+    end if
+    set targetMenu to menu 1 of statusItem
+    set visibleMenuItems to value of attribute "AXVisibleChildren" of targetMenu
+    if (count of visibleMenuItems) is 0 then error "exposed Control Center return menu has no visible items"
+    set targetMenuItem to missing value
+    repeat with visibleMenuItem in visibleMenuItems
+      try
+        set visibleName to value of attribute "AXTitle" of visibleMenuItem as text
+        set visibleIdentifier to value of attribute "AXIdentifier" of visibleMenuItem as text
+        if visibleName is controlCenterItemName and visibleIdentifier is staticMenuIdentifier then
+          set targetMenuItem to contents of visibleMenuItem
+          exit repeat
+        end if
+      end try
+    end repeat
+    if targetMenuItem is missing value then error "visible Control Center return menu item missing"
+    perform action "AXPress" of targetMenuItem
+
+    set controlReturned to false
+    set settingsRetainedForControl to false
+    set controlMainAfterSettings to false
+    set controlFocusedAfterSettings to false
+    repeat with pollAttempt from 1 to pollAttemptLimit
+      set controlWindow to missing value
+      set settingsWindow to missing value
+      set controlMatchCount to 0
+      set settingsMatchCount to 0
+      set controlMainAfterSettings to false
+      set controlFocusedAfterSettings to false
+      repeat with candidateWindow in every window
+        try
+          set candidateIdentifier to value of attribute "AXIdentifier" of candidateWindow as text
+          if candidateIdentifier is controlWindowIdentifier then
+            set controlMatchCount to controlMatchCount + 1
+            if controlWindow is missing value then set controlWindow to contents of candidateWindow
+          else if candidateIdentifier is settingsWindowIdentifier then
+            set settingsMatchCount to settingsMatchCount + 1
+            if settingsWindow is missing value then set settingsWindow to contents of candidateWindow
+          end if
+        end try
+      end repeat
+      set controlReturned to controlMatchCount is 1
+      set settingsRetainedForControl to settingsMatchCount is 1
+      if controlReturned then
+        try
+          set controlMainAfterSettings to value of attribute "AXMain" of controlWindow as boolean
+          set controlFocusedAfterSettings to value of attribute "AXFocused" of controlWindow as boolean
+        end try
+      end if
+      if controlReturned and settingsRetainedForControl and controlMainAfterSettings and controlFocusedAfterSettings then exit repeat
+      delay pollDelaySeconds
+    end repeat
+    if not controlReturned then
+      error "Control Center action did not return the identified window without duplication"
+    end if
+    if not settingsRetainedForControl then
+      error "Settings window was lost while returning to Control Center"
+    end if
+    if not controlMainAfterSettings or not controlFocusedAfterSettings then
+      error "identified Control Center window did not become main and focused after Settings"
+    end if
+
+    set closeButtons to every button of controlWindow whose subrole is "AXCloseButton"
+    if (count of closeButtons) is 0 then error "Control Center close button missing"
+    set closeButton to item 1 of closeButtons
+    perform action "AXPress" of closeButton
+
+    set controlClosed to false
+    set settingsRetainedAfterControlClose to false
+    repeat with pollAttempt from 1 to pollAttemptLimit
+      set controlMatchCount to 0
+      set settingsMatchCount to 0
+      set settingsWindow to missing value
+      repeat with candidateWindow in every window
+        try
+          set candidateIdentifier to value of attribute "AXIdentifier" of candidateWindow as text
+          if candidateIdentifier is controlWindowIdentifier then
+            set controlMatchCount to controlMatchCount + 1
+          else if candidateIdentifier is settingsWindowIdentifier then
+            set settingsMatchCount to settingsMatchCount + 1
+            if settingsWindow is missing value then set settingsWindow to contents of candidateWindow
+          end if
+        end try
+      end repeat
+      set controlClosed to controlMatchCount is 0
+      set settingsRetainedAfterControlClose to settingsMatchCount is 1
+      if controlClosed and settingsRetainedAfterControlClose then exit repeat
+      delay pollDelaySeconds
+    end repeat
+    if not controlClosed then error "identified Control Center window did not close"
+    if not settingsRetainedAfterControlClose then
+      error "closing Control Center also removed or duplicated the Settings window"
+    end if
+
+    set closeButtons to every button of settingsWindow whose subrole is "AXCloseButton"
+    if (count of closeButtons) is 0 then error "Settings close button missing"
+    set closeButton to item 1 of closeButtons
+    perform action "AXPress" of closeButton
+
+    set settingsClosed to false
+    set remainingTargetWindows to 2
+    set unrelatedWindowsPreserved to false
+    repeat with pollAttempt from 1 to pollAttemptLimit
+      set controlMatchCount to 0
+      set settingsMatchCount to 0
+      set currentWindows to every window
+      repeat with candidateWindow in currentWindows
+        try
+          set candidateIdentifier to value of attribute "AXIdentifier" of candidateWindow as text
+          if candidateIdentifier is controlWindowIdentifier then
+            set controlMatchCount to controlMatchCount + 1
+          else if candidateIdentifier is settingsWindowIdentifier then
+            set settingsMatchCount to settingsMatchCount + 1
+          end if
+        end try
+      end repeat
+      set settingsClosed to settingsMatchCount is 0
+      set remainingTargetWindows to controlMatchCount + settingsMatchCount
+      set baselineWindowsPreserved to true
+      repeat with baselineWindow in baselineWindows
+        set baselineWindowStillPresent to false
+        repeat with candidateWindow in currentWindows
+          if (contents of candidateWindow) is (contents of baselineWindow) then
+            set baselineWindowStillPresent to true
+            exit repeat
+          end if
+        end repeat
+        if not baselineWindowStillPresent then
+          set baselineWindowsPreserved to false
+          exit repeat
+        end if
+      end repeat
+      set unrelatedWindowsPreserved to baselineWindowsPreserved and ((count of currentWindows) is baselineWindowCount)
+      if settingsClosed and remainingTargetWindows is 0 and unrelatedWindowsPreserved then exit repeat
+      delay pollDelaySeconds
+    end repeat
+
     set statusItemAlive to exists menu bar item 1 of menu bar 2
-    return (controlResolved as text) & "|" & (controlSingleton as text) & "|" & ¬
-      (controlMain as text) & "|" & (controlFocused as text) & "|" & ¬
-      (controlClosed as text) & "|" & (settingsInitialEmpty as text) & "|" & ¬
-      (settingsOpened as text) & "|" & (settingsSingleton as text) & "|" & ¬
-      (settingsMain as text) & "|" & (settingsFocused as text) & "|" & ¬
-      (settingsClosed as text) & "|" & (remainingWindows as text) & "|" & ¬
-      (statusItemAlive as text)
+    return (targetsInitialAbsent as text) & "|" & (controlOpened as text) & "|" & ¬
+      (controlMainInitially as text) & "|" & (controlFocusedInitially as text) & "|" & ¬
+      (settingsAbsentAfterInitialControl as text) & "|" & (settingsOpened as text) & "|" & ¬
+      (controlRetainedForSettings as text) & "|" & ¬
+      (settingsMainAfterControl as text) & "|" & (settingsFocusedAfterControl as text) & "|" & ¬
+      (controlReturned as text) & "|" & (settingsRetainedForControl as text) & "|" & ¬
+      (controlMainAfterSettings as text) & "|" & (controlFocusedAfterSettings as text) & "|" & ¬
+      (controlClosed as text) & "|" & (settingsRetainedAfterControlClose as text) & "|" & ¬
+      (settingsClosed as text) & "|" & (remainingTargetWindows as text) & "|" & ¬
+      (unrelatedWindowsPreserved as text) & "|" & (statusItemAlive as text)
   end tell
 end tell
 APPLESCRIPT
@@ -370,36 +620,52 @@ if [ -n "$windowsError" ]; then
   printf '    osascript warning: %s\n' "$windowsError" >&2
 fi
 
-controlResolved=""
-controlSingleton=""
-controlMain=""
-controlFocused=""
-controlClosed=""
-settingsInitialEmpty=""
+targetsInitialAbsent=""
+controlOpened=""
+controlMainInitially=""
+controlFocusedInitially=""
+settingsAbsentAfterInitialControl=""
 settingsOpened=""
-settingsSingleton=""
-settingsMain=""
-settingsFocused=""
+controlRetainedForSettings=""
+settingsMainAfterControl=""
+settingsFocusedAfterControl=""
+controlReturned=""
+settingsRetainedForControl=""
+controlMainAfterSettings=""
+controlFocusedAfterSettings=""
+controlClosed=""
+settingsRetainedAfterControlClose=""
 settingsClosed=""
-remainingWindows=""
+remainingTargetWindows=""
+unrelatedWindowsPreserved=""
 statusItemAlive=""
-IFS='|' read -r controlResolved controlSingleton controlMain controlFocused \
-  controlClosed settingsInitialEmpty settingsOpened settingsSingleton \
-  settingsMain settingsFocused settingsClosed remainingWindows statusItemAlive \
+IFS='|' read -r targetsInitialAbsent controlOpened controlMainInitially \
+  controlFocusedInitially settingsAbsentAfterInitialControl settingsOpened \
+  controlRetainedForSettings \
+  settingsMainAfterControl settingsFocusedAfterControl controlReturned \
+  settingsRetainedForControl controlMainAfterSettings controlFocusedAfterSettings \
+  controlClosed settingsRetainedAfterControlClose settingsClosed \
+  remainingTargetWindows unrelatedWindowsPreserved statusItemAlive \
   <<< "$windows" || true
 
-if [ "$controlResolved" = true ] && [ "$controlSingleton" = true ] \
-  && [ "$controlMain" = true ] && [ "$controlFocused" = true ] \
-  && [ "$controlClosed" = true ] && [ "$settingsInitialEmpty" = true ] \
-  && [ "$settingsOpened" = true ] && [ "$settingsSingleton" = true ] \
-  && [ "$settingsMain" = true ] && [ "$settingsFocused" = true ] \
-  && [ "$settingsClosed" = true ] && [ "$remainingWindows" = 0 ] \
-  && [ "$statusItemAlive" = true ]; then
-  echo "    singleton main/focused Control Center and Settings lifecycle passed"
+if [ "$targetsInitialAbsent" = true ] && [ "$controlOpened" = true ] \
+  && [ "$controlMainInitially" = true ] && [ "$controlFocusedInitially" = true ] \
+  && [ "$settingsAbsentAfterInitialControl" = true ] \
+  && [ "$settingsOpened" = true ] && [ "$controlRetainedForSettings" = true ] \
+  && [ "$settingsMainAfterControl" = true ] \
+  && [ "$settingsFocusedAfterControl" = true ] \
+  && [ "$controlReturned" = true ] && [ "$settingsRetainedForControl" = true ] \
+  && [ "$controlMainAfterSettings" = true ] \
+  && [ "$controlFocusedAfterSettings" = true ] \
+  && [ "$controlClosed" = true ] \
+  && [ "$settingsRetainedAfterControlClose" = true ] \
+  && [ "$settingsClosed" = true ] && [ "$remainingTargetWindows" = 0 ] \
+  && [ "$unrelatedWindowsPreserved" = true ] && [ "$statusItemAlive" = true ]; then
+  echo "    identified Control Center/Settings focus transitions and targeted closure passed"
 else
-  failure="window lifecycle AX check failed: resolved=${controlResolved:-missing}, singleton=${controlSingleton:-missing}, main=${controlMain:-missing}, focused=${controlFocused:-missing}, controlClosed=${controlClosed:-missing}, settingsInitialEmpty=${settingsInitialEmpty:-missing}, settingsOpened=${settingsOpened:-missing}, settingsSingleton=${settingsSingleton:-missing}, settingsMain=${settingsMain:-missing}, settingsFocused=${settingsFocused:-missing}, settingsClosed=${settingsClosed:-missing}, remaining=${remainingWindows:-missing}, statusItemAlive=${statusItemAlive:-missing}"
+  failure="window lifecycle AX check failed: targetsInitialAbsent=${targetsInitialAbsent:-missing}, controlOpened=${controlOpened:-missing}, controlMainInitially=${controlMainInitially:-missing}, controlFocusedInitially=${controlFocusedInitially:-missing}, settingsAbsentAfterInitialControl=${settingsAbsentAfterInitialControl:-missing}, settingsOpened=${settingsOpened:-missing}, controlRetainedForSettings=${controlRetainedForSettings:-missing}, settingsMainAfterControl=${settingsMainAfterControl:-missing}, settingsFocusedAfterControl=${settingsFocusedAfterControl:-missing}, controlReturned=${controlReturned:-missing}, settingsRetainedForControl=${settingsRetainedForControl:-missing}, controlMainAfterSettings=${controlMainAfterSettings:-missing}, controlFocusedAfterSettings=${controlFocusedAfterSettings:-missing}, controlClosed=${controlClosed:-missing}, settingsRetainedAfterControlClose=${settingsRetainedAfterControlClose:-missing}, settingsClosed=${settingsClosed:-missing}, remainingTargetWindows=${remainingTargetWindows:-missing}, unrelatedWindowsPreserved=${unrelatedWindowsPreserved:-missing}, statusItemAlive=${statusItemAlive:-missing}"
   fail "$failure"
 fi
 
 kill -0 "$PID" 2>/dev/null \
-  || fail "closing every window terminated the menu-bar process"
+  || fail "closing the identified windows terminated the menu-bar process"

@@ -5,10 +5,14 @@ struct StandfastApp: App {
   @StateObject private var fleet = RunnerFleetModel()
   @StateObject private var loginItem = LoginItem()
   @StateObject private var thermal = ThermalMonitor()
+  @StateObject private var sceneActivation = SceneActivationCoordinator.live()
 
   var body: some Scene {
     MenuBarExtra {
-      QuickMenuView(fleet: fleet, thermal: thermal)
+      QuickMenuView(
+        fleet: fleet,
+        thermal: thermal,
+        sceneActivation: sceneActivation)
     } label: {
       let display = FleetSummary.summarising(fleet.snapshots.map(\.display))
       Image(systemName: FleetSummary.symbolName(for: fleet.snapshots.map(\.display)))
@@ -18,12 +22,21 @@ struct StandfastApp: App {
 
     Window(L10n.controlCenterTitle, id: "control-center") {
       ControlCenterView(fleet: fleet)
+        .background(
+          SceneWindowProbe(
+            target: .controlCenter,
+            registry: sceneActivation.windowRegistry))
     }
     .defaultSize(width: 640, height: 720)
 
     Settings {
       SettingsView(
-        loginItem: loginItem, notifications: fleet.notifications, sleep: fleet.sleep)
+        loginItem: loginItem, notifications: fleet.notifications, sleep: fleet.sleep
+      )
+      .background(
+        SceneWindowProbe(
+          target: .settings,
+          registry: sceneActivation.windowRegistry))
     }
   }
 }

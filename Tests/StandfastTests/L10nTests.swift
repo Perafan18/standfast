@@ -193,6 +193,19 @@ private func speaking(_ localization: String) throws -> Bundle {
   #expect(!spanish.values.contains(""))
 }
 
+@Test func cataloguesNeverMapAKeyToItself() throws {
+  let rawKeyPattern = #"(^| — )(menu|state|job|duration|thermal|notification)\."#
+  for language in ["en", "es"] {
+    let entries = try catalogue(language)
+    for (key, value) in entries {
+      #expect(value != key, "\(language): \(key)")
+      #expect(
+        value.range(of: rawKeyPattern, options: .regularExpression) == nil,
+        "\(language): \(key) → \(value)")
+    }
+  }
+}
+
 @Test func theCatalogueIsWhatTheLookupReads() throws {
   // Pointed at Spanish on purpose rather than at this host's language: on an
   // English CI runner the catalogue and the built-in table hold the same

@@ -160,7 +160,7 @@ enum L10n {
 
   static func quickMenuFleet(
     _ state: String, overflowCount: Int = 0,
-    in bundles: [Bundle] = L10n.bundles
+    in bundles: [Bundle]? = nil
   ) -> String {
     guard overflowCount > 0 else {
       return String(format: t("menu.fleet", in: bundles), state)
@@ -171,7 +171,7 @@ enum L10n {
   }
 
   static func quickMenuMoreRunners(
-    _ count: Int, in bundles: [Bundle] = L10n.bundles
+    _ count: Int, in bundles: [Bundle]? = nil
   ) -> String {
     guard count != 1 else { return t("menu.moreRunners.one", in: bundles) }
     return String(format: t("menu.moreRunners", in: bundles), String(count))
@@ -323,7 +323,7 @@ enum L10n {
   }
 
   static func cleanupLogsTitle(
-    _ count: Int, _ path: String, in bundles: [Bundle] = L10n.bundles
+    _ count: Int, _ path: String, in bundles: [Bundle]? = nil
   ) -> String {
     if count == 1 {
       return String(format: t("cleanup.logs.title.one", in: bundles), count, path)
@@ -332,7 +332,7 @@ enum L10n {
   }
 
   static func cleanupLogsEffect(
-    _ count: Int, in bundles: [Bundle] = L10n.bundles
+    _ count: Int, in bundles: [Bundle]? = nil
   ) -> String {
     let key = count == 1 ? "cleanup.logs.effect.one" : "cleanup.logs.effect"
     return String(format: t(key, in: bundles), count)
@@ -526,7 +526,8 @@ enum L10n {
     "duration.seconds": "%ds",
   ]
 
-  /// Looks the key up in the catalogues, and falls back to the English above.
+  /// Looks the key up in one complete language pack, and falls back to the
+  /// complete English table above.
   ///
   /// The fallback is not defensive padding: this app is assembled into its
   /// `.app` by a shell script, so the catalogues arriving in the wrong place —
@@ -534,20 +535,34 @@ enum L10n {
   /// to cost the user an untranslated menu, and never a blank one, a menu full
   /// of dotted keys, or a crash.
   ///
-  /// - Parameter bundles: where to look. Only a test passes this, and it is
-  ///   the one way to ask what the menu says with no catalogue whatsoever.
-  static func t(_ key: String, in bundles: [Bundle] = L10n.bundles) -> String {
-    for bundle in bundles {
-      // A sentinel rather than the key: `localizedString` echoes the key back
-      // when the lookup misses *and* when a catalogue genuinely maps the key
-      // to itself, and those need telling apart.
-      let found = bundle.localizedString(forKey: key, value: missing, table: nil)
-      if found != missing { return found }
-    }
-    return english[key] ?? key
+  /// A language is atomic here: lookups never fill holes in one `.lproj` from
+  /// a second bundle that may have negotiated a different language. A damaged
+  /// package therefore degrades wholly to built-in English instead of drawing
+  /// English actions beside Spanish state copy.
+  ///
+  /// - Parameter bundles: where to look. Only tests pass this; nil uses the one
+  ///   production pack selected at launch, while an empty array asks for the
+  ///   no-catalogue fallback explicitly.
+  static func t(_ key: String, in bundles: [Bundle]? = nil) -> String {
+    let catalogue = bundles.map(completeCatalogue(in:)) ?? activeCatalogue
+    return catalogue?[key] ?? english[key] ?? key
   }
 
-  private static let missing = "\u{0}no such key"
+  private static let activeCatalogue = completeCatalogue(in: bundles)
+
+  private static func completeCatalogue(in bundles: [Bundle]) -> [String: String]? {
+    bundles.lazy.compactMap(completeCatalogue(in:)).first
+  }
+
+  private static func completeCatalogue(in bundle: Bundle) -> [String: String]? {
+    guard
+      let path = bundle.path(forResource: "Localizable", ofType: "strings"),
+      let catalogue = NSDictionary(contentsOfFile: path) as? [String: String],
+      Set(catalogue.keys) == Set(english.keys),
+      catalogue.allSatisfy({ $0.key != $0.value })
+    else { return nil }
+    return catalogue
+  }
 
   /// SwiftPM's resource bundle, found by looking rather than by asking.
   ///

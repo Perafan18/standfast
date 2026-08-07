@@ -2,12 +2,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-AX_CHECK="$ROOT/Scripts/check-app-ax.sh"
+AX_CHECK="${STANDFAST_AX_CHECK_SOURCE:-$ROOT/Scripts/check-app-ax.sh}"
 QUICK_MENU="$ROOT/Sources/Standfast/QuickMenuView.swift"
+APP_SOURCE="$ROOT/Sources/Standfast/App.swift"
 SCENE_ACTIVATION="$ROOT/Sources/Standfast/SceneActivationCoordinator.swift"
+SCENE_REGISTRY="$ROOT/Sources/Standfast/SceneWindowRegistry.swift"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/standfast-ax-contract.XXXXXX")"
 FAKE_BIN="$TEST_ROOT/bin"
 SENTINEL="$TEST_ROOT/osascript-called"
+LIFECYCLE_SUCCESS="identified Control Center/Settings focus transitions and targeted closure passed"
+LIFECYCLE_VALID_TUPLE="true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|0|true|true"
 
 cleanup() {
   rm -rf "$TEST_ROOT"
@@ -50,7 +54,56 @@ assert_status_open_transitions() {
     || fail "$label must prove a closed-to-exposed transition before every AXPress"
 }
 
+scene_probe_binding_is_exact() {
+  local source="$1"
+  awk '
+    /^[[:space:]]*Window\(L10n\.controlCenterTitle, id: "control-center"\) \{/ {
+      scene = "control"
+      controlScenes += 1
+      next
+    }
+    scene == "control" && /^[[:space:]]*\.defaultSize\(/ {
+      scene = ""
+      awaitingTarget = ""
+      next
+    }
+    /^[[:space:]]*Settings \{/ {
+      scene = "settings"
+      settingsScenes += 1
+      next
+    }
+    scene == "control" && /SceneWindowProbe\(/ {
+      controlProbes += 1
+      awaitingTarget = "control"
+      next
+    }
+    scene == "settings" && /SceneWindowProbe\(/ {
+      settingsProbes += 1
+      awaitingTarget = "settings"
+      next
+    }
+    awaitingTarget != "" && /target:[[:space:]]*\./ {
+      if (awaitingTarget == "control" && /target:[[:space:]]*\.controlCenter,/) {
+        controlMatches += 1
+      } else if (awaitingTarget == "settings" && /target:[[:space:]]*\.settings,/) {
+        settingsMatches += 1
+      } else {
+        invalid = 1
+      }
+      awaitingTarget = ""
+    }
+    END {
+      valid = controlScenes == 1 && settingsScenes == 1 &&
+        controlProbes == 1 && settingsProbes == 1 &&
+        controlMatches == 1 && settingsMatches == 1 &&
+        awaitingTarget == "" && !invalid
+      exit(valid ? 0 : 1)
+    }
+  ' "$source"
+}
+
 mkdir -p "$FAKE_BIN"
+# shellcheck disable=SC2016 # Variables expand when the generated fake runs.
 printf '%s\n' \
   '#!/bin/bash' \
   ': > "$STANDFAST_OSASCRIPT_SENTINEL"' \
@@ -63,10 +116,11 @@ printf '%s\n' \
   '  printf "%s\n" "$call_count" > "$count_file"' \
   '  cat > "$STANDFAST_OSASCRIPT_CAPTURE_DIR/call-$call_count.applescript"' \
   '  case "$call_count" in' \
-  '    1) printf "%b\n" "${STANDFAST_OSASCRIPT_MENU_OUTPUT:-Fleet idle\nOpen Standfast\nSettings\nQuit}" ;;' \
+  '    1) printf "%b\n" "${STANDFAST_OSASCRIPT_MENU_OUTPUT:-static\tFleet idle\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit}" ;;' \
   '    2)' \
+  '      printf "%s\n" "${CHECK_LANGUAGE:-}" > "$STANDFAST_OSASCRIPT_CAPTURE_DIR/call-2.language"' \
   '      [ "${STANDFAST_OSASCRIPT_LIFECYCLE_ABORT:-0}" != 1 ] || exit 1' \
-  '      printf "%s\n" "${STANDFAST_OSASCRIPT_LIFECYCLE_TUPLE:-true|true|true|true|true|true|true|true|true|true|true|0|true}"' \
+  '      printf "%s\n" "${STANDFAST_OSASCRIPT_LIFECYCLE_TUPLE:-true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|0|true|true}"' \
   '      ;;' \
   '  esac' \
   'fi' \
@@ -129,8 +183,9 @@ lifecycle_output="$(
     STANDFAST_OSASCRIPT_CAPTURE_DIR="$capture_dir" \
     "$AX_CHECK" "$$" 2>&1
 )"
-assert_contains "$lifecycle_output" \
-  "singleton main/focused Control Center and Settings lifecycle passed"
+assert_contains "$lifecycle_output" "$LIFECYCLE_SUCCESS"
+[ "$(<"$capture_dir/call-2.language")" = en ] \
+  || fail "the English menu language was not passed to the lifecycle probe"
 
 warning_dir="$TEST_ROOT/captured-benign-warning"
 mkdir -p "$warning_dir"
@@ -142,8 +197,7 @@ warning_output="$(
     "$AX_CHECK" "$$" 2>&1
 )"
 assert_contains "$warning_output" "synthetic benign AX warning"
-assert_contains "$warning_output" \
-  "singleton main/focused Control Center and Settings lifecycle passed"
+assert_contains "$warning_output" "$LIFECYCLE_SUCCESS"
 
 key_like_runner_dir="$TEST_ROOT/captured-key-like-runner"
 mkdir -p "$key_like_runner_dir"
@@ -151,29 +205,93 @@ key_like_runner_output="$(
   PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
     STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
     STANDFAST_OSASCRIPT_CAPTURE_DIR="$key_like_runner_dir" \
-    STANDFAST_OSASCRIPT_MENU_OUTPUT='state.prod\nOpen Standfast\nSettings\nQuit' \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tstate.idle — Idle — ready for jobs\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
     "$AX_CHECK" "$$" 2>&1
 )"
-assert_contains "$key_like_runner_output" \
-  "singleton main/focused Control Center and Settings lifecycle passed"
+assert_contains "$key_like_runner_output" "$LIFECYCLE_SUCCESS"
 
-raw_key_dir="$TEST_ROOT/captured-raw-key-menu"
-mkdir -p "$raw_key_dir"
-raw_key_output=""
-if raw_key_output="$(
+non_boundary_key_dir="$TEST_ROOT/captured-non-boundary-key"
+mkdir -p "$non_boundary_key_dir"
+non_boundary_key_output="$(
   PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
     STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
-    STANDFAST_OSASCRIPT_CAPTURE_DIR="$raw_key_dir" \
-    STANDFAST_OSASCRIPT_MENU_OUTPUT='state.idle\nmenu.controlCenter\nmenu.settings\nmenu.quit' \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$non_boundary_key_dir" \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='static\tDiagnostic mentions state.idle\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
     "$AX_CHECK" "$$" 2>&1
-)"; then
-  fail "the AX smoke accepted a menu with no localized static actions"
-fi
-assert_contains "$raw_key_output" \
-  "did not expose the localized Control Center action"
-exact_action_check_count="$(grep -Fc 'grep -Fxq' "$AX_CHECK" || true)"
-[ "$exact_action_check_count" -eq 3 ] \
-  || fail "the AX smoke does not match each localized static action as a whole line"
+)"
+assert_contains "$non_boundary_key_output" "$LIFECYCLE_SUCCESS"
+
+spanish_dir="$TEST_ROOT/captured-spanish-menu"
+mkdir -p "$spanish_dir"
+spanish_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$spanish_dir" \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='static\tFlota inactiva\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+    "$AX_CHECK" "$$" 2>&1
+)"
+assert_contains "$spanish_output" "$LIFECYCLE_SUCCESS"
+[ "$(<"$spanish_dir/call-2.language")" = es ] \
+  || fail "the Spanish menu language was not passed to the lifecycle probe"
+
+expect_menu_output_rejected() {
+  local name="$1"
+  local menu_output="$2"
+  local expected="$3"
+  local menu_capture_dir="$TEST_ROOT/captured-menu-$name"
+  local rejected_output=""
+  mkdir -p "$menu_capture_dir"
+  if rejected_output="$(
+    PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+      STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+      STANDFAST_OSASCRIPT_CAPTURE_DIR="$menu_capture_dir" \
+      STANDFAST_OSASCRIPT_MENU_OUTPUT="$menu_output" \
+      "$AX_CHECK" "$$" 2>&1
+  )"; then
+    fail "the AX smoke accepted $name"
+  fi
+  assert_contains "$rejected_output" "$expected"
+}
+
+expect_menu_output_rejected \
+  "unknown-record" \
+  'mystery\tstate.idle\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "unknown AX menu record type"
+expect_menu_output_rejected \
+  "untyped-record" \
+  'state.idle\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "unknown AX menu record type"
+expect_menu_output_rejected \
+  "mixed-language" \
+  'static\tFleet idle\nstatic\tOpen Standfast\nstatic\tConfiguración\nstatic\tQuit' \
+  "one complete English or Spanish static action set"
+expect_menu_output_rejected \
+  "two-languages" \
+  'static\tOpen Standfast\nstatic\tSettings\nstatic\tQuit\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+  "one complete English or Spanish static action set"
+expect_menu_output_rejected \
+  "runner-action-spoof" \
+  'runner\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "one complete English or Spanish static action set"
+
+for raw_key in \
+  menu.controlCenter \
+  state.idle \
+  job.running \
+  duration.seconds \
+  thermal.serious \
+  notification.failed
+do
+  family="${raw_key%%.*}"
+  expect_menu_output_rejected \
+    "raw-$family-at-start" \
+    "static\t$raw_key\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit" \
+    "raw localization key escaped into static AX menu content: $raw_key"
+  expect_menu_output_rejected \
+    "raw-$family-after-separator" \
+    "static\tFleet — $raw_key\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit" \
+    "raw localization key escaped into static AX menu content: Fleet — $raw_key"
+done
 
 lifecycle_script="$capture_dir/call-2.applescript"
 [ -f "$lifecycle_script" ] || fail "the lifecycle AppleScript was not captured"
@@ -192,21 +310,25 @@ grep -Fq 'status menu did not become exposed through AXPress; the GUI session ma
   || fail "the menu probe has no causal locked-session diagnostic"
 grep -Fq 'value of attribute "AXVisibleChildren" of targetMenu' "$menu_script" \
   || fail "the menu probe reads cached children instead of visible children"
-grep -Fq 'set directMenuItems to every menu item of targetMenu' "$menu_script" \
-  || fail "the menu probe does not capture the direct AXChildren after exposure"
-if grep -Eq 'count of visibleMenuItems.*count of directMenuItems|hidden or stale direct items' \
-  "$menu_script"; then
-  fail "the menu probe treats visible-child cardinality as a freshness guarantee"
+if grep -Fq 'every menu item of targetMenu' "$menu_script"; then
+  fail "the menu probe searches cached AXChildren instead of the exposed AXVisibleChildren"
 fi
-grep -Fq 'repeat with directMenuItem in directMenuItems' "$menu_script" \
-  || fail "the menu probe does not enumerate its verified direct AXChildren"
-grep -Fq 'set end of names to name of directMenuItem as text' "$menu_script" \
-  || fail "the menu probe does not read names from its verified direct AXChildren"
+grep -Fq 'repeat with visibleMenuItem in visibleMenuItems' "$menu_script" \
+  || fail "the menu probe does not enumerate the exposed AXVisibleChildren"
+grep -Fq 'value of attribute "AXTitle" of visibleMenuItem' "$menu_script" \
+  || fail "the menu probe does not read titles from exposed AXVisibleChildren"
+grep -Fq 'value of attribute "AXIdentifier" of visibleMenuItem' "$menu_script" \
+  || fail "the menu probe does not type exposed records from stable AX identifiers"
+grep -Fq 'dev.standfast.quick-menu.static' "$menu_script" \
+  || fail "the menu probe does not recognize the stable static AX identifier"
+grep -Fq 'dev.standfast.quick-menu.runner' "$menu_script" \
+  || fail "the menu probe does not recognize the stable runner AX identifier"
+grep -Fq 'set recordType to "unknown"' "$menu_script" \
+  || fail "the menu probe does not emit a closed-world type for unknown identifiers"
+grep -Fq 'set end of records to recordType & tab' "$menu_script" \
+  || fail "the menu probe does not emit one typed record per visible AX child"
 grep -Fq 'set text item delimiters of AppleScript to linefeed' "$menu_script" \
   || fail "the menu probe concatenates adjacent item names without a delimiter"
-if grep -Fq 'name of every menu item of targetMenu' "$menu_script"; then
-  fail "the menu probe bypasses its verified direct AXChildren list"
-fi
 assert_status_open_transitions "$menu_script" 1 "the menu probe"
 grep -Fq 'set menuClosedAfterCancel to not (selected of statusItem)' "$menu_script" \
   || fail "the menu probe returns before AXCancel has closed the status menu"
@@ -225,41 +347,42 @@ fi
 /usr/bin/osacompile -o "$TEST_ROOT/menu.scpt" "$menu_script" \
   >/dev/null || fail "the menu AppleScript does not compile"
 lifecycle_status_press_count="$(grep -Fc 'perform action "AXPress" of statusItem' "$lifecycle_script" || true)"
-[ "$lifecycle_status_press_count" -eq 2 ] \
-  || fail "both lifecycle actions must expose the status menu through AXPress"
+[ "$lifecycle_status_press_count" -eq 3 ] \
+  || fail "Control, Settings, and Control return must expose the status menu through AXPress"
 lifecycle_exposure_count="$(grep -Fc 'set menuExposed to selected of statusItem' "$lifecycle_script" || true)"
-[ "$lifecycle_exposure_count" -eq 2 ] \
-  || fail "both lifecycle actions must wait for AXSelected"
-assert_status_open_transitions "$lifecycle_script" 2 "both lifecycle actions"
+[ "$lifecycle_exposure_count" -eq 3 ] \
+  || fail "all three lifecycle actions must wait for AXSelected"
+assert_status_open_transitions "$lifecycle_script" 3 "all three lifecycle actions"
 lifecycle_visible_children_count="$(grep -Fc 'value of attribute "AXVisibleChildren" of targetMenu' "$lifecycle_script" || true)"
-[ "$lifecycle_visible_children_count" -eq 2 ] \
-  || fail "both lifecycle actions must inspect visible children after exposure"
+[ "$lifecycle_visible_children_count" -eq 3 ] \
+  || fail "all three lifecycle actions must inspect visible children after exposure"
 visible_menu_guard_count="$(grep -Fc 'if (count of visibleMenuItems) is 0 then error' "$lifecycle_script" || true)"
-[ "$visible_menu_guard_count" -eq 2 ] \
-  || fail "both lifecycle actions must reject an exposed menu with no visible children"
-direct_menu_capture_count="$(grep -Fc 'set directMenuItems to every menu item of targetMenu' "$lifecycle_script" || true)"
-[ "$direct_menu_capture_count" -eq 2 ] \
-  || fail "both lifecycle actions must capture direct AXChildren after exposure"
-if grep -Eq 'count of visibleMenuItems.*count of directMenuItems|hidden or stale direct items' \
-  "$lifecycle_script"; then
-  fail "a lifecycle action treats visible-child cardinality as freshness"
+[ "$visible_menu_guard_count" -eq 3 ] \
+  || fail "all three lifecycle actions must reject an exposed menu with no visible children"
+if grep -Fq 'every menu item of targetMenu' "$lifecycle_script"; then
+  fail "a lifecycle action searches cached AXChildren instead of its exposed AXVisibleChildren"
 fi
-direct_menu_loop_count="$(grep -Fc 'repeat with directMenuItem in directMenuItems' "$lifecycle_script" || true)"
-[ "$direct_menu_loop_count" -eq 2 ] \
-  || fail "both lifecycle actions must search the verified direct AXChildren"
-direct_menu_resolution_count="$(grep -Fc 'set targetMenuItem to contents of directMenuItem' "$lifecycle_script" || true)"
-[ "$direct_menu_resolution_count" -eq 2 ] \
-  || fail "both lifecycle actions must press an item from the verified direct AXChildren"
+visible_menu_loop_count="$(grep -Fc 'repeat with visibleMenuItem in visibleMenuItems' "$lifecycle_script" || true)"
+[ "$visible_menu_loop_count" -eq 3 ] \
+  || fail "all three lifecycle actions must search their exposed AXVisibleChildren"
+visible_menu_title_count="$(grep -Fc 'value of attribute "AXTitle" of visibleMenuItem as text' "$lifecycle_script" || true)"
+[ "$visible_menu_title_count" -eq 3 ] \
+  || fail "all three lifecycle actions must read titles from exposed AXVisibleChildren"
+visible_menu_resolution_count="$(grep -Fc 'set targetMenuItem to contents of visibleMenuItem' "$lifecycle_script" || true)"
+[ "$visible_menu_resolution_count" -eq 3 ] \
+  || fail "all three lifecycle actions must press an item from exposed AXVisibleChildren"
 menu_item_press_count="$(grep -Fc 'perform action "AXPress" of targetMenuItem' "$lifecycle_script" || true)"
-[ "$menu_item_press_count" -eq 2 ] \
-  || fail "both visible lifecycle menu items must be invoked through AXPress"
+[ "$menu_item_press_count" -eq 3 ] \
+  || fail "all three visible lifecycle menu items must be invoked through AXPress"
+grep -Fq 'system attribute "CHECK_LANGUAGE"' "$lifecycle_script" \
+  || fail "the lifecycle probe does not reuse the one validated menu language"
 if grep -Fq 'click statusItem' "$lifecycle_script"; then
   fail "the lifecycle probe still uses an unreliable synthetic status-item click"
 fi
-grep -Fq 'Control Center action produced no window after AXPress on an exposed menu' \
+grep -Fq 'Control Center action produced no window with AXIdentifier' \
   "$lifecycle_script" \
   || fail "the Control Center path has no causal dispatch diagnostic"
-grep -Fq 'Settings action produced no window after AXPress on an exposed menu' \
+grep -Fq 'Settings action produced no window with AXIdentifier' \
   "$lifecycle_script" \
   || fail "the Settings path has no causal dispatch diagnostic"
 close_button_count="$(grep -Fc 'subrole is "AXCloseButton"' "$lifecycle_script" || true)"
@@ -271,22 +394,59 @@ close_press_count="$(grep -Fc 'perform action "AXPress" of closeButton' "$lifecy
 if grep -Fq 'perform action "AXClose"' "$lifecycle_script"; then
   fail "the lifecycle probe still invokes unsupported AXClose on a window"
 fi
-if grep -Eq 'Standfast Settings|Ajustes de Standfast' "$lifecycle_script"; then
-  fail "the lifecycle probe identifies the system-owned Settings title by copy"
+grep -Fq 'dev.standfast.scene.control-center' "$lifecycle_script" \
+  || fail "the lifecycle probe does not use the stable Control Center window identifier"
+grep -Fq 'dev.standfast.scene.settings' "$lifecycle_script" \
+  || fail "the lifecycle probe does not use the stable Settings window identifier"
+window_identifier_read_count="$(grep -Fc 'value of attribute "AXIdentifier" of candidateWindow as text' "$lifecycle_script" || true)"
+[ "$window_identifier_read_count" -ge 6 ] \
+  || fail "the lifecycle probe does not resolve every transition by exact window identifier"
+if grep -Eq 'Standfast Control Center|Centro de control de Standfast|Standfast Settings|Ajustes de Standfast' \
+  "$lifecycle_script"; then
+  fail "the lifecycle probe still identifies a target window by localized title"
 fi
-grep -Fq 'set settingsInitialEmpty to (count of windows) is 0' "$lifecycle_script" \
-  || fail "the lifecycle probe does not require a zero-window Settings baseline"
-grep -Fq 'set controlSingleton to controlWindowCount is 1 and processWindowCount is 1' \
+if grep -Eq 'processWindowCount|controlSingleton|settingsSingleton|settingsInitialEmpty|count of windows\) is 0' \
+  "$lifecycle_script"; then
+  fail "the lifecycle probe still assumes its target is the process singleton"
+fi
+control_action_resolution_count="$(grep -Fc 'visibleName is controlCenterItemName' "$lifecycle_script" || true)"
+[ "$control_action_resolution_count" -eq 2 ] \
+  || fail "the lifecycle probe must invoke Control Center before and after Settings"
+settings_action_resolution_count="$(grep -Fc 'visibleName is settingsItemName' "$lifecycle_script" || true)"
+[ "$settings_action_resolution_count" -eq 1 ] \
+  || fail "the lifecycle probe must invoke Settings once between Control actions"
+grep -Fq 'set settingsMainAfterControl to value of attribute "AXMain" of settingsWindow as boolean' \
   "$lifecycle_script" \
-  || fail "the Control Center probe accepts an unrelated process window"
-grep -Fq 'set settingsSingleton to settingsWindowCount is 1' "$lifecycle_script" \
-  || fail "the Settings probe accepts an unrelated or duplicate process window"
-grep -Fq 'set settingsMain to value of attribute "AXMain" of settingsWindow as boolean' \
+  || fail "Control-to-Settings does not require Settings to become main"
+grep -Fq 'set settingsFocusedAfterControl to value of attribute "AXFocused" of settingsWindow as boolean' \
   "$lifecycle_script" \
-  || fail "the Settings probe does not require the window to be main"
-grep -Fq 'set settingsFocused to value of attribute "AXFocused" of settingsWindow as boolean' \
+  || fail "Control-to-Settings does not require Settings to become focused"
+grep -Fq 'set controlMainAfterSettings to value of attribute "AXMain" of controlWindow as boolean' \
   "$lifecycle_script" \
-  || fail "the Settings probe does not require the window to be focused"
+  || fail "Settings-to-Control does not require Control Center to become main"
+grep -Fq 'set controlFocusedAfterSettings to value of attribute "AXFocused" of controlWindow as boolean' \
+  "$lifecycle_script" \
+  || fail "Settings-to-Control does not require Control Center to become focused"
+grep -Fq 'set settingsRetainedAfterControlClose' "$lifecycle_script" \
+  || fail "targeted closure does not prove Settings survived closing Control Center"
+grep -Fq 'set settingsAbsentAfterInitialControl to settingsMatchCount is 0' "$lifecycle_script" \
+  || fail "the initial Control transition does not explicitly require Settings to stay absent"
+grep -Fq 'if not settingsAbsentAfterInitialControl then' "$lifecycle_script" \
+  || fail "the initial Control transition has no causal failure for an unexpected Settings window"
+grep -Fq 'set baselineWindows to {}' "$lifecycle_script" \
+  || fail "the lifecycle probe does not retain baseline window identities"
+grep -Fq 'set end of baselineWindows to contents of candidateWindow' "$lifecycle_script" \
+  || fail "the lifecycle probe does not retain concrete baseline window references"
+grep -Fq 'repeat with baselineWindow in baselineWindows' "$lifecycle_script" \
+  || fail "targeted closure does not verify every baseline window reference"
+grep -Fq 'if (contents of candidateWindow) is (contents of baselineWindow) then' "$lifecycle_script" \
+  || fail "targeted closure does not compare current windows with each baseline identity"
+grep -Fq 'set unrelatedWindowsPreserved to baselineWindowsPreserved and' "$lifecycle_script" \
+  || fail "targeted closure does not combine baseline identity and cardinality preservation"
+if grep -Fq 'set unrelatedWindowsPreserved to (count of windows) is baselineWindowCount' \
+  "$lifecycle_script"; then
+  fail "targeted closure still treats equal window counts as identity preservation"
+fi
 grep -Fq 'set pollAttemptLimit to 50' "$lifecycle_script" \
   || fail "the lifecycle probe has no bounded polling budget"
 grep -Fq 'delay pollDelaySeconds' "$lifecycle_script" \
@@ -316,7 +476,7 @@ fi
 assert_contains "$lifecycle_failure_output" "Accessibility lifecycle probe aborted"
 assert_contains "$lifecycle_failure_output" "synthetic lifecycle AX failure"
 case "$lifecycle_failure_output" in
-  *"resolved="*) fail "an osascript error was obscured by a synthetic lifecycle tuple" ;;
+  *"targetsInitialAbsent="*) fail "an osascript error was obscured by a synthetic lifecycle tuple" ;;
 esac
 
 expect_lifecycle_tuple_rejected() {
@@ -338,35 +498,106 @@ expect_lifecycle_tuple_rejected() {
   assert_contains "$tuple_output" "$expected"
 }
 
+lifecycle_tuple_with_field() {
+  local field="$1"
+  local value="$2"
+  printf '%s\n' "$LIFECYCLE_VALID_TUPLE" \
+    | awk -F '|' -v OFS='|' -v field="$field" -v value="$value" \
+      '{$field = value; print}'
+}
+
 expect_lifecycle_tuple_rejected \
-  "non-empty-settings-baseline" \
-  'true|true|true|true|true|false|true|true|true|true|true|0|true' \
-  'settingsInitialEmpty=false'
+  "pre-existing-target-window" \
+  "$(lifecycle_tuple_with_field 1 false)" \
+  'targetsInitialAbsent=false'
 expect_lifecycle_tuple_rejected \
-  "non-main-settings" \
-  'true|true|true|true|true|true|true|true|false|true|true|0|true' \
-  'settingsMain=false'
+  "initial-control-not-main" \
+  "$(lifecycle_tuple_with_field 3 false)" \
+  'controlMainInitially=false'
 expect_lifecycle_tuple_rejected \
-  "non-focused-settings" \
-  'true|true|true|true|true|true|true|true|true|false|true|0|true' \
-  'settingsFocused=false'
+  "control-not-opened" \
+  "$(lifecycle_tuple_with_field 2 false)" \
+  'controlOpened=false'
 expect_lifecycle_tuple_rejected \
-  "extra-settings-window" \
-  'true|true|true|true|true|true|true|false|true|true|true|0|true' \
-  'settingsSingleton=false'
+  "initial-control-not-focused" \
+  "$(lifecycle_tuple_with_field 4 false)" \
+  'controlFocusedInitially=false'
+expect_lifecycle_tuple_rejected \
+  "settings-opened-with-initial-control" \
+  "$(lifecycle_tuple_with_field 5 false)" \
+  'settingsAbsentAfterInitialControl=false'
+expect_lifecycle_tuple_rejected \
+  "settings-not-opened" \
+  "$(lifecycle_tuple_with_field 6 false)" \
+  'settingsOpened=false'
+expect_lifecycle_tuple_rejected \
+  "control-lost-during-settings-transition" \
+  "$(lifecycle_tuple_with_field 7 false)" \
+  'controlRetainedForSettings=false'
+expect_lifecycle_tuple_rejected \
+  "settings-not-main-after-control" \
+  "$(lifecycle_tuple_with_field 8 false)" \
+  'settingsMainAfterControl=false'
+expect_lifecycle_tuple_rejected \
+  "settings-not-focused-after-control" \
+  "$(lifecycle_tuple_with_field 9 false)" \
+  'settingsFocusedAfterControl=false'
+expect_lifecycle_tuple_rejected \
+  "settings-lost-during-control-return" \
+  "$(lifecycle_tuple_with_field 11 false)" \
+  'settingsRetainedForControl=false'
+expect_lifecycle_tuple_rejected \
+  "control-not-returned" \
+  "$(lifecycle_tuple_with_field 10 false)" \
+  'controlReturned=false'
+expect_lifecycle_tuple_rejected \
+  "control-not-main-after-settings" \
+  "$(lifecycle_tuple_with_field 12 false)" \
+  'controlMainAfterSettings=false'
+expect_lifecycle_tuple_rejected \
+  "control-not-focused-after-settings" \
+  "$(lifecycle_tuple_with_field 13 false)" \
+  'controlFocusedAfterSettings=false'
+expect_lifecycle_tuple_rejected \
+  "control-not-closed" \
+  "$(lifecycle_tuple_with_field 14 false)" \
+  'controlClosed=false'
+expect_lifecycle_tuple_rejected \
+  "settings-collateral-close" \
+  "$(lifecycle_tuple_with_field 15 false)" \
+  'settingsRetainedAfterControlClose=false'
+expect_lifecycle_tuple_rejected \
+  "settings-not-closed" \
+  "$(lifecycle_tuple_with_field 16 false)" \
+  'settingsClosed=false'
+expect_lifecycle_tuple_rejected \
+  "target-window-remains" \
+  "$(lifecycle_tuple_with_field 17 1)" \
+  'remainingTargetWindows=1'
+expect_lifecycle_tuple_rejected \
+  "unrelated-window-closed" \
+  "$(lifecycle_tuple_with_field 18 false)" \
+  'unrelatedWindowsPreserved=false'
+expect_lifecycle_tuple_rejected \
+  "status-item-died" \
+  "$(lifecycle_tuple_with_field 19 false)" \
+  'statusItemAlive=false'
 
 # GitHub cannot run the strict AX path, so retain a small source contract for
-# the first-open race that the local runtime gate reproduced. Scene creation is
-# deferred; activating in the same turn leaves the first window hidden.
-activation_call_count="$(grep -Fc 'SceneActivationCoordinator.live().activateWhenWindowIsVisible()' "$QUICK_MENU" || true)"
-[ "$activation_call_count" -eq 2 ] \
-  || fail "both scene actions must request condition-based application activation"
+# the exact-target race that the local runtime gate reproduced. The coordinator
+# must own each open request; no global visible-window predicate can satisfy it.
+exact_target_call_count="$(grep -Ec 'sceneActivation\.openAndActivate\(\.(controlCenter|settings)\)' "$QUICK_MENU" || true)"
+[ "$exact_target_call_count" -eq 2 ] \
+  || fail "both scene actions must request exact-target application activation"
 control_open_then_activate="$(awk '
   /case \.openControlCenter:/ { in_case = 1; stage = 1; next }
   in_case && /^[[:space:]]+case \./ { in_case = 0; stage = 0 }
-  in_case && stage == 1 && /SceneActivationCoordinator\.live\(\)\.activateWhenWindowIsVisible\(\)/ { invalid = 1 }
-  in_case && stage == 1 && /openWindow\(id: "control-center"\)/ { stage = 2; next }
-  in_case && stage == 2 && /SceneActivationCoordinator\.live\(\)\.activateWhenWindowIsVisible\(\)/ {
+  in_case && stage == 1 && /openWindow\(id: "control-center"\)/ { invalid = 1 }
+  in_case && stage == 1 && /sceneActivation\.openAndActivate\(\.controlCenter\)/ {
+    stage = 2
+    next
+  }
+  in_case && stage == 2 && /openWindow\(id: "control-center"\)/ {
     count += 1
     in_case = 0
   }
@@ -377,9 +608,12 @@ control_open_then_activate="$(awk '
 settings_open_then_activate="$(awk '
   /case \.openSettings:/ { in_case = 1; stage = 1; next }
   in_case && /^[[:space:]]+case \./ { in_case = 0; stage = 0 }
-  in_case && stage == 1 && /SceneActivationCoordinator\.live\(\)\.activateWhenWindowIsVisible\(\)/ { invalid = 1 }
-  in_case && stage == 1 && /openSettings\(\)/ { stage = 2; next }
-  in_case && stage == 2 && /SceneActivationCoordinator\.live\(\)\.activateWhenWindowIsVisible\(\)/ {
+  in_case && stage == 1 && /openSettings\(\)/ { invalid = 1 }
+  in_case && stage == 1 && /sceneActivation\.openAndActivate\(\.settings\)/ {
+    stage = 2
+    next
+  }
+  in_case && stage == 2 && /openSettings\(\)/ {
     count += 1
     in_case = 0
   }
@@ -393,9 +627,47 @@ activation_count="$(grep -Fc 'NSApplication.shared.activate()' "$SCENE_ACTIVATIO
 if grep -Fq 'NSApplication.shared.activate(' "$QUICK_MENU"; then
   fail "QuickMenu must not activate synchronously before a requested scene is visible"
 fi
-grep -Fq 'NSApplication.shared.windows.contains { $0.isVisible && $0.canBecomeMain }' \
-  "$SCENE_ACTIVATION" \
-  || fail "scene activation does not wait for a visible window capable of becoming main"
+grep -Fq 'windowRegistry.window(for: request.target)' "$SCENE_ACTIVATION" \
+  || fail "scene activation does not resolve the exact requested target"
+if grep -Fq 'NSApplication.shared.windows' "$SCENE_ACTIVATION"; then
+  fail "scene activation regressed to accepting an unrelated application window"
+fi
+scene_probe_binding_is_exact "$APP_SOURCE" \
+  || fail "each SwiftUI scene must install its own exact-target window probe"
+swapped_scene_source="$TEST_ROOT/App-swapped-scene-probes.swift"
+awk '
+  {
+    if (!swappedControl && /target:[[:space:]]*\.controlCenter,/) {
+      sub(/target:[[:space:]]*\.controlCenter,/, "target: .settings,")
+      swappedControl = 1
+    } else if (!swappedSettings && /target:[[:space:]]*\.settings,/) {
+      sub(/target:[[:space:]]*\.settings,/, "target: .controlCenter,")
+      swappedSettings = 1
+    }
+    print
+  }
+  END { if (!swappedControl || !swappedSettings) exit 1 }
+' "$APP_SOURCE" > "$swapped_scene_source"
+if scene_probe_binding_is_exact "$swapped_scene_source"; then
+  fail "the scene source contract accepted swapped Control Center and Settings probes"
+fi
+grep -Fq 'dev.standfast.scene.control-center' "$SCENE_REGISTRY" \
+  || fail "the Control Center window has no stable AX identity"
+grep -Fq 'dev.standfast.scene.settings' "$SCENE_REGISTRY" \
+  || fail "the Settings window has no stable AX identity"
+static_identifier_count="$(grep -Fc '"dev.standfast.quick-menu.static"' "$QUICK_MENU" || true)"
+[ "$static_identifier_count" -eq 5 ] \
+  || fail "every static quick-menu element must expose the stable static AX identifier"
+runner_identifier_count="$(grep -Fc '"dev.standfast.quick-menu.runner"' "$QUICK_MENU" || true)"
+[ "$runner_identifier_count" -eq 2 ] \
+  || fail "both runner quick-menu shapes must expose the stable runner AX identifier"
+front_then_activate="$(awk '
+  /window\.makeKeyAndOrderFront\(nil\)/ { stage = 1; next }
+  stage == 1 && /activateApplication\(\)/ { count += 1; stage = 0 }
+  END { print count + 0 }
+' "$SCENE_ACTIVATION")"
+[ "$front_then_activate" -eq 1 ] \
+  || fail "the exact window must be made key and front before app activation"
 if grep -Fq 'DispatchQueue.main.async {' "$QUICK_MENU"; then
   fail "scene activation regressed to an unconditioned single queue hop"
 fi

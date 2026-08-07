@@ -1,63 +1,147 @@
 import AppKit
+import Combine
 import Dispatch
+import OSLog
 
-/// Activates the agent app only after SwiftUI has materialised a real window.
+/// Activates only the exact scene window requested by the latest menu action.
 ///
-/// `openWindow` and `openSettings` return before their scene is guaranteed to
-/// exist. A queue hop narrows that race but does not close it; the observable
-/// condition is a visible application window that can become main.
+/// SwiftUI's open actions return before their `NSWindow` is guaranteed to exist. The
+/// coordinator polls a weak scene registry, retries the same open action once at its soft
+/// timeout, then reports a hard timeout without falling back to another application window.
 @MainActor
-struct SceneActivationCoordinator {
+final class SceneActivationCoordinator: ObservableObject {
   typealias ScheduledPoll = @MainActor @Sendable () -> Void
+  typealias OpenScene = @MainActor @Sendable () -> Void
 
-  private let maximumPollAttempts: Int
-  private let hasVisibleMainWindow: () -> Bool
-  private let activate: () -> Void
-  private let scheduleNextPoll: (@escaping ScheduledPoll) -> Void
+  private enum PollingPhase {
+    case beforeSoftTimeout
+    case beforeHardTimeout
+  }
+
+  private final class ActivationRequest {
+    let generation: UInt64
+    let target: SceneTarget
+    let openScene: OpenScene
+    var isFinished = false
+
+    init(generation: UInt64, target: SceneTarget, openScene: @escaping OpenScene) {
+      self.generation = generation
+      self.target = target
+      self.openScene = openScene
+    }
+  }
+
+  let windowRegistry: SceneWindowRegistry
+
+  private let pollsUntilSoftTimeout: Int
+  private let pollsUntilHardTimeout: Int
+  private let activateApplication: () -> Void
+  private let schedulePoll: (@escaping ScheduledPoll) -> Void
+  private let reportSoftTimeout: (SceneTarget) -> Void
+  private let reportHardTimeout: (SceneTarget) -> Void
+  private var latestGeneration: UInt64 = 0
 
   init(
-    maximumPollAttempts: Int,
-    hasVisibleMainWindow: @escaping () -> Bool,
-    activate: @escaping () -> Void,
-    scheduleNextPoll: @escaping (@escaping ScheduledPoll) -> Void
+    windowRegistry: SceneWindowRegistry,
+    pollsUntilSoftTimeout: Int,
+    pollsUntilHardTimeout: Int,
+    activateApplication: @escaping () -> Void,
+    schedulePoll: @escaping (@escaping ScheduledPoll) -> Void,
+    reportSoftTimeout: @escaping (SceneTarget) -> Void,
+    reportHardTimeout: @escaping (SceneTarget) -> Void
   ) {
-    self.maximumPollAttempts = maximumPollAttempts
-    self.hasVisibleMainWindow = hasVisibleMainWindow
-    self.activate = activate
-    self.scheduleNextPoll = scheduleNextPoll
+    precondition(pollsUntilSoftTimeout >= 0)
+    precondition(pollsUntilHardTimeout >= 0)
+    self.windowRegistry = windowRegistry
+    self.pollsUntilSoftTimeout = pollsUntilSoftTimeout
+    self.pollsUntilHardTimeout = pollsUntilHardTimeout
+    self.activateApplication = activateApplication
+    self.schedulePoll = schedulePoll
+    self.reportSoftTimeout = reportSoftTimeout
+    self.reportHardTimeout = reportHardTimeout
   }
 
-  func activateWhenWindowIsVisible() {
-    poll(remainingAttempts: maximumPollAttempts)
+  func openAndActivate(_ target: SceneTarget, openScene: @escaping OpenScene) {
+    latestGeneration &+= 1
+    let request = ActivationRequest(
+      generation: latestGeneration,
+      target: target,
+      openScene: openScene)
+    openScene()
+    poll(
+      request,
+      phase: .beforeSoftTimeout,
+      remainingPolls: pollsUntilSoftTimeout)
   }
 
-  private func poll(remainingAttempts: Int) {
-    if hasVisibleMainWindow() {
-      activate()
+  private func poll(
+    _ request: ActivationRequest,
+    phase: PollingPhase,
+    remainingPolls: Int
+  ) {
+    guard request.generation == latestGeneration, !request.isFinished else { return }
+
+    if let window = windowRegistry.window(for: request.target), window.canBecomeKey {
+      request.isFinished = true
+      if window.isMiniaturized {
+        window.deminiaturize(nil)
+      }
+      window.makeKeyAndOrderFront(nil)
+      activateApplication()
       return
     }
-    guard remainingAttempts > 0 else { return }
-    scheduleNextPoll {
-      poll(remainingAttempts: remainingAttempts - 1)
+
+    if remainingPolls > 0 {
+      schedulePoll {
+        self.poll(
+          request,
+          phase: phase,
+          remainingPolls: remainingPolls - 1)
+      }
+      return
+    }
+
+    switch phase {
+    case .beforeSoftTimeout:
+      reportSoftTimeout(request.target)
+      request.openScene()
+      poll(
+        request,
+        phase: .beforeHardTimeout,
+        remainingPolls: pollsUntilHardTimeout)
+    case .beforeHardTimeout:
+      request.isFinished = true
+      reportHardTimeout(request.target)
     }
   }
 }
 
 extension SceneActivationCoordinator {
-  static func live(
-    hasVisibleMainWindow: @escaping () -> Bool = {
-      NSApplication.shared.windows.contains { $0.isVisible && $0.canBecomeMain }
-    },
-    activate: @escaping () -> Void = {
-      NSApplication.shared.activate()
-    }
-  ) -> SceneActivationCoordinator {
-    SceneActivationCoordinator(
-      maximumPollAttempts: 50,
-      hasVisibleMainWindow: hasVisibleMainWindow,
-      activate: activate,
-      scheduleNextPoll: { poll in
+  private static let logger = Logger(
+    subsystem: "dev.standfast.app",
+    category: "SceneActivation")
+
+  static func live() -> SceneActivationCoordinator {
+    let registry = SceneWindowRegistry()
+    return SceneActivationCoordinator(
+      windowRegistry: registry,
+      pollsUntilSoftTimeout: 10,
+      pollsUntilHardTimeout: 40,
+      activateApplication: {
+        NSApplication.shared.activate()
+      },
+      schedulePoll: { poll in
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100), execute: poll)
+      },
+      reportSoftTimeout: { target in
+        logger.warning(
+          "Retrying scene activation after soft timeout: \(target.accessibilityIdentifier, privacy: .public)"
+        )
+      },
+      reportHardTimeout: { target in
+        logger.error(
+          "Scene activation failed after hard timeout: \(target.accessibilityIdentifier, privacy: .public)"
+        )
       })
   }
 }
