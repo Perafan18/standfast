@@ -27,6 +27,33 @@ private let everyDisplayState: [DisplayState] = [
   #expect(DisplayState.starting.summary == L10n.stateStarting)
 }
 
+@Test func eachStateHasTheExactCompactVocabulary() {
+  #expect(DisplayState.resolved(.idle).shortSummary == L10n.stateReadyShort)
+  #expect(DisplayState.resolved(.busy).shortSummary == L10n.stateRunningShort)
+  #expect(
+    DisplayState.resolved(.disconnected).shortSummary
+      == L10n.stateDisconnectedShort)
+  #expect(DisplayState.resolved(.stopped).shortSummary == L10n.stateStoppedShort)
+  #expect(DisplayState.starting.shortSummary == L10n.stateStartingShort)
+  #expect(
+    DisplayState.resolved(.unknown(.noAnswer)).shortSummary
+      == L10n.stateUnknownShort)
+}
+
+@Test func stateToneDoesNotCollapseStateOrAttentionSemantics() {
+  #expect(DisplayState.resolved(.idle).tone == .healthy)
+  #expect(DisplayState.resolved(.busy).tone == .active)
+  #expect(DisplayState.resolved(.disconnected).tone == .attention)
+  #expect(DisplayState.resolved(.stopped).tone == .stopped)
+  #expect(DisplayState.starting.tone == .active)
+  #expect(DisplayState.resolved(.unknown(.noAnswer)).tone == .attention)
+
+  #expect(DisplayState.resolved(.disconnected).needsAttention)
+  #expect(DisplayState.resolved(.unknown(.cliUnavailable)).needsAttention)
+  #expect(!DisplayState.resolved(.stopped).needsAttention)
+  #expect(!DisplayState.resolved(.busy).needsAttention)
+}
+
 @Test func eachUnknownReasonGetsItsOwnLine() {
   // The whole reason `UnknownReason` carries four cases: the fix differs, and
   // one shared "could not tell" would leave the user with nothing to try.

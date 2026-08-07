@@ -1,10 +1,6 @@
 import Foundation
 import RunnerKit
 
-/// The history row already decided by `RunnerRow`, named for the card-facing
-/// interface without introducing a second history projection.
-typealias JobRow = RunnerRow.RecentJob
-
 /// The page a runner's GitHub action opens, including the distinction the
 /// button must say out loud.
 enum GitHubDestination: Equatable {
@@ -78,6 +74,57 @@ enum ControlCenterEmptyPresentation: Equatable {
   }
 }
 
+struct ControlCenterHeaderPresentation: Equatable {
+  let summary: String
+  let shortSummary: String
+  let symbolName: String
+  let tone: StateTone
+  let attention: String?
+  let freshness: String
+
+  static func building(
+    snapshots: [RunnerSnapshot], readAt: Date?, now: Date
+  ) -> Self {
+    let aggregate = FleetSummary.summarising(snapshots.map(\.display))
+    let attentionCount = snapshots.count { $0.display.needsAttention }
+    return Self(
+      summary: aggregate?.summary ?? L10n.noRunnersFound,
+      shortSummary: aggregate?.shortSummary ?? L10n.noRunnersFound,
+      symbolName: aggregate?.symbolName ?? FleetSummary.noRunnersSymbolName,
+      tone: aggregate?.tone ?? .neutral,
+      attention: attentionCount == 0 ? nil : L10n.runnerAttention(attentionCount),
+      freshness: FleetStatus.lastCheckedLine(readAt: readAt, now: now))
+  }
+}
+
+enum ActionEmphasis: Equatable, Sendable {
+  case prominent, standard, none
+}
+
+struct RunnerCardAction: Equatable, Identifiable {
+  let kind: RunnerRow.Action.Kind
+  let label: String
+  let accessibilityLabel: String
+  let symbolName: String
+  let isEnabled: Bool
+  let emphasis: ActionEmphasis
+  let requiresConfirmation: Bool
+
+  var id: RunnerRow.Action.Kind { kind }
+}
+
+enum RunnerHistoryPresentation: Equatable {
+  case available(rows: [JobRow], isTruncated: Bool)
+  case unavailable(lastKnownRows: [JobRow])
+}
+
+enum RunnerFocusPresentation: Equatable {
+  case operation(ServiceOperationPresentation)
+  case currentJob(String)
+  case lastJob(JobRow)
+  case state(String)
+}
+
 /// One runner's complete, read-only Control Center projection.
 ///
 /// The view receives no raw machine state. Service capabilities, operation
@@ -89,10 +136,14 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   let state: String
   let stateSymbolName: String
   let scope: String
+  let tone: StateTone
+  let focus: RunnerFocusPresentation
+  let operationFeedback: ServiceOperationPresentation?
+  let history: RunnerHistoryPresentation
   let progress: String?
   let operation: ServiceOperationPresentation?
-  let actions: [RunnerRow.Action]
-  let recentJobs: [JobRow]
+  let actions: [RunnerCardAction]
+  let recentJobs: [RunnerRow.RecentJob]
   let maintenance: MaintenanceSection
   let githubDestination: GitHubDestination
 }
@@ -105,18 +156,38 @@ extension RunnerCardPresentation {
   ) -> Self {
     let row = snapshot.row
     let destination = GitHubDestination.forScope(snapshot.runner.scope)
+    let pastRecords = snapshot.jobs.records.filter { $0 != snapshot.jobs.running }
+    let historyRows = pastRecords.prefix(RunnerRow.recentJobsShown).map(JobRow.building)
+    let isHistoryTruncated = pastRecords.count > RunnerRow.recentJobsShown
+    let operation = snapshot.operation?.presentation
+    let focus: RunnerFocusPresentation
+    if let operation, operation.isInFlight {
+      focus = .operation(operation)
+    } else if let progress = row.progress {
+      focus = .currentJob(progress)
+    } else if let lastJob = historyRows.first {
+      focus = .lastJob(lastJob)
+    } else {
+      focus = .state(snapshot.display.summary)
+    }
     return Self(
       id: snapshot.id,
-      title: snapshot.name,
+      title: snapshot.runner.displayName,
       state: snapshot.display.summary,
       stateSymbolName: snapshot.display.symbolName,
       scope: snapshot.runner.scope.displayName,
+      tone: snapshot.display.tone,
+      focus: focus,
+      operationFeedback: operation?.isInFlight == false ? operation : nil,
+      history: snapshot.isJobHistoryAvailable
+        ? .available(rows: historyRows, isTruncated: isHistoryTruncated)
+        : .unavailable(lastKnownRows: historyRows),
       progress: row.progress,
-      operation: row.operation,
-      actions: row.actions.map { action in
-        guard action.kind == .openOnGitHub else { return action }
-        return RunnerRow.Action(
-          kind: action.kind, label: destination.label, isEnabled: action.isEnabled)
+      operation: operation,
+      actions: row.actions.map {
+        cardAction(
+          $0, runnerName: snapshot.runner.displayName,
+          display: snapshot.display, destination: destination)
       },
       recentJobs: row.recentJobs,
       maintenance: MaintenanceSection.building(
@@ -124,4 +195,70 @@ extension RunnerCardPresentation {
         isWorking: isMaintenanceWorking, notice: maintenanceNotice, now: now),
       githubDestination: destination)
   }
+
+  func action(_ kind: RunnerRow.Action.Kind) -> RunnerCardAction? {
+    actions.first { $0.kind == kind }
+  }
+
+  private static func cardAction(
+    _ action: RunnerRow.Action, runnerName: String, display: DisplayState,
+    destination: GitHubDestination
+  ) -> RunnerCardAction {
+    let label: String
+    let accessibilityLabel: String
+    let symbolName: String
+    switch action.kind {
+    case .start:
+      label = L10n.start
+      accessibilityLabel = L10n.startRunner(runnerName)
+      symbolName = "play.fill"
+    case .stop:
+      label = L10n.stop
+      accessibilityLabel = L10n.stopRunner(runnerName)
+      symbolName = "stop.fill"
+    case .restart:
+      label = L10n.restart
+      accessibilityLabel = L10n.restartRunner(runnerName)
+      symbolName = "arrow.clockwise"
+    case .openOnGitHub:
+      label =
+        switch destination {
+        case .workflowRuns: L10n.viewRuns()
+        case .runnerSettings: L10n.viewSettings()
+        }
+      accessibilityLabel = destination.label
+      symbolName = "arrow.up.right.square"
+    }
+
+    let emphasis: ActionEmphasis
+    if !action.isEnabled {
+      emphasis = .none
+    } else if action.kind == .start && display == .resolved(.stopped) {
+      emphasis = .prominent
+    } else if action.kind == .openOnGitHub && display.resolvedState == .busy {
+      emphasis = .prominent
+    } else {
+      emphasis = .standard
+    }
+
+    let protectsWork: Bool =
+      switch display {
+      case .resolved(.idle), .resolved(.stopped): false
+      default: true
+      }
+    let requiresConfirmation =
+      action.isEnabled && protectsWork
+      && (action.kind == .stop || action.kind == .restart)
+
+    return RunnerCardAction(
+      kind: action.kind, label: label, accessibilityLabel: accessibilityLabel,
+      symbolName: symbolName, isEnabled: action.isEnabled, emphasis: emphasis,
+      requiresConfirmation: requiresConfirmation)
+  }
+}
+
+struct ControlCenterPresentation: Equatable {
+  let header: ControlCenterHeaderPresentation
+  let cards: [RunnerCardPresentation]
+  let empty: ControlCenterEmptyPresentation?
 }

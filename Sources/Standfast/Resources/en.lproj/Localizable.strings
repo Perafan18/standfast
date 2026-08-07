@@ -6,6 +6,16 @@
 "controlCenter.service" = "Runner service";
 "controlCenter.openWorkflowRuns" = "Open workflow runs";
 "controlCenter.openRunnerSettings" = "Open runner settings";
+"controlCenter.attention.one" = "%lld runner needs attention";
+"controlCenter.attention" = "%lld runners need attention";
+"controlCenter.viewRuns" = "View runs";
+"controlCenter.viewSettings" = "View settings";
+"controlCenter.history.empty" = "No jobs recorded";
+"controlCenter.history.unavailable" = "Job history unavailable";
+"controlCenter.maintenance.compact" = "Not measured";
+"controlCenter.action.start" = "Start %@";
+"controlCenter.action.stop" = "Stop %@";
+"controlCenter.action.restart" = "Restart %@";
 "settings.notifications" = "Notifications";
 "settings.power" = "Power";
 "settings.startup" = "Startup";
@@ -88,6 +98,12 @@
 "state.disconnected" = "Running locally, but GitHub cannot see it";
 "state.stopped" = "Stopped";
 "state.starting" = "Starting — waiting for GitHub to see it";
+"state.short.ready" = "Ready";
+"state.short.running" = "Running";
+"state.short.disconnected" = "Disconnected";
+"state.short.stopped" = "Stopped";
+"state.short.starting" = "Starting";
+"state.short.unknown" = "Unknown";
 
 "state.unknown.noCLI" = "Unknown — install the GitHub CLI (gh)";
 "state.unknown.notAuthenticated" = "Unknown — run gh auth login in a terminal";

@@ -58,6 +58,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
     L10n.stateUnknownNoAnswer, L10n.stateUnknownNoLocalAnswer,
+    L10n.stateReadyShort, L10n.stateRunningShort, L10n.stateDisconnectedShort,
+    L10n.stateStoppedShort, L10n.stateStartingShort, L10n.stateUnknownShort,
     L10n.checkedJustNow, L10n.checkedNever, L10n.jobSucceeded, L10n.jobFailed,
     L10n.jobCanceled, L10n.jobInterrupted,
     L10n.runnerRow("a", "b"), L10n.runnerInScope("a", "b"),
@@ -97,6 +99,10 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.controlCenterNoRunnersDescription, L10n.controlCenterScope,
     L10n.controlCenterStatus, L10n.controlCenterService,
     L10n.openWorkflowRuns, L10n.openRunnerSettings,
+    L10n.runnerAttention(1), L10n.runnerAttention(2), L10n.viewRuns(),
+    L10n.viewSettings(), L10n.historyEmpty(), L10n.historyUnavailable(),
+    L10n.maintenanceCompact(), L10n.startRunner("a"), L10n.stopRunner("a"),
+    L10n.restartRunner("a"),
     L10n.settingsNotifications, L10n.settingsPower, L10n.settingsStartup,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
@@ -131,6 +137,8 @@ private func speaking(_ localization: String) throws -> Bundle {
       "state.noRunners", "state.launchAgentsUnreadable", "state.unreadable",
       "state.unreadable.more", "state.idle",
       "state.busy", "state.disconnected", "state.stopped", "state.starting",
+      "state.short.ready", "state.short.running", "state.short.disconnected",
+      "state.short.stopped", "state.short.starting", "state.short.unknown",
       "state.unknown.noCLI", "state.unknown.notAuthenticated",
       "state.unknown.noAnswer", "state.unknown.noLocalAnswer", "state.checkedAgo",
       "state.checkedJustNow", "state.checkedNever", "job.running",
@@ -163,6 +171,11 @@ private func speaking(_ localization: String) throws -> Bundle {
       "app.statusItem", "controlCenter.title", "controlCenter.noRunners.description",
       "controlCenter.scope", "controlCenter.status", "controlCenter.service",
       "controlCenter.openWorkflowRuns", "controlCenter.openRunnerSettings",
+      "controlCenter.attention.one", "controlCenter.attention",
+      "controlCenter.viewRuns", "controlCenter.viewSettings",
+      "controlCenter.history.empty", "controlCenter.history.unavailable",
+      "controlCenter.maintenance.compact", "controlCenter.action.start",
+      "controlCenter.action.stop", "controlCenter.action.restart",
       "settings.notifications", "settings.power", "settings.startup",
     ])
   #expect(everyKey == reached)
@@ -274,6 +287,45 @@ private func speaking(_ localization: String) throws -> Bundle {
       == "3 runners más con novedades")
 }
 
+@Test func premiumCompactVocabularyIsExactInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(L10n.t("state.short.ready", in: [english]) == "Ready")
+  #expect(L10n.t("state.short.running", in: [english]) == "Running")
+  #expect(L10n.t("state.short.disconnected", in: [english]) == "Disconnected")
+  #expect(L10n.t("state.short.stopped", in: [english]) == "Stopped")
+  #expect(L10n.t("state.short.starting", in: [english]) == "Starting")
+  #expect(L10n.t("state.short.unknown", in: [english]) == "Unknown")
+  #expect(L10n.t("state.short.ready", in: [spanish]) == "Listo")
+  #expect(L10n.t("state.short.running", in: [spanish]) == "Ejecutando")
+  #expect(L10n.t("state.short.disconnected", in: [spanish]) == "Desconectado")
+  #expect(L10n.t("state.short.stopped", in: [spanish]) == "Detenido")
+  #expect(L10n.t("state.short.starting", in: [spanish]) == "Arrancando")
+  #expect(L10n.t("state.short.unknown", in: [spanish]) == "Desconocido")
+
+  #expect(L10n.runnerAttention(1, in: [english]) == "1 runner needs attention")
+  #expect(L10n.runnerAttention(3, in: [english]) == "3 runners need attention")
+  #expect(L10n.runnerAttention(1, in: [spanish]) == "1 runner requiere atención")
+  #expect(L10n.runnerAttention(3, in: [spanish]) == "3 runners requieren atención")
+  #expect(L10n.viewRuns(in: [english]) == "View runs")
+  #expect(L10n.viewRuns(in: [spanish]) == "Ver ejecuciones")
+  #expect(L10n.viewSettings(in: [english]) == "View settings")
+  #expect(L10n.viewSettings(in: [spanish]) == "Ver configuración")
+  #expect(L10n.historyEmpty(in: [english]) == "No jobs recorded")
+  #expect(L10n.historyEmpty(in: [spanish]) == "Sin trabajos registrados")
+  #expect(L10n.historyUnavailable(in: [english]) == "Job history unavailable")
+  #expect(L10n.historyUnavailable(in: [spanish]) == "Historial no disponible")
+  #expect(L10n.maintenanceCompact(in: [english]) == "Not measured")
+  #expect(L10n.maintenanceCompact(in: [spanish]) == "Sin medir")
+  #expect(L10n.startRunner("build-mac", in: [english]) == "Start build-mac")
+  #expect(L10n.startRunner("build-mac", in: [spanish]) == "Arrancar build-mac")
+  #expect(L10n.stopRunner("build-mac", in: [english]) == "Stop build-mac")
+  #expect(L10n.stopRunner("build-mac", in: [spanish]) == "Parar build-mac")
+  #expect(L10n.restartRunner("build-mac", in: [english]) == "Restart build-mac")
+  #expect(L10n.restartRunner("build-mac", in: [spanish]) == "Reiniciar build-mac")
+}
+
 @Test func everyUnknownReasonTellsTheUserWhatToDo() {
   // The likeliest thing a new user ever sees. "Unknown" on its own leaves them
   // with nothing to try, so each line has to be the instruction.
@@ -332,6 +384,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     "operation.scriptMissing.title": 1, "operation.scriptMissing.detail": 1,
     "operation.couldNotLaunch.title": 1, "operation.couldNotLaunch.detail": 1,
     "operation.unexpectedFailure.title": 1, "operation.unexpectedFailure.detail": 1,
+    "controlCenter.action.start": 1, "controlCenter.action.stop": 1,
+    "controlCenter.action.restart": 1,
   ]
   for language in ["en", "es"] {
     let catalogue = try catalogue(language)

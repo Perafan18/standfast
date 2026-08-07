@@ -1,6 +1,10 @@
 import Foundation
 import RunnerKit
 
+enum StateTone: Equatable, Sendable {
+  case healthy, active, attention, stopped, neutral
+}
+
 // Everything the menu shows, as values a test can read: one runner's state,
 // one runner's row, the notice's lines, and the single state the icon carries.
 // The views in `App.swift` render these and decide nothing.
@@ -26,6 +30,33 @@ enum DisplayState: Equatable, Sendable {
 }
 
 extension DisplayState {
+  var shortSummary: String {
+    switch self {
+    case .resolved(.idle): L10n.stateReadyShort
+    case .resolved(.busy): L10n.stateRunningShort
+    case .resolved(.disconnected): L10n.stateDisconnectedShort
+    case .resolved(.stopped): L10n.stateStoppedShort
+    case .resolved(.unknown): L10n.stateUnknownShort
+    case .starting: L10n.stateStartingShort
+    }
+  }
+
+  var tone: StateTone {
+    switch self {
+    case .resolved(.idle): .healthy
+    case .resolved(.busy), .starting: .active
+    case .resolved(.disconnected), .resolved(.unknown): .attention
+    case .resolved(.stopped): .stopped
+    }
+  }
+
+  var needsAttention: Bool {
+    switch self {
+    case .resolved(.disconnected), .resolved(.unknown): true
+    default: false
+    }
+  }
+
   /// The icon carries the state, because that is the whole point of living in
   /// the menu bar: the answer should be readable without a click.
   var symbolName: String {

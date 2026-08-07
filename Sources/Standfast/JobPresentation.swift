@@ -5,6 +5,33 @@ import RunnerKit
 // when any of it was last looked at. Values a test can read, like everything
 // else in `FleetPresentation.swift`.
 
+struct JobOutcomePresentation: Equatable, Sendable {
+  let label: String
+  let symbolName: String
+  let tone: StateTone
+}
+
+struct JobRow: Equatable, Identifiable, Sendable {
+  let id: Date
+  let name: String
+  let outcome: JobOutcomePresentation
+  let duration: String?
+  let startedAt: Date
+  let finishedAt: Date?
+
+  static func building(_ record: JobRecord) -> Self {
+    Self(
+      id: record.startedAt, name: record.name, outcome: record.outcomePresentation,
+      duration: record.duration.map(DurationText.precise),
+      startedAt: record.startedAt, finishedAt: record.finishedAt)
+  }
+
+  var text: String {
+    guard let duration else { return L10n.jobRowNoDuration(name, outcome.label) }
+    return L10n.jobRow(name, outcome.label, duration)
+  }
+}
+
 /// Durations as the menu writes them.
 enum DurationText {
   /// `2m 47s` — for a job, where the seconds are the whole point: the machine
@@ -106,6 +133,25 @@ extension JobRecord {
   var historyLine: String {
     guard let duration else { return L10n.jobRowNoDuration(name, resultText) }
     return L10n.jobRow(name, resultText, DurationText.precise(duration))
+  }
+
+  var outcomePresentation: JobOutcomePresentation {
+    switch result {
+    case .succeeded:
+      .init(
+        label: L10n.jobSucceeded, symbolName: "checkmark.circle.fill",
+        tone: .healthy)
+    case .failed:
+      .init(label: L10n.jobFailed, symbolName: "xmark.circle.fill", tone: .attention)
+    case .canceled:
+      .init(label: L10n.jobCanceled, symbolName: "minus.circle.fill", tone: .neutral)
+    case .other(let word):
+      .init(label: word, symbolName: "questionmark.circle", tone: .neutral)
+    case nil:
+      .init(
+        label: L10n.jobInterrupted,
+        symbolName: "exclamationmark.triangle.fill", tone: .attention)
+    }
   }
 }
 

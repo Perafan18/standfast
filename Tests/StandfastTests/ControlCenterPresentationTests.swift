@@ -10,15 +10,17 @@ private func controlCenterSnapshot(
   _ display: DisplayState = .resolved(.idle),
   scope: RunnerScope = .repository(owner: "acme", name: "widget"),
   jobs: JobHistory = .empty, operation: ServiceOperation? = nil,
-  version: RunnerVersion? = nil
+  version: RunnerVersion? = nil, qualifier: String? = nil,
+  isJobHistoryAvailable: Bool = true, isServiceActionReserved: Bool = false
 ) -> RunnerSnapshot {
   RunnerSnapshot(
     runner: DiscoveredRunner(
       label: "actions.runner.acme-widget.build-mac",
       directory: URL(fileURLWithPath: "/tmp/build-mac"), agentId: 7,
       agentName: "build-mac", scope: scope),
-    display: display, jobs: jobs, readAt: controlCenterNow,
-    version: version, operation: operation)
+    display: display, qualifier: qualifier, jobs: jobs, readAt: controlCenterNow,
+    isJobHistoryAvailable: isJobHistoryAvailable, version: version,
+    isServiceActionReserved: isServiceActionReserved, operation: operation)
 }
 
 private func card(
@@ -61,6 +63,49 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
 // MARK: - Card projection
 
+@Test func headerKeepsAggregateAttentionAndFreshnessAsSeparateFacts() {
+  let snapshots = [
+    controlCenterSnapshot(.resolved(.busy)),
+    controlCenterSnapshot(.resolved(.disconnected)),
+    controlCenterSnapshot(.resolved(.stopped)),
+  ]
+  let readAt = controlCenterNow.addingTimeInterval(-245)
+
+  let subject = ControlCenterHeaderPresentation.building(
+    snapshots: snapshots, readAt: readAt, now: controlCenterNow)
+
+  #expect(subject.summary == L10n.stateBusy)
+  #expect(subject.shortSummary == L10n.stateRunningShort)
+  #expect(subject.symbolName == "gearshape.2.fill")
+  #expect(subject.tone == .active)
+  #expect(subject.attention == L10n.runnerAttention(1))
+  #expect(subject.freshness == L10n.checkedAgo("4m"))
+}
+
+@Test func zeroAttentionDisappearsAndStoppedDoesNotCountAsAttention() {
+  let subject = ControlCenterHeaderPresentation.building(
+    snapshots: [
+      controlCenterSnapshot(.resolved(.idle)),
+      controlCenterSnapshot(.resolved(.stopped)),
+    ], readAt: controlCenterNow, now: controlCenterNow)
+
+  #expect(subject.summary == L10n.stateIdle)
+  #expect(subject.tone == .healthy)
+  #expect(subject.attention == nil)
+}
+
+@Test func anEmptyHeaderIsNeutralWithoutInventingAnAggregate() {
+  let subject = ControlCenterHeaderPresentation.building(
+    snapshots: [], readAt: nil, now: controlCenterNow)
+
+  #expect(subject.summary == L10n.noRunnersFound)
+  #expect(subject.shortSummary == L10n.noRunnersFound)
+  #expect(subject.symbolName == FleetSummary.noRunnersSymbolName)
+  #expect(subject.tone == .neutral)
+  #expect(subject.attention == nil)
+  #expect(subject.freshness == L10n.checkedNever)
+}
+
 @Test func aHealthyRunnerCardCarriesIdentityStateScopeAndItsRealCapabilities() throws {
   let subject = card(controlCenterSnapshot())
 
@@ -79,7 +124,16 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
       == .workflowRuns(try #require(URL(string: "https://github.com/acme/widget/actions"))))
   #expect(
     subject.actions.first { $0.kind == .openOnGitHub }?.label
-      == L10n.openWorkflowRuns)
+      == L10n.viewRuns())
+}
+
+@Test func aCardKeepsTheRawRunnerNameAndScopeSeparateEvenWhenQualified() {
+  let subject = card(
+    controlCenterSnapshot(qualifier: "acme/widget"))
+
+  #expect(subject.title == "build-mac")
+  #expect(subject.scope == "acme/widget")
+  #expect(subject.title != "build-mac (acme/widget)")
 }
 
 @Test func aBusyRunnerCardNamesTheActiveJob() {
@@ -126,6 +180,50 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(subject.operation?.symbolName == "questionmark.circle")
 }
 
+@Test func anInFlightOperationIsTheOnlyThingThatOutranksTheCurrentJob() {
+  let running = JobRecord(
+    name: "deploy", startedAt: controlCenterNow.addingTimeInterval(-80))
+  let operation = ServiceOperation(
+    action: .restart, phase: .inFlight, changedAt: controlCenterNow)
+  let subject = card(
+    controlCenterSnapshot(
+      .resolved(.busy), jobs: JobHistory(records: [running], running: running),
+      operation: operation, isServiceActionReserved: true))
+
+  #expect(subject.focus == .operation(operation.presentation))
+  #expect(subject.operationFeedback == nil)
+}
+
+@Test func terminalOperationFeedbackCannotHideTheCurrentJob() {
+  let running = JobRecord(
+    name: "deploy", startedAt: controlCenterNow.addingTimeInterval(-80))
+  let operation = ServiceOperation(
+    action: .restart, phase: .failed(.unexpectedFailure),
+    changedAt: controlCenterNow)
+  let subject = card(
+    controlCenterSnapshot(
+      .resolved(.busy), jobs: JobHistory(records: [running], running: running),
+      operation: operation))
+
+  #expect(subject.focus == .currentJob(L10n.jobRunning("deploy", "1m 20s")))
+  #expect(subject.operationFeedback == operation.presentation)
+}
+
+@Test func lastPastJobOutranksTheLongStateWhenNothingIsRunning() {
+  let finished = JobRecord(
+    name: "testflight", startedAt: controlCenterNow.addingTimeInterval(-3_600),
+    finishedAt: controlCenterNow.addingTimeInterval(-3_433), result: .succeeded)
+  let subject = card(
+    controlCenterSnapshot(jobs: JobHistory(records: [finished])))
+
+  #expect(subject.focus == .lastJob(JobRow.building(finished)))
+}
+
+@Test func longStateIsTheFallbackWhenThereIsNoOperationOrJob() {
+  let subject = card(controlCenterSnapshot(.resolved(.disconnected)))
+  #expect(subject.focus == .state(L10n.stateDisconnected))
+}
+
 @Test func finishedJobHistoryReachesTheCardWithoutRepeatingTheActiveJob() {
   let active = JobRecord(
     name: "deploy", startedAt: controlCenterNow.addingTimeInterval(-80))
@@ -139,6 +237,116 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
   #expect(subject.recentJobs.map(\.text) == ["testflight — \(L10n.jobSucceeded) (2m 47s)"])
   #expect(!subject.recentJobs.contains { $0.text.contains("deploy") })
+}
+
+@Test func unavailableHistoryPreservesWarmLastKnownRows() {
+  let finished = JobRecord(
+    name: "testflight", startedAt: controlCenterNow.addingTimeInterval(-3_600),
+    finishedAt: controlCenterNow.addingTimeInterval(-3_433), result: .succeeded)
+  let subject = card(
+    controlCenterSnapshot(
+      jobs: JobHistory(records: [finished]), isJobHistoryAvailable: false))
+
+  #expect(
+    subject.history
+      == .unavailable(lastKnownRows: [JobRow.building(finished)]))
+}
+
+@Test func runningJobDoesNotConsumeAHistorySlotOrCreateFalseTruncation() {
+  let running = JobRecord(
+    name: "deploy", startedAt: controlCenterNow.addingTimeInterval(-80))
+  let past = (1...RunnerRow.recentJobsShown).map { index in
+    JobRecord(
+      name: "past-\(index)",
+      startedAt: controlCenterNow.addingTimeInterval(-Double(index * 3_600)),
+      finishedAt: controlCenterNow.addingTimeInterval(-Double(index * 3_600) + 120),
+      result: .succeeded)
+  }
+  let subject = card(
+    controlCenterSnapshot(
+      .resolved(.busy),
+      jobs: JobHistory(records: [running] + past, running: running)))
+
+  #expect(
+    subject.history
+      == .available(rows: past.map(JobRow.building), isTruncated: false))
+}
+
+@Test func historyReportsTrueTruncationAfterRemovingTheRunningJob() {
+  let running = JobRecord(
+    name: "deploy", startedAt: controlCenterNow.addingTimeInterval(-80))
+  let past = (1...(RunnerRow.recentJobsShown + 1)).map { index in
+    JobRecord(
+      name: "past-\(index)",
+      startedAt: controlCenterNow.addingTimeInterval(-Double(index * 3_600)),
+      finishedAt: controlCenterNow.addingTimeInterval(-Double(index * 3_600) + 120),
+      result: .succeeded)
+  }
+  let subject = card(
+    controlCenterSnapshot(
+      .resolved(.busy),
+      jobs: JobHistory(records: [running] + past, running: running)))
+
+  #expect(
+    subject.history
+      == .available(
+        rows: Array(past.prefix(RunnerRow.recentJobsShown)).map(JobRow.building),
+        isTruncated: true))
+}
+
+@Test func serviceActionsCarrySemanticEmphasisConfirmationAndAccessibility() {
+  let stopped = card(controlCenterSnapshot(.resolved(.stopped)))
+  #expect(
+    stopped.action(.start)
+      == RunnerCardAction(
+        kind: .start, label: L10n.start,
+        accessibilityLabel: L10n.startRunner("build-mac"),
+        symbolName: "play.fill", isEnabled: true, emphasis: .prominent,
+        requiresConfirmation: false))
+  #expect(stopped.action(.stop)?.emphasis == ActionEmphasis.none)
+  #expect(stopped.action(.restart)?.emphasis == ActionEmphasis.none)
+
+  let idle = card(controlCenterSnapshot(.resolved(.idle)))
+  #expect(idle.action(.stop)?.emphasis == .standard)
+  #expect(idle.action(.stop)?.requiresConfirmation == false)
+  #expect(idle.action(.restart)?.emphasis == .standard)
+  #expect(idle.action(.restart)?.requiresConfirmation == false)
+
+  for display: DisplayState in [
+    .resolved(.busy), .resolved(.disconnected),
+    .resolved(.unknown(.noAnswer)), .starting,
+  ] {
+    let subject = card(controlCenterSnapshot(display))
+    #expect(subject.action(.stop)?.emphasis == .standard)
+    #expect(subject.action(.stop)?.requiresConfirmation == true)
+    #expect(subject.action(.restart)?.emphasis == .standard)
+    #expect(subject.action(.restart)?.requiresConfirmation == true)
+  }
+}
+
+@Test func activeWorkMakesNavigationProminentWithoutChangingItsAXCopy() {
+  let subject = card(controlCenterSnapshot(.resolved(.busy)))
+  let action = subject.action(.openOnGitHub)
+
+  #expect(action?.label == L10n.viewRuns())
+  #expect(action?.accessibilityLabel == L10n.openWorkflowRuns)
+  #expect(action?.symbolName == "arrow.up.right.square")
+  #expect(action?.isEnabled == true)
+  #expect(action?.emphasis == .prominent)
+  #expect(action?.requiresConfirmation == false)
+}
+
+@Test func reservedServiceActionsAreDisabledNoneAndNeverAskForConfirmation() {
+  let subject = card(
+    controlCenterSnapshot(
+      .resolved(.busy), isServiceActionReserved: true))
+
+  for kind: RunnerRow.Action.Kind in [.start, .stop, .restart] {
+    #expect(subject.action(kind)?.isEnabled == false)
+    #expect(subject.action(kind)?.emphasis == ActionEmphasis.none)
+    #expect(subject.action(kind)?.requiresConfirmation == false)
+  }
+  #expect(subject.action(.openOnGitHub)?.isEnabled == true)
 }
 
 @Test func installedAndAvailableVersionsReachTheCardMaintenanceSection() {
@@ -173,6 +381,9 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
           URL(string: "https://github.com/organizations/acme/settings/actions/runners"))))
   #expect(
     subject.actions.first { $0.kind == .openOnGitHub }?.label
+      == L10n.viewSettings())
+  #expect(
+    subject.actions.first { $0.kind == .openOnGitHub }?.accessibilityLabel
       == L10n.openRunnerSettings)
 }
 
@@ -214,6 +425,10 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   await fleet.quiesce()
 
   #expect(fleet.controlCenterCards(now: controlCenterNow).isEmpty)
+  #expect(fleet.controlCenterPresentation(now: controlCenterNow).cards.isEmpty)
+  #expect(
+    fleet.controlCenterPresentation(now: controlCenterNow).empty
+      == .noRunnersInstalled)
 }
 
 @Test @MainActor func aConclusiveUninstallRemovesItsCard() async throws {
@@ -245,6 +460,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
   _ = fleet.quickMenuPresentation(thermalLines: [], now: controlCenterNow)
   _ = fleet.controlCenterCards(now: controlCenterNow)
+  _ = fleet.controlCenterPresentation(now: controlCenterNow)
 
   #expect(sandbox.scanCount == scans)
   #expect(sandbox.probeCount == probes)

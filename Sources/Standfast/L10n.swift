@@ -72,6 +72,57 @@ enum L10n {
   static let stateDisconnected = t("state.disconnected")
   static let stateStopped = t("state.stopped")
   static let stateStarting = t("state.starting")
+  static let stateReadyShort = t("state.short.ready")
+  static let stateRunningShort = t("state.short.running")
+  static let stateDisconnectedShort = t("state.short.disconnected")
+  static let stateStoppedShort = t("state.short.stopped")
+  static let stateStartingShort = t("state.short.starting")
+  static let stateUnknownShort = t("state.short.unknown")
+
+  static func runnerAttention(
+    _ count: Int, in bundles: [Bundle]? = nil
+  ) -> String {
+    let key = count == 1 ? "controlCenter.attention.one" : "controlCenter.attention"
+    return String(format: t(key, in: bundles), Int64(count))
+  }
+
+  static func viewRuns(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.viewRuns", in: bundles)
+  }
+
+  static func viewSettings(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.viewSettings", in: bundles)
+  }
+
+  static func historyEmpty(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.history.empty", in: bundles)
+  }
+
+  static func historyUnavailable(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.history.unavailable", in: bundles)
+  }
+
+  static func maintenanceCompact(in bundles: [Bundle]? = nil) -> String {
+    t("controlCenter.maintenance.compact", in: bundles)
+  }
+
+  static func startRunner(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("controlCenter.action.start", in: bundles), runner)
+  }
+
+  static func stopRunner(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("controlCenter.action.stop", in: bundles), runner)
+  }
+
+  static func restartRunner(
+    _ runner: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("controlCenter.action.restart", in: bundles), runner)
+  }
 
   // One line per `UnknownReason`, because each one has a different next step
   // and "unknown" on its own has none. This is the likeliest thing a new user
@@ -378,6 +429,16 @@ enum L10n {
     "controlCenter.service": "Runner service",
     "controlCenter.openWorkflowRuns": "Open workflow runs",
     "controlCenter.openRunnerSettings": "Open runner settings",
+    "controlCenter.attention.one": "%lld runner needs attention",
+    "controlCenter.attention": "%lld runners need attention",
+    "controlCenter.viewRuns": "View runs",
+    "controlCenter.viewSettings": "View settings",
+    "controlCenter.history.empty": "No jobs recorded",
+    "controlCenter.history.unavailable": "Job history unavailable",
+    "controlCenter.maintenance.compact": "Not measured",
+    "controlCenter.action.start": "Start %@",
+    "controlCenter.action.stop": "Stop %@",
+    "controlCenter.action.restart": "Restart %@",
     "settings.notifications": "Notifications",
     "settings.power": "Power",
     "settings.startup": "Startup",
@@ -474,6 +535,12 @@ enum L10n {
     "state.disconnected": "Running locally, but GitHub cannot see it",
     "state.stopped": "Stopped",
     "state.starting": "Starting — waiting for GitHub to see it",
+    "state.short.ready": "Ready",
+    "state.short.running": "Running",
+    "state.short.disconnected": "Disconnected",
+    "state.short.stopped": "Stopped",
+    "state.short.starting": "Starting",
+    "state.short.unknown": "Unknown",
     "state.unknown.noCLI": "Unknown — install the GitHub CLI (gh)",
     "state.unknown.notAuthenticated": "Unknown — run gh auth login in a terminal",
     "state.unknown.noAnswer": "Unknown — gh got no answer; check your network",

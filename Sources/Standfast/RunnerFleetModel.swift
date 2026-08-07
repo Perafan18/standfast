@@ -578,6 +578,16 @@ final class RunnerFleetModel: ObservableObject {
     }
   }
 
+  /// The complete Control Center projection. Like the card compatibility
+  /// accessor above, this reads only values already held by the model.
+  func controlCenterPresentation(now: Date = Date()) -> ControlCenterPresentation {
+    let cards = controlCenterCards(now: now)
+    return ControlCenterPresentation(
+      header: .building(snapshots: snapshots, readAt: lastReadAt, now: now),
+      cards: cards,
+      empty: cards.isEmpty ? .building(notice: notice) : nil)
+  }
+
   // MARK: - Acting
 
   private func acquireServiceAction(for label: String) -> Bool {
