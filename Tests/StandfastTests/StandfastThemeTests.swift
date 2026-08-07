@@ -91,6 +91,17 @@ import Testing
       >= StandfastTheme.controlCenterMinimumWidth)
 }
 
+@Test func settingsGeometryStaysInsideTheCompactMeasuredRange() {
+  #expect(StandfastTheme.settingsMinimumWidth == 460)
+  #expect(StandfastTheme.settingsIdealWidth == 480)
+  #expect(StandfastTheme.settingsMaximumWidth == 520)
+  #expect(StandfastTheme.settingsDefaultHeight == 680)
+  #expect(
+    StandfastTheme.settingsMinimumWidth < StandfastTheme.settingsIdealWidth)
+  #expect(
+    StandfastTheme.settingsIdealWidth < StandfastTheme.settingsMaximumWidth)
+}
+
 @Test func spacingRadiiAndStrokesUseTheMeasuredTokenScale() {
   #expect(StandfastTheme.Spacing.all == [4, 8, 12, 16, 20, 24, 32])
   #expect(StandfastTheme.Radius.all == [10, 16])

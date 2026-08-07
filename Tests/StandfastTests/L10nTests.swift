@@ -112,6 +112,8 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.maintenanceCompact(), L10n.startRunner("a"), L10n.stopRunner("a"),
     L10n.restartRunner("a"),
     L10n.settingsNotifications, L10n.settingsPower, L10n.settingsStartup,
+    L10n.settingsNotificationsFooter, L10n.settingsPowerFooter,
+    L10n.settingsStartupFooter, L10n.settingsVersion(" 0.5.0 (5)"),
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -190,6 +192,8 @@ private func speaking(_ localization: String) throws -> Bundle {
       "controlCenter.maintenance.compact", "controlCenter.action.start",
       "controlCenter.action.stop", "controlCenter.action.restart",
       "settings.notifications", "settings.power", "settings.startup",
+      "settings.notifications.footer", "settings.power.footer",
+      "settings.startup.footer", "settings.version",
     ])
   #expect(everyKey == reached)
 }
@@ -217,6 +221,40 @@ private func speaking(_ localization: String) throws -> Bundle {
   let spanish = try catalogue("es")
   #expect(Set(spanish.keys) == Set(L10n.english.keys))
   #expect(!spanish.values.contains(""))
+}
+
+@Test func settingsPermanentCopyAndVersionFormatAreExactInBothLanguages() throws {
+  let english = try catalogue("en")
+  let spanish = try catalogue("es")
+
+  #expect(
+    english["settings.notifications.footer"]
+      == "Alerts use system notifications.")
+  #expect(
+    english["settings.power.footer"]
+      == "Closing the lid still puts this Mac to sleep.")
+  #expect(
+    english["settings.startup.footer"]
+      == "Standfast can open automatically when you log in.")
+  #expect(english["settings.version"] == "Standfast%@")
+
+  #expect(
+    spanish["settings.notifications.footer"]
+      == "Las alertas usan las notificaciones del sistema.")
+  #expect(
+    spanish["settings.power.footer"]
+      == "Cerrar la tapa la sigue durmiendo.")
+  #expect(
+    spanish["settings.startup.footer"]
+      == "Standfast puede abrirse automáticamente al iniciar sesión.")
+  #expect(spanish["settings.version"] == "Standfast%@")
+
+  #expect(
+    L10n.settingsVersion(" 0.5.0 (5)", in: [try speaking("en")])
+      == "Standfast 0.5.0 (5)")
+  #expect(
+    L10n.settingsVersion(" 0.5.0 (5)", in: [try speaking("es")])
+      == "Standfast 0.5.0 (5)")
 }
 
 @Test func cataloguesNeverMapAKeyToItself() throws {

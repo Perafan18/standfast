@@ -12,6 +12,7 @@ FAKE_BIN="$TEST_ROOT/bin"
 SENTINEL="$TEST_ROOT/osascript-called"
 LIFECYCLE_SUCCESS="identified Control Center/Settings focus transitions and targeted closure passed"
 LIFECYCLE_VALID_TUPLE="true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|0|true|true"
+SETTINGS_VALID_OUTPUT='settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected\nsettings\tdev.standfast.settings.notifications.stopped\nsettings\tdev.standfast.settings.power.prevent-sleep\nsettings\tdev.standfast.settings.startup.open-at-login\nsettings\tdev.standfast.settings.version'
 
 cleanup() {
   rm -rf "$TEST_ROOT"
@@ -121,6 +122,7 @@ printf '%s\n' \
   '      printf "%s\n" "${CHECK_LANGUAGE:-}" > "$STANDFAST_OSASCRIPT_CAPTURE_DIR/call-2.language"' \
   '      [ "${STANDFAST_OSASCRIPT_LIFECYCLE_ABORT:-0}" != 1 ] || exit 1' \
   '      printf "%s\n" "${STANDFAST_OSASCRIPT_LIFECYCLE_TUPLE:-true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|0|true|true}"' \
+  '      printf "%b\n" "${STANDFAST_OSASCRIPT_SETTINGS_OUTPUT:-settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected\nsettings\tdev.standfast.settings.notifications.stopped\nsettings\tdev.standfast.settings.power.prevent-sleep\nsettings\tdev.standfast.settings.startup.open-at-login\nsettings\tdev.standfast.settings.version}"' \
   '      ;;' \
   '  esac' \
   'fi' \
@@ -186,6 +188,47 @@ lifecycle_output="$(
 assert_contains "$lifecycle_output" "$LIFECYCLE_SUCCESS"
 [ "$(<"$capture_dir/call-2.language")" = en ] \
   || fail "the English menu language was not passed to the lifecycle probe"
+
+expect_settings_output_rejected() {
+  local name="$1"
+  local settings_output="$2"
+  local expected="$3"
+  local settings_capture_dir="$TEST_ROOT/captured-settings-$name"
+  local rejected_output=""
+  mkdir -p "$settings_capture_dir"
+  if rejected_output="$(
+    PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+      STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+      STANDFAST_OSASCRIPT_CAPTURE_DIR="$settings_capture_dir" \
+      STANDFAST_OSASCRIPT_SETTINGS_OUTPUT="$settings_output" \
+      "$AX_CHECK" "$$" 2>&1
+  )"; then
+    fail "the AX smoke accepted $name"
+  fi
+  assert_contains "$rejected_output" "$expected"
+}
+
+settings_without_power="$(
+  printf '%b\n' "$SETTINGS_VALID_OUTPUT" \
+    | grep -Fv 'dev.standfast.settings.power.prevent-sleep'
+)"
+expect_settings_output_rejected \
+  "settings-without-power-toggle" \
+  "$settings_without_power" \
+  "Settings AX identifier missing or duplicated: dev.standfast.settings.power.prevent-sleep"
+
+settings_with_duplicate_version="$(
+  printf '%b\nsettings\tdev.standfast.settings.version\n' "$SETTINGS_VALID_OUTPUT"
+)"
+expect_settings_output_rejected \
+  "settings-with-duplicate-version" \
+  "$settings_with_duplicate_version" \
+  "Settings AX identifier missing or duplicated: dev.standfast.settings.version"
+
+expect_settings_output_rejected \
+  "settings-with-unknown-record" \
+  "$(printf '%b\nunknown\tdev.standfast.settings.version\n' "$SETTINGS_VALID_OUTPUT")" \
+  "unknown Settings AX record type"
 
 warning_dir="$TEST_ROOT/captured-benign-warning"
 mkdir -p "$warning_dir"
@@ -448,6 +491,22 @@ grep -Fq 'dev.standfast.scene.control-center' "$lifecycle_script" \
   || fail "the lifecycle probe does not use the stable Control Center window identifier"
 grep -Fq 'dev.standfast.scene.settings' "$lifecycle_script" \
   || fail "the lifecycle probe does not use the stable Settings window identifier"
+grep -Fq 'entire contents of settingsWindow' "$lifecycle_script" \
+  || fail "the lifecycle probe does not inspect the opened Settings descendants"
+for settings_identifier in \
+  dev.standfast.settings.notifications.job-failed \
+  dev.standfast.settings.notifications.disconnected \
+  dev.standfast.settings.notifications.stopped \
+  dev.standfast.settings.power.prevent-sleep \
+  dev.standfast.settings.startup.open-at-login \
+  dev.standfast.settings.version
+do
+  grep -Fq "$settings_identifier" "$lifecycle_script" \
+    || fail "the lifecycle probe does not require Settings identifier $settings_identifier"
+done
+if grep -Fq 'perform action "AXPress" of settingsElement' "$lifecycle_script"; then
+  fail "the Settings inspection toggles a control instead of reading identifiers"
+fi
 window_identifier_read_count="$(grep -Fc 'value of attribute "AXIdentifier" of candidateWindow as text' "$lifecycle_script" || true)"
 [ "$window_identifier_read_count" -ge 6 ] \
   || fail "the lifecycle probe does not resolve every transition by exact window identifier"

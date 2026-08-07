@@ -19,6 +19,10 @@
 "settings.notifications" = "Notificaciones";
 "settings.power" = "Energía";
 "settings.startup" = "Inicio";
+"settings.notifications.footer" = "Las alertas usan las notificaciones del sistema.";
+"settings.power.footer" = "Cerrar la tapa la sigue durmiendo.";
+"settings.startup.footer" = "Standfast puede abrirse automáticamente al iniciar sesión.";
+"settings.version" = "Standfast%@";
 
 "menu.start" = "Arrancar";
 "menu.stop" = "Parar";

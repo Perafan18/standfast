@@ -34,12 +34,16 @@ struct StandfastApp: App {
 
     Settings {
       SettingsView(
-        loginItem: loginItem, notifications: fleet.notifications, sleep: fleet.sleep
+        loginItem: loginItem, notifications: fleet.notifications, sleep: fleet.sleep,
+        infoDictionary: Bundle.main.infoDictionary
       )
       .background(
         SceneWindowProbe(
           target: .settings,
           registry: sceneActivation.windowRegistry))
     }
+    .defaultSize(
+      width: StandfastTheme.settingsIdealWidth,
+      height: StandfastTheme.settingsDefaultHeight)
   }
 }

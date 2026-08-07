@@ -19,6 +19,10 @@
 "settings.notifications" = "Notifications";
 "settings.power" = "Power";
 "settings.startup" = "Startup";
+"settings.notifications.footer" = "Alerts use system notifications.";
+"settings.power.footer" = "Closing the lid still puts this Mac to sleep.";
+"settings.startup.footer" = "Standfast can open automatically when you log in.";
+"settings.version" = "Standfast%@";
 
 "menu.start" = "Start";
 "menu.stop" = "Stop";

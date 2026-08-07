@@ -131,6 +131,10 @@ enum StandfastTheme {
   static let controlCenterMinimumWidth: CGFloat = 520
   static let controlCenterDefaultWidth: CGFloat = 540
   static let controlCenterDefaultHeight: CGFloat = 720
+  static let settingsMinimumWidth: CGFloat = 460
+  static let settingsIdealWidth: CGFloat = 480
+  static let settingsMaximumWidth: CGFloat = 520
+  static let settingsDefaultHeight: CGFloat = 680
 
   static func palette(
     for appearance: Appearance, increasedContrast: Bool = false,

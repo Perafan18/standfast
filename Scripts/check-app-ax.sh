@@ -467,6 +467,24 @@ tell application "System Events"
       error "identified Settings window did not become main and focused after Control Center"
     end if
 
+    set requiredSettingsIdentifiers to {¬
+      "dev.standfast.settings.notifications.job-failed", ¬
+      "dev.standfast.settings.notifications.disconnected", ¬
+      "dev.standfast.settings.notifications.stopped", ¬
+      "dev.standfast.settings.power.prevent-sleep", ¬
+      "dev.standfast.settings.startup.open-at-login", ¬
+      "dev.standfast.settings.version"}
+    set settingsIdentifierRecords to {}
+    set settingsElements to entire contents of settingsWindow
+    repeat with settingsElement in settingsElements
+      try
+        set settingsIdentifier to value of attribute "AXIdentifier" of settingsElement as text
+        if requiredSettingsIdentifiers contains settingsIdentifier then
+          set end of settingsIdentifierRecords to "settings" & tab & settingsIdentifier
+        end if
+      end try
+    end repeat
+
     set menuClosedBeforePress to false
     try
       if selected of statusItem then
@@ -636,7 +654,7 @@ tell application "System Events"
     end repeat
 
     set statusItemAlive to exists menu bar item 1 of menu bar 2
-    return (targetsInitialAbsent as text) & "|" & (controlOpened as text) & "|" & ¬
+    set lifecycleRecord to (targetsInitialAbsent as text) & "|" & (controlOpened as text) & "|" & ¬
       (controlMainInitially as text) & "|" & (controlFocusedInitially as text) & "|" & ¬
       (settingsAbsentAfterInitialControl as text) & "|" & (settingsOpened as text) & "|" & ¬
       (controlRetainedForSettings as text) & "|" & ¬
@@ -646,6 +664,11 @@ tell application "System Events"
       (controlClosed as text) & "|" & (settingsRetainedAfterControlClose as text) & "|" & ¬
       (settingsClosed as text) & "|" & (remainingTargetWindows as text) & "|" & ¬
       (unrelatedWindowsPreserved as text) & "|" & (statusItemAlive as text)
+    set previousDelimiters to text item delimiters of AppleScript
+    set text item delimiters of AppleScript to linefeed
+    set settingsRecordsText to settingsIdentifierRecords as text
+    set text item delimiters of AppleScript to previousDelimiters
+    return lifecycleRecord & linefeed & settingsRecordsText
   end tell
 end tell
 APPLESCRIPT
@@ -677,6 +700,14 @@ settingsClosed=""
 remainingTargetWindows=""
 unrelatedWindowsPreserved=""
 statusItemAlive=""
+settingsRecords=""
+case "$windows" in
+  *$'\n'*)
+    lifecycleRecord="${windows%%$'\n'*}"
+    settingsRecords="${windows#*$'\n'}"
+    ;;
+  *) lifecycleRecord="$windows" ;;
+esac
 IFS='|' read -r targetsInitialAbsent controlOpened controlMainInitially \
   controlFocusedInitially settingsAbsentAfterInitialControl settingsOpened \
   controlRetainedForSettings \
@@ -684,7 +715,42 @@ IFS='|' read -r targetsInitialAbsent controlOpened controlMainInitially \
   settingsRetainedForControl controlMainAfterSettings controlFocusedAfterSettings \
   controlClosed settingsRetainedAfterControlClose settingsClosed \
   remainingTargetWindows unrelatedWindowsPreserved statusItemAlive \
-  <<< "$windows" || true
+  <<< "$lifecycleRecord" || true
+
+settingsMenu=""
+while IFS= read -r settingsRecord || [ -n "$settingsRecord" ]; do
+  case "$settingsRecord" in
+    settings$'\t'*)
+      settingsIdentifier="${settingsRecord#*$'\t'}"
+      [ -n "$settingsIdentifier" ] \
+        || fail "empty Settings AX identifier record"
+      if [ -n "$settingsMenu" ]; then
+        settingsMenu="$settingsMenu"$'\n'"$settingsIdentifier"
+      else
+        settingsMenu="$settingsIdentifier"
+      fi
+      ;;
+    *)
+      fail "unknown Settings AX record type: ${settingsRecord:-empty record}"
+      ;;
+  esac
+done <<< "$settingsRecords"
+
+for requiredSettingsIdentifier in \
+  dev.standfast.settings.notifications.job-failed \
+  dev.standfast.settings.notifications.disconnected \
+  dev.standfast.settings.notifications.stopped \
+  dev.standfast.settings.power.prevent-sleep \
+  dev.standfast.settings.startup.open-at-login \
+  dev.standfast.settings.version
+do
+  settingsIdentifierCount="$(
+    printf '%s\n' "$settingsMenu" \
+      | grep -Fxc -- "$requiredSettingsIdentifier" || true
+  )"
+  [ "$settingsIdentifierCount" -eq 1 ] \
+    || fail "Settings AX identifier missing or duplicated: $requiredSettingsIdentifier"
+done
 
 if [ "$targetsInitialAbsent" = true ] && [ "$controlOpened" = true ] \
   && [ "$controlMainInitially" = true ] && [ "$controlFocusedInitially" = true ] \

@@ -17,6 +17,15 @@ enum L10n {
   static let settingsNotifications = t("settings.notifications")
   static let settingsPower = t("settings.power")
   static let settingsStartup = t("settings.startup")
+  static let settingsNotificationsFooter = t("settings.notifications.footer")
+  static let settingsPowerFooter = t("settings.power.footer")
+  static let settingsStartupFooter = t("settings.startup.footer")
+
+  static func settingsVersion(
+    _ suffix: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("settings.version", in: bundles), suffix)
+  }
 
   static let start = t("menu.start")
   static let stop = t("menu.stop")
@@ -507,6 +516,11 @@ enum L10n {
     "settings.notifications": "Notifications",
     "settings.power": "Power",
     "settings.startup": "Startup",
+    "settings.notifications.footer": "Alerts use system notifications.",
+    "settings.power.footer": "Closing the lid still puts this Mac to sleep.",
+    "settings.startup.footer":
+      "Standfast can open automatically when you log in.",
+    "settings.version": "Standfast%@",
     "menu.start": "Start",
     "menu.stop": "Stop",
     "menu.restart": "Restart",
