@@ -475,14 +475,36 @@ tell application "System Events"
       "dev.standfast.settings.startup.open-at-login", ¬
       "dev.standfast.settings.version"}
     set settingsIdentifierRecords to {}
-    set settingsElements to entire contents of settingsWindow
-    repeat with settingsElement in settingsElements
+    set settingsIdentifiersReady to false
+    repeat with settingsPollAttempt from 1 to pollAttemptLimit
+      set settingsIdentifierRecords to {}
+      set settingsElements to {}
       try
-        set settingsIdentifier to value of attribute "AXIdentifier" of settingsElement as text
-        if requiredSettingsIdentifiers contains settingsIdentifier then
-          set end of settingsIdentifierRecords to "settings" & tab & settingsIdentifier
-        end if
+        set settingsElements to entire contents of settingsWindow
       end try
+      repeat with settingsElement in settingsElements
+        try
+          set settingsIdentifier to value of attribute "AXIdentifier" of settingsElement as text
+          if requiredSettingsIdentifiers contains settingsIdentifier then
+            set end of settingsIdentifierRecords to "settings" & tab & settingsIdentifier
+          end if
+        end try
+      end repeat
+      set settingsIdentifiersReady to true
+      repeat with requiredSettingsIdentifier in requiredSettingsIdentifiers
+        set requiredSettingsRecord to "settings" & tab & (requiredSettingsIdentifier as text)
+        set settingsIdentifierCount to 0
+        repeat with settingsIdentifierRecord in settingsIdentifierRecords
+          if (contents of settingsIdentifierRecord) is requiredSettingsRecord then
+            set settingsIdentifierCount to settingsIdentifierCount + 1
+          end if
+        end repeat
+        if settingsIdentifierCount is not 1 then
+          set settingsIdentifiersReady to false
+        end if
+      end repeat
+      if settingsIdentifiersReady then exit repeat
+      delay pollDelaySeconds
     end repeat
 
     set menuClosedBeforePress to false
@@ -718,24 +740,28 @@ IFS='|' read -r targetsInitialAbsent controlOpened controlMainInitially \
   <<< "$lifecycleRecord" || true
 
 settingsMenu=""
-while IFS= read -r settingsRecord || [ -n "$settingsRecord" ]; do
-  case "$settingsRecord" in
-    settings$'\t'*)
-      settingsIdentifier="${settingsRecord#*$'\t'}"
-      [ -n "$settingsIdentifier" ] \
-        || fail "empty Settings AX identifier record"
-      if [ -n "$settingsMenu" ]; then
-        settingsMenu="$settingsMenu"$'\n'"$settingsIdentifier"
-      else
-        settingsMenu="$settingsIdentifier"
-      fi
-      ;;
-    *)
-      fail "unknown Settings AX record type: ${settingsRecord:-empty record}"
-      ;;
-  esac
-done <<< "$settingsRecords"
+if [ -n "$settingsRecords" ]; then
+  while IFS= read -r settingsRecord || [ -n "$settingsRecord" ]; do
+    case "$settingsRecord" in
+      settings$'\t'*)
+        settingsIdentifier="${settingsRecord#*$'\t'}"
+        [ -n "$settingsIdentifier" ] \
+          || fail "empty Settings AX identifier record"
+        if [ -n "$settingsMenu" ]; then
+          settingsMenu="$settingsMenu"$'\n'"$settingsIdentifier"
+        else
+          settingsMenu="$settingsIdentifier"
+        fi
+        ;;
+      *)
+        fail "unknown Settings AX record type: ${settingsRecord:-empty record}"
+        ;;
+    esac
+  done <<< "$settingsRecords"
+fi
 
+missingSettingsIdentifiers=""
+duplicateSettingsIdentifiers=""
 for requiredSettingsIdentifier in \
   dev.standfast.settings.notifications.job-failed \
   dev.standfast.settings.notifications.disconnected \
@@ -748,9 +774,26 @@ do
     printf '%s\n' "$settingsMenu" \
       | grep -Fxc -- "$requiredSettingsIdentifier" || true
   )"
-  [ "$settingsIdentifierCount" -eq 1 ] \
-    || fail "Settings AX identifier missing or duplicated: $requiredSettingsIdentifier"
+  if [ "$settingsIdentifierCount" -eq 0 ]; then
+    if [ -n "$missingSettingsIdentifiers" ]; then
+      missingSettingsIdentifiers="$missingSettingsIdentifiers,$requiredSettingsIdentifier"
+    else
+      missingSettingsIdentifiers="$requiredSettingsIdentifier"
+    fi
+  elif [ "$settingsIdentifierCount" -ne 1 ]; then
+    duplicateSettingsIdentifier="$requiredSettingsIdentifier($settingsIdentifierCount)"
+    if [ -n "$duplicateSettingsIdentifiers" ]; then
+      duplicateSettingsIdentifiers="$duplicateSettingsIdentifiers,$duplicateSettingsIdentifier"
+    else
+      duplicateSettingsIdentifiers="$duplicateSettingsIdentifier"
+    fi
+  fi
 done
+if [ -n "$missingSettingsIdentifiers" ] || [ -n "$duplicateSettingsIdentifiers" ]; then
+  [ -n "$missingSettingsIdentifiers" ] || missingSettingsIdentifiers=none
+  [ -n "$duplicateSettingsIdentifiers" ] || duplicateSettingsIdentifiers=none
+  fail "Settings AX identifiers not ready before timeout: missing=$missingSettingsIdentifiers; duplicates=$duplicateSettingsIdentifiers"
+fi
 
 if [ "$targetsInitialAbsent" = true ] && [ "$controlOpened" = true ] \
   && [ "$controlMainInitially" = true ] && [ "$controlFocusedInitially" = true ] \

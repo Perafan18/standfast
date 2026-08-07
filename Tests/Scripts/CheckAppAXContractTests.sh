@@ -13,6 +13,7 @@ SENTINEL="$TEST_ROOT/osascript-called"
 LIFECYCLE_SUCCESS="identified Control Center/Settings focus transitions and targeted closure passed"
 LIFECYCLE_VALID_TUPLE="true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|0|true|true"
 SETTINGS_VALID_OUTPUT='settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected\nsettings\tdev.standfast.settings.notifications.stopped\nsettings\tdev.standfast.settings.power.prevent-sleep\nsettings\tdev.standfast.settings.startup.open-at-login\nsettings\tdev.standfast.settings.version'
+SETTINGS_PARTIAL_OUTPUT='settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected'
 
 cleanup() {
   rm -rf "$TEST_ROOT"
@@ -30,6 +31,14 @@ assert_contains() {
   case "$output" in
     *"$expected"*) ;;
     *) fail "output did not contain: $expected" ;;
+  esac
+}
+
+assert_not_contains() {
+  local output="$1"
+  local rejected="$2"
+  case "$output" in
+    *"$rejected"*) fail "output unexpectedly contained: $rejected" ;;
   esac
 }
 
@@ -122,7 +131,15 @@ printf '%s\n' \
   '      printf "%s\n" "${CHECK_LANGUAGE:-}" > "$STANDFAST_OSASCRIPT_CAPTURE_DIR/call-2.language"' \
   '      [ "${STANDFAST_OSASCRIPT_LIFECYCLE_ABORT:-0}" != 1 ] || exit 1' \
   '      printf "%s\n" "${STANDFAST_OSASCRIPT_LIFECYCLE_TUPLE:-true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|0|true|true}"' \
-  '      printf "%b\n" "${STANDFAST_OSASCRIPT_SETTINGS_OUTPUT:-settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected\nsettings\tdev.standfast.settings.notifications.stopped\nsettings\tdev.standfast.settings.power.prevent-sleep\nsettings\tdev.standfast.settings.startup.open-at-login\nsettings\tdev.standfast.settings.version}"' \
+  '      settings_output="${STANDFAST_OSASCRIPT_SETTINGS_OUTPUT:-settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected\nsettings\tdev.standfast.settings.notifications.stopped\nsettings\tdev.standfast.settings.power.prevent-sleep\nsettings\tdev.standfast.settings.startup.open-at-login\nsettings\tdev.standfast.settings.version}"' \
+  '      if [ "${STANDFAST_OSASCRIPT_SETTINGS_EVENTUAL_OUTPUT+x}" = x ]; then' \
+  '        if grep -Fq "repeat with settingsPollAttempt from 1 to pollAttemptLimit" "$STANDFAST_OSASCRIPT_CAPTURE_DIR/call-2.applescript"; then' \
+  '          settings_output="$STANDFAST_OSASCRIPT_SETTINGS_EVENTUAL_OUTPUT"' \
+  '        else' \
+  '          settings_output="${STANDFAST_OSASCRIPT_SETTINGS_INITIAL_OUTPUT:-\\c}"' \
+  '        fi' \
+  '      fi' \
+  '      printf "%b\n" "$settings_output"' \
   '      ;;' \
   '  esac' \
   'fi' \
@@ -189,6 +206,38 @@ assert_contains "$lifecycle_output" "$LIFECYCLE_SUCCESS"
 [ "$(<"$capture_dir/call-2.language")" = en ] \
   || fail "the English menu language was not passed to the lifecycle probe"
 
+empty_settings_dir="$TEST_ROOT/captured-settings-empty"
+mkdir -p "$empty_settings_dir"
+empty_settings_output=""
+if empty_settings_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$empty_settings_dir" \
+    STANDFAST_OSASCRIPT_SETTINGS_OUTPUT='\c' \
+    "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "the AX smoke accepted a Settings tree with zero identifier records"
+fi
+assert_contains "$empty_settings_output" \
+  "Settings AX identifiers not ready before timeout: missing=dev.standfast.settings.notifications.job-failed,dev.standfast.settings.notifications.disconnected,dev.standfast.settings.notifications.stopped,dev.standfast.settings.power.prevent-sleep,dev.standfast.settings.startup.open-at-login,dev.standfast.settings.version; duplicates=none"
+assert_not_contains "$empty_settings_output" "unknown Settings AX record type"
+assert_not_contains "$empty_settings_output" "empty record"
+
+delayed_settings_dir="$TEST_ROOT/captured-delayed-settings"
+mkdir -p "$delayed_settings_dir"
+delayed_settings_output=""
+if ! delayed_settings_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$delayed_settings_dir" \
+    STANDFAST_OSASCRIPT_SETTINGS_INITIAL_OUTPUT="$SETTINGS_PARTIAL_OUTPUT" \
+    STANDFAST_OSASCRIPT_SETTINGS_EVENTUAL_OUTPUT="$SETTINGS_VALID_OUTPUT" \
+    "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "the AX smoke rejected Settings identifiers that became ready: $delayed_settings_output"
+fi
+assert_contains "$delayed_settings_output" "$LIFECYCLE_SUCCESS"
+
 expect_settings_output_rejected() {
   local name="$1"
   local settings_output="$2"
@@ -215,7 +264,7 @@ settings_without_power="$(
 expect_settings_output_rejected \
   "settings-without-power-toggle" \
   "$settings_without_power" \
-  "Settings AX identifier missing or duplicated: dev.standfast.settings.power.prevent-sleep"
+  "Settings AX identifiers not ready before timeout: missing=dev.standfast.settings.power.prevent-sleep; duplicates=none"
 
 settings_with_duplicate_version="$(
   printf '%b\nsettings\tdev.standfast.settings.version\n' "$SETTINGS_VALID_OUTPUT"
@@ -223,7 +272,23 @@ settings_with_duplicate_version="$(
 expect_settings_output_rejected \
   "settings-with-duplicate-version" \
   "$settings_with_duplicate_version" \
-  "Settings AX identifier missing or duplicated: dev.standfast.settings.version"
+  "Settings AX identifiers not ready before timeout: missing=none; duplicates=dev.standfast.settings.version(2)"
+
+never_complete_dir="$TEST_ROOT/captured-settings-never-complete"
+mkdir -p "$never_complete_dir"
+never_complete_output=""
+if never_complete_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$never_complete_dir" \
+    STANDFAST_OSASCRIPT_SETTINGS_INITIAL_OUTPUT="$SETTINGS_PARTIAL_OUTPUT" \
+    STANDFAST_OSASCRIPT_SETTINGS_EVENTUAL_OUTPUT="$SETTINGS_PARTIAL_OUTPUT" \
+    "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "the AX smoke accepted a Settings tree that never became complete"
+fi
+assert_contains "$never_complete_output" \
+  "Settings AX identifiers not ready before timeout: missing=dev.standfast.settings.notifications.stopped,dev.standfast.settings.power.prevent-sleep,dev.standfast.settings.startup.open-at-login,dev.standfast.settings.version; duplicates=none"
 
 expect_settings_output_rejected \
   "settings-with-unknown-record" \
@@ -493,6 +558,11 @@ grep -Fq 'dev.standfast.scene.settings' "$lifecycle_script" \
   || fail "the lifecycle probe does not use the stable Settings window identifier"
 grep -Fq 'entire contents of settingsWindow' "$lifecycle_script" \
   || fail "the lifecycle probe does not inspect the opened Settings descendants"
+grep -Fq 'repeat with settingsPollAttempt from 1 to pollAttemptLimit' \
+  "$lifecycle_script" \
+  || fail "the Settings identifier probe does not poll within the lifecycle deadline"
+grep -Fq 'if settingsIdentifiersReady then exit repeat' "$lifecycle_script" \
+  || fail "the Settings identifier probe does not stop when every exact ID is ready"
 for settings_identifier in \
   dev.standfast.settings.notifications.job-failed \
   dev.standfast.settings.notifications.disconnected \
