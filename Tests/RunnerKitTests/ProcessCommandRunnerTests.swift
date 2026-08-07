@@ -1,5 +1,7 @@
+import Darwin
 import Foundation
 import Testing
+import os
 
 @testable import RunnerKit
 
@@ -7,6 +9,8 @@ import Testing
 /// that actually spawns processes is covered on a CI machine with no runner
 /// installed.
 private let runner = ProcessCommandRunner()
+private let runsWatchdogPoolRegression =
+  ProcessInfo.processInfo.environment["STANDFAST_WATCHDOG_POOL_REGRESSION"] == "1"
 
 @Test func returnsWhatTheProcessWroteToStdout() throws {
   #expect(
@@ -96,6 +100,92 @@ private final class Box: @unchecked Sendable {
   var error: (any Error)?
 }
 
+/// Occupies the shared dispatch pool without making blocking system calls.
+///
+/// libdispatch may compensate for tasks blocked on a semaphore by adding more
+/// workers. Each blocker therefore polls its own non-blocking lock: the workers
+/// stay runnable without contending on one shared release flag.
+private final class SpinGate: @unchecked Sendable {
+  private let state = OSAllocatedUnfairLock(initialState: false)
+
+  var isOpen: Bool {
+    state.withLockIfAvailable { $0 } ?? false
+  }
+
+  func open() {
+    state.withLock { $0 = true }
+  }
+}
+
+/// Fills the shared dispatch pool without assuming how many workers it owns.
+///
+/// If every task in a batch starts, another batch is submitted. Saturation is
+/// reached only after the observed start count becomes quiet while blockers
+/// are still queued. The test adds an independent callback afterwards to prove
+/// that this measured ceiling really did stop shared-pool work.
+private final class GlobalDispatchPoolBlocker: @unchecked Sendable {
+  struct Saturation {
+    let started: Int
+    let pending: Int
+  }
+
+  private let started = DispatchSemaphore(value: 0)
+  private let drained = DispatchGroup()
+  private var gates: [SpinGate] = []
+  private let batchSize = 32
+  private let maximumBlockers = 512
+
+  func startAndWaitUntilSaturated(
+    quietWindow: TimeInterval = 0.5, timeout: TimeInterval = 15
+  ) -> Saturation? {
+    enqueueBatch()
+    var observedStarts = 0
+    let deadline = ProcessInfo.processInfo.systemUptime + timeout
+
+    while ProcessInfo.processInfo.systemUptime < deadline {
+      let now = ProcessInfo.processInfo.systemUptime
+      let remaining = max(0, deadline - now)
+      let nextSignal = started.wait(timeout: .now() + min(quietWindow, remaining))
+
+      if nextSignal == .success {
+        observedStarts += 1
+        while started.wait(timeout: .now()) == .success { observedStarts += 1 }
+
+        if observedStarts == gates.count {
+          guard gates.count < maximumBlockers else { return nil }
+          enqueueBatch()
+        }
+        continue
+      }
+
+      if observedStarts > 0 && observedStarts < gates.count {
+        return Saturation(started: observedStarts, pending: gates.count - observedStarts)
+      }
+    }
+    return nil
+  }
+
+  private func enqueueBatch() {
+    let remainingCapacity = maximumBlockers - gates.count
+    for _ in 0..<min(batchSize, remainingCapacity) {
+      let gate = SpinGate()
+      gates.append(gate)
+      drained.enter()
+      DispatchQueue.global().async { [self, gate] in
+        started.signal()
+        while !gate.isOpen { _ = sched_yield() }
+        drained.leave()
+      }
+    }
+  }
+
+  @discardableResult
+  func stop(timeout: TimeInterval = 10) -> Bool {
+    for gate in gates { gate.open() }
+    return drained.wait(timeout: .now() + timeout) == .success
+  }
+}
+
 /// Runs the command on another thread and gives up after 30 seconds.
 ///
 /// Swift Testing's time limits only bite at suspension points, so a `run()`
@@ -173,4 +263,72 @@ private func makeChatterFile() throws -> URL {
     impatient, "/bin/sh", ["-c", "trap '' TERM; exec sleep 30"])
 
   #expect(box?.error is CommandError)
+}
+
+@Test(.enabled(if: runsWatchdogPoolRegression))
+func watchdogTimeoutSurvivesAStalledGlobalDispatchPool() {
+  let blockers = GlobalDispatchPoolBlocker()
+  defer { blockers.stop() }
+
+  guard let saturation = blockers.startAndWaitUntilSaturated() else {
+    Issue.record("could not occupy enough workers to exercise the watchdog")
+    return
+  }
+  print(
+    "global pool harness started \(saturation.started) blockers with \(saturation.pending) queued"
+  )
+
+  // This is the negative control for the harness: a callback that does rely
+  // on the global pool must remain queued until the blockers are released.
+  let sharedPoolCallback = DispatchSemaphore(value: 0)
+  DispatchQueue.global().async {
+    sharedPoolCallback.signal()
+  }
+
+  let impatient = ProcessCommandRunner(timeout: 0.1, terminationGrace: 0.1)
+  let box = Box()
+  let finished = DispatchSemaphore(value: 0)
+  Thread.detachNewThread {
+    autoreleasepool {
+      do {
+        box.result = try impatient.run(
+          "/bin/sh", ["-c", "trap '' TERM; exec sleep 30"])
+      } catch {
+        box.error = error
+      }
+      finished.signal()
+    }
+  }
+
+  let finishedWhilePoolWasStalled =
+    finished.wait(timeout: .now() + 5) == .success
+  let sharedPoolStayedStalled =
+    sharedPoolCallback.wait(timeout: .now()) == .timedOut
+
+  // Release every worker before recording failures. This also lets the old,
+  // pool-dependent implementation finish instead of leaking a child process.
+  let poolDrained = blockers.stop()
+  let sharedPoolRecovered =
+    sharedPoolCallback.wait(timeout: .now() + 5) == .success
+  if !finishedWhilePoolWasStalled {
+    _ = finished.wait(timeout: .now() + 10)
+  }
+
+  #expect(
+    sharedPoolStayedStalled,
+    "shared-pool work ran while blocker work was still queued")
+  #expect(
+    finishedWhilePoolWasStalled,
+    "the command watchdog stopped making progress with the global dispatch pool")
+  #expect(poolDrained, "the global dispatch pool did not recover after the test")
+  #expect(sharedPoolRecovered, "the global dispatch pool did not resume queued work")
+
+  guard finishedWhilePoolWasStalled else { return }
+  guard case .timedOut(let executable)? = box.error as? CommandError else {
+    Issue.record(
+      "expected a timeout, got \(String(describing: box.error ?? box.result as Any))")
+    return
+  }
+  #expect(executable == "/bin/sh")
+  print("STANDFAST_WATCHDOG_POOL_REGRESSION_PASSED")
 }

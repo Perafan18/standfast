@@ -35,17 +35,18 @@ struct QuickMenuView: View {
     case .openControlCenter:
       Button(L10n.controlCenter) {
         openWindow(id: "control-center")
-        NSApplication.shared.activate()
+        SceneActivationCoordinator.live().activateWhenWindowIsVisible()
       }
     case .openSettings:
       Button(L10n.settings) {
         openSettings()
-        NSApplication.shared.activate()
+        SceneActivationCoordinator.live().activateWhenWindowIsVisible()
       }
     case .quit:
       Button(L10n.quit) { NSApplication.shared.terminate(nil) }
     }
   }
+
 }
 
 /// A runner echo with detail is one native menu element. Its secondary copy

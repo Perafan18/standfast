@@ -9,10 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# macos-15 everywhere, not macos-14, even though the app targets macOS 14: the
-# manifest declares swift-tools-version 6.0, and the macos-14 image's default
-# Xcode still carries a Swift 5 toolchain that cannot read it. `swift format`
-# is a subcommand of that same Swift 6 toolchain, so it would be missing too.
+# Main jobs use macos-15 because its default Xcode provides the Swift 6 tools
+# the manifest and formatter require. The minimum-OS watchdog job below pins a
+# compatible Swift 6 Xcode explicitly instead of relying on the older default.
 jobs:
   test:
     name: Build and test
@@ -31,10 +30,40 @@ jobs:
       - name: Test
         run: swift test
 
+      # This intentionally stalls the shared dispatch pool. Keep it isolated
+      # from the regular suite so unrelated tests cannot inherit that pressure.
+      - name: Watchdog remains independent of the global dispatch pool
+        timeout-minutes: 10
+        run: bash Tests/Scripts/RunWatchdogRegression.sh
+
       # Release uses different optimisation and cross-module settings, so a
       # debug-only build genuinely does not cover it.
       - name: Build (release, warnings are errors)
         run: swift build -c release -Xswiftc -warnings-as-errors
+
+  watchdog-macos-14:
+    name: Watchdog regression (macOS 14)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub began deprecating macos-14 on 2026-07-06 and will retire it on
+      # 2026-11-02. Move this coverage to a self-hosted macOS 14 runner or an
+      # equivalent minimum-OS strategy before that date.
+      - name: Select Swift 6 toolchain
+        run: sudo xcode-select --switch /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Swift version
+        run: swift --version
+
+      # Keep compilation outside the regression's timeout so a cold 3-vCPU
+      # runner reports toolchain/build failures separately from harness hangs.
+      - name: Build watchdog test bundle
+        run: swift build --build-tests
+
+      - name: Watchdog remains independent of the global dispatch pool
+        timeout-minutes: 10
+        run: bash Tests/Scripts/RunWatchdogRegression.sh
 
   package:
     name: Package the app
