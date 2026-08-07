@@ -46,6 +46,21 @@ extension RunnerScope {
     }
   }
 
+  /// The repository-wide workflow runs page, where GitHub has one honest
+  /// destination spanning every workflow this runner may execute.
+  ///
+  /// Organization and enterprise runners serve many repositories and GitHub
+  /// provides no equivalent single runs page for that whole scope. Returning
+  /// nil keeps callers from presenting their runner-registration page as job
+  /// history.
+  public var workflowRunsURL: URL? {
+    guard case .repository(let owner, let name) = self else { return nil }
+    return URL(string: "https://github.com/\(owner)/\(name)/actions")!
+  }
+
+  /// The most useful page GitHub actually provides for this scope.
+  public var preferredGitHubURL: URL { workflowRunsURL ?? settingsURL }
+
   public var displayName: String {
     switch self {
     case .repository(let owner, let name): "\(owner)/\(name)"

@@ -93,6 +93,11 @@ private func speaking(_ localization: String) throws -> Bundle {
     L10n.serviceOperationRestartStartFailedDetail,
     L10n.serviceOperationRestartStartTimedOutTitle,
     L10n.serviceOperationRestartStartTimedOutDetail,
+    L10n.statusItemLabel, L10n.controlCenterTitle,
+    L10n.controlCenterNoRunnersDescription, L10n.controlCenterScope,
+    L10n.controlCenterStatus, L10n.controlCenterService,
+    L10n.openWorkflowRuns, L10n.openRunnerSettings,
+    L10n.settingsNotifications, L10n.settingsPower, L10n.settingsStartup,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -154,6 +159,10 @@ private func speaking(_ localization: String) throws -> Bundle {
       "operation.unexpectedFailure.title", "operation.unexpectedFailure.detail",
       "operation.restartStartFailed.title", "operation.restartStartFailed.detail",
       "operation.restartStartTimedOut.title", "operation.restartStartTimedOut.detail",
+      "app.statusItem", "controlCenter.title", "controlCenter.noRunners.description",
+      "controlCenter.scope", "controlCenter.status", "controlCenter.service",
+      "controlCenter.openWorkflowRuns", "controlCenter.openRunnerSettings",
+      "settings.notifications", "settings.power", "settings.startup",
     ])
   #expect(everyKey == reached)
 }

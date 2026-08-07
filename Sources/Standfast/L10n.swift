@@ -5,6 +5,19 @@ import Foundation
 /// Call sites say `L10n.start`, so replacing `.strings` with a String Catalog,
 /// or dropping the catalogue entirely, touches this file and nothing else.
 enum L10n {
+  static let statusItemLabel = t("app.statusItem")
+  static let controlCenterTitle = t("controlCenter.title")
+  static let controlCenterNoRunnersDescription = t(
+    "controlCenter.noRunners.description")
+  static let controlCenterScope = t("controlCenter.scope")
+  static let controlCenterStatus = t("controlCenter.status")
+  static let controlCenterService = t("controlCenter.service")
+  static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
+  static let openRunnerSettings = t("controlCenter.openRunnerSettings")
+  static let settingsNotifications = t("settings.notifications")
+  static let settingsPower = t("settings.power")
+  static let settingsStartup = t("settings.startup")
+
   static let start = t("menu.start")
   static let stop = t("menu.stop")
   static let restart = t("menu.restart")
@@ -345,6 +358,18 @@ enum L10n {
   /// be enumerated cannot be tested. `Resources/en.lproj/Localizable.strings`
   /// has to say exactly this, and a test holds the two together.
   static let english: [String: String] = [
+    "app.statusItem": "Standfast",
+    "controlCenter.title": "Standfast Control Center",
+    "controlCenter.noRunners.description":
+      "Install a self-hosted GitHub Actions runner, then refresh.",
+    "controlCenter.scope": "Scope",
+    "controlCenter.status": "Status",
+    "controlCenter.service": "Runner service",
+    "controlCenter.openWorkflowRuns": "Open workflow runs",
+    "controlCenter.openRunnerSettings": "Open runner settings",
+    "settings.notifications": "Notifications",
+    "settings.power": "Power",
+    "settings.startup": "Startup",
     "menu.start": "Start",
     "menu.stop": "Stop",
     "menu.restart": "Restart",

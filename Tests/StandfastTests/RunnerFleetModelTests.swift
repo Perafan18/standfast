@@ -708,7 +708,7 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
 
   #expect(
     opener.urls.map(\.absoluteString) == [
-      "https://github.com/acme/widget/settings/actions/runners"
+      "https://github.com/acme/widget/actions"
     ])
   commands.release()
   await fleet.quiesce()
@@ -2251,7 +2251,8 @@ func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
   #expect(commands.invocations.count == before)
 }
 
-@Test @MainActor func openOnGitHubHandsTheBrowserThisRunnersOwnSettingsPage() async throws {
+@Test @MainActor
+func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
   let sandbox = try FleetSandbox()
   defer { sandbox.cleanUp() }
   _ = try sandbox.addRunner(name: "build-mac", scope: "widget")
@@ -2265,7 +2266,7 @@ func anInconclusiveDiscoveryRetainsAnOutcomeButAConclusiveUninstallPrunesIt()
 
   #expect(
     opener.urls.map(\.absoluteString)
-      == ["https://github.com/acme/widget/settings/actions/runners"])
+      == ["https://github.com/acme/widget/actions"])
 }
 
 // MARK: - Which runner is installed, and whether there is a newer one

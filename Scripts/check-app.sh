@@ -21,6 +21,7 @@ ALIVE_SECONDS="${ALIVE_SECONDS:-6}"
 STAGE="$(mktemp -d /tmp/standfast-check.XXXXXX)"
 APP="$STAGE/Standfast.app"
 PID=""
+WINDOW_CHECK_FAILURE=""
 
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/\
 LaunchServices.framework/Support/lsregister
@@ -146,9 +147,10 @@ echo "    still alive after ${ALIVE_SECONDS}s"
 echo "==> Reading the menu (needs Accessibility permission)"
 # Menu bar 2, not 1: an agent app still gets a main menu bar it never shows,
 # and that is the one holding the Apple menu. Status items live in the second.
-menu="$(osascript 2>/dev/null <<'APPLESCRIPT' || true
+menu="$(CHECK_PID="$PID" osascript 2>/dev/null <<'APPLESCRIPT' || true
 tell application "System Events"
-  tell process "Standfast"
+  set targetPID to (system attribute "CHECK_PID") as integer
+  tell (first process whose unix id is targetPID)
     if not (exists menu bar item 1 of menu bar 2) then return ""
     click menu bar item 1 of menu bar 2
     delay 1.5
@@ -171,16 +173,77 @@ else
     *menu.*|*state.*|*job.*|*duration.*|*thermal.*|*notification.*)
       fail "the menu is showing raw localisation keys" ;;
   esac
+
+  echo "==> Exercising Control Center and Settings through Accessibility"
+  windows="$(CHECK_PID="$PID" osascript 2>/dev/null <<'APPLESCRIPT' || true
+tell application "System Events"
+  set targetPID to (system attribute "CHECK_PID") as integer
+  tell (first process whose unix id is targetPID)
+    click menu bar item 1 of menu bar 2
+    delay 1
+    set controlClicked to false
+    repeat with candidate in {"Open Standfast", "Abrir Standfast"}
+      if exists menu item (candidate as text) of menu 1 of menu bar item 1 of menu bar 2 then
+        click menu item (candidate as text) of menu 1 of menu bar item 1 of menu bar 2
+        set controlClicked to true
+        exit repeat
+      end if
+    end repeat
+    if not controlClicked then error "Control Center menu item missing"
+    delay 1
+    set controlOpened to (count of windows) > 0
+    set controlFrontmost to frontmost
+    if controlOpened then perform action "AXClose" of window 1
+    delay 1
+    set controlClosed to (count of windows) is 0
+
+    click menu bar item 1 of menu bar 2
+    delay 1
+    set settingsClicked to false
+    repeat with candidate in {"Settings", "Configuración"}
+      if exists menu item (candidate as text) of menu 1 of menu bar item 1 of menu bar 2 then
+        click menu item (candidate as text) of menu 1 of menu bar item 1 of menu bar 2
+        set settingsClicked to true
+        exit repeat
+      end if
+    end repeat
+    if not settingsClicked then error "Settings menu item missing"
+    delay 1
+    set settingsOpened to (count of windows) > 0
+    repeat while (count of windows) > 0
+      perform action "AXClose" of window 1
+      delay 0.25
+    end repeat
+    set allWindowsClosed to (count of windows) is 0
+    set statusItemAlive to exists menu bar item 1 of menu bar 2
+    return (controlOpened as text) & "|" & (controlFrontmost as text) & "|" & ¬
+      (controlClosed as text) & "|" & (settingsOpened as text) & "|" & ¬
+      (allWindowsClosed as text) & "|" & (statusItemAlive as text)
+  end tell
+end tell
+APPLESCRIPT
+)"
+  case "$windows" in
+    "true|true|true|true|true|true")
+      echo "    singleton window and Settings passed; status item survived" ;;
+    *)
+      WINDOW_CHECK_FAILURE="window lifecycle AX check failed: ${windows:-no result}"
+      echo "    FAILED: $WINDOW_CHECK_FAILURE" ;;
+  esac
+  kill -0 "$PID" 2>/dev/null \
+    || fail "closing every window terminated the menu-bar process"
 fi
 
 echo "==> Checking it stays out of the Dock"
-background="$(osascript -e \
-  'tell application "System Events" to get background only of process "Standfast"' \
+background="$(CHECK_PID="$PID" osascript -e \
+  'tell application "System Events" to get background only of (first process whose unix id is ((system attribute "CHECK_PID") as integer))' \
   2>/dev/null || true)"
 case "$background" in
   true) echo "    background only: no Dock tile" ;;
   "") echo "    SKIPPED: could not read the process list" ;;
   *) fail "the app is not background-only; LSUIElement did not take effect" ;;
 esac
+
+[ -z "$WINDOW_CHECK_FAILURE" ] || fail "$WINDOW_CHECK_FAILURE"
 
 echo "PASS"

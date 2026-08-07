@@ -550,6 +550,30 @@ final class RunnerFleetModel: ObservableObject {
     snapshots.contains { $0.jobProgress?.isOverTypical == true }
   }
 
+  // MARK: - Presenting
+
+  /// The bounded menu projection, built only from values the latest scan has
+  /// already read.
+  func quickMenuPresentation(
+    thermalLines: [String], now: Date = Date()
+  ) -> QuickMenuPresentation {
+    QuickMenuPresentation.building(
+      snapshots: snapshots, notice: notice, thermalLines: thermalLines,
+      readAt: lastReadAt, now: now)
+  }
+
+  /// The complete card projection, built only from model and housekeeping
+  /// memory. Reading it never probes GitHub, launchd, or disk.
+  func controlCenterCards(now: Date = Date()) -> [RunnerCardPresentation] {
+    snapshots.map { snapshot in
+      RunnerCardPresentation.building(
+        snapshot, measurement: housekeeping.measurement(for: snapshot.runner),
+        latestRelease: latestRelease,
+        isMaintenanceWorking: housekeeping.isWorking(on: snapshot.runner),
+        maintenanceNotice: housekeeping.notice(for: snapshot.runner), now: now)
+    }
+  }
+
   // MARK: - Acting
 
   private func acquireServiceAction(for label: String) -> Bool {
@@ -579,8 +603,21 @@ final class RunnerFleetModel: ObservableObject {
     case .start: start(runner)
     case .stop: stop(runner)
     case .restart: restart(runner)
-    case .openOnGitHub: openSettings(runner)
+    case .openOnGitHub: openOnGitHub(runner)
     }
+  }
+
+  /// Presentation rows carry durable runner identifiers rather than mutable
+  /// machine values. Resolve the current snapshot at the action boundary so a
+  /// card removed by a newer scan cannot act on stale data.
+  func perform(_ kind: RunnerRow.Action.Kind, onRunnerID id: String) {
+    guard let runner = snapshots.first(where: { $0.id == id })?.runner else { return }
+    perform(kind, on: runner)
+  }
+
+  func performMaintenance(_ kind: MaintenanceOffer.Kind, onRunnerID id: String) {
+    guard let snapshot = snapshots.first(where: { $0.id == id }) else { return }
+    housekeeping.perform(kind, on: snapshot)
   }
 
   /// No hop anywhere in here: every one of the controller's entry points is
@@ -622,8 +659,8 @@ final class RunnerFleetModel: ObservableObject {
     }
   }
 
-  func openSettings(_ runner: DiscoveredRunner) {
-    opener.open(runner.scope.settingsURL)
+  func openOnGitHub(_ runner: DiscoveredRunner) {
+    opener.open(runner.scope.preferredGitHubURL)
   }
 
   private func perform(

@@ -1,3 +1,15 @@
+"app.statusItem" = "Standfast";
+"controlCenter.title" = "Centro de control de Standfast";
+"controlCenter.noRunners.description" = "Instala un runner autohospedado de GitHub Actions y selecciona Actualizar ahora.";
+"controlCenter.scope" = "Ámbito";
+"controlCenter.status" = "Estado";
+"controlCenter.service" = "Servicio del runner";
+"controlCenter.openWorkflowRuns" = "Abrir ejecuciones de workflows";
+"controlCenter.openRunnerSettings" = "Abrir configuración del runner";
+"settings.notifications" = "Notificaciones";
+"settings.power" = "Energía";
+"settings.startup" = "Inicio";
+
 "menu.start" = "Arrancar";
 "menu.stop" = "Parar";
 "menu.restart" = "Reiniciar";
