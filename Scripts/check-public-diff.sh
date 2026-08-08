@@ -26,24 +26,56 @@ p3="va""ult"
 p4="iC""loud"
 p5="[""["
 
+# One home directory is published on purpose. The website shows a real
+# LaunchAgent, and a plist's `WorkingDirectory` is absolute — writing it with a
+# tilde would make the figure wrong, and this project does not put a convenient
+# lie in front of a reader. `ci` is a placeholder, alongside the invented
+# organisation in the same figure.
+#
+# The exemption is this exact prefix and nothing else, removed before the scan.
+# A longer name that merely begins the same way keeps its leading marker and
+# still fails, because the trailing separator is part of what is removed; so
+# does any real home. It is deliberately not applied to the binary scan below —
+# the icon has no reason to name a home directory at all.
+published_home="/""Users/ci/"
+scannable_lines="${added_lines//$published_home/}"
+scannable_docs="${added_docs//$published_home/}"
+
 matches=""
 for marker in "$p1" "$p2" "$p3" "$p4"; do
-  found="$(printf '%s\n' "$added_lines" | grep -Fni "$marker" || true)"
+  found="$(printf '%s\n' "$scannable_lines" | grep -Fni "$marker" || true)"
   if [ -n "$found" ]; then
     matches="${matches}${matches:+$'\n'}${found}"
   fi
 done
-found="$(printf '%s\n' "$added_docs" | grep -Fni "$p5" || true)"
+found="$(printf '%s\n' "$scannable_docs" | grep -Fni "$p5" || true)"
 if [ -n "$found" ]; then
   matches="${matches}${matches:+$'\n'}${found}"
 fi
 
-# Binary policy is deliberately narrow. The generated application icon is the
-# only binary artifact kept in this repository; every other added or modified
-# binary fails closed. Printable strings from the icon, including textual image
-# metadata, are checked against the same private-reference markers. The path is
-# read from NUL-delimited numstat output so spaces, tabs, and renames cannot
-# disguise an unauthorized binary.
+# Binary policy is deliberately narrow: the generated application icon, and the
+# website's screenshots. Every other added or modified binary fails closed.
+#
+# The screenshots are the riskiest files in the repository — they are pictures
+# of a real Mac, published on the open web. A window title, a wallpaper, a
+# stray path in image metadata leaks whatever it happens to contain, and no
+# reviewer reads a PNG. So the strings scan below is not a formality for them:
+# it is the only automated thing standing between a capture and the internet.
+# The image directory is fixed rather than a pattern so a screenshot cannot be
+# dropped somewhere unwatched and inherit the exemption.
+#
+# The path is read from NUL-delimited numstat output so spaces, tabs, and
+# renames cannot disguise an unauthorized binary.
+binary_is_allowed() {
+  case "$1" in
+    Resources/AppIcon.png) return 0 ;;
+    site/img/*.png)
+      # One directory deep and nothing else: `site/img/a/b.png` is not covered.
+      case "${1#site/img/}" in */*) return 1 ;; *) return 0 ;; esac
+      ;;
+  esac
+  return 1
+}
 while IFS=$'\t' read -r -d '' added deleted path; do
   if [ -z "$path" ]; then
     # With `-z`, a rename is encoded as an empty path followed by the old and
@@ -54,7 +86,7 @@ while IFS=$'\t' read -r -d '' added deleted path; do
   if [ "$added" != "-" ] || [ "$deleted" != "-" ]; then
     continue
   fi
-  if [ "$path" != "Resources/AppIcon.png" ]; then
+  if ! binary_is_allowed "$path"; then
     echo "FAIL: public diff introduces unauthorized binary: $path" >&2
     exit 1
   fi

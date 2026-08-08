@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Standfast — your runner is up. That doesn't mean GitHub will send it work.</title>
+<meta name="description" content="A macOS menu bar app and Control Center for self-hosted GitHub Actions runners. It reads launchd and GitHub separately, reports honest operation outcomes, and keeps the quick menu glanceable.">
+
+<meta property="og:title" content="Standfast">
+<meta property="og:description" content="A macOS menu bar app and Control Center for self-hosted GitHub Actions runners. It reads launchd and GitHub separately, reports honest operation outcomes, and keeps the quick menu glanceable.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://perafan18.github.io/standfast/">
+<!-- The signature surface, and the only screenshot whose aspect ratio survives a
+     social card's crop. A purpose-drawn 1200x630 card is a later refinement. -->
+<meta property="og:image" content="https://perafan18.github.io/standfast/img/quick-menu.png">
+<meta property="og:image:alt" content="The Standfast menu open in the macOS menu bar, one row per runner.">
+<link rel="canonical" href="https://perafan18.github.io/standfast/">
+<link rel="icon" href="img/icon.png">
+<style>
+  /* Every colour below is the value the app itself ships in
+     Sources/Standfast/StandfastTheme.swift. The page and the product are one
+     identity or they are two, and a visitor who learns a colour here must find
+     the same colour on first launch. */
+  :root {
+    color-scheme: light dark;
+
+    --ground:     #F1F3F5;
+    --surface:    #FFFFFF;
+    --surface-2:  #F7F9FA;
+    --edge:       #D6DDE3;
+    --edge-hard:  #B6C0C9;
+
+    --ink:        #14171A;
+    --ink-soft:   #4F5B66;
+    --ink-faint:  #6B7680;
+
+    --primary:    #005AC6;
+    --on-primary: #FFFFFF;
+    --healthy:    #0D6B39;
+    --on-healthy: #FFFFFF;
+    --attention:     #FFF0DF;
+    --on-attention:  #853800;
+    --stopped:    #DCE2E7;
+    --on-stopped: #14171A;
+
+    --shadow: 0 1px 2px rgb(20 23 26 / .06), 0 12px 32px -12px rgb(20 23 26 / .18);
+    --display: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --measure: 38rem;
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:     #101417;
+      --surface:    #1B2024;
+      --surface-2:  #222831;
+      --edge:       #333C45;
+      --edge-hard:  #4F5B66;
+
+      --ink:        #F5F7F8;
+      --ink-soft:   #C2C8CE;
+      --ink-faint:  #A7B0B9;
+
+      --primary:    #0A66D2;
+      --on-primary: #FFFFFF;
+      --healthy:    #0D6B39;
+      --on-healthy: #FFFFFF;
+      --attention:     #B04B00;
+      --on-attention:  #FFF0DF;
+      --stopped:    #4F5B66;
+      --on-stopped: #F5F7F8;
+
+      --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 16px 40px -16px rgb(0 0 0 / .6);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 17px/1.6 var(--display);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.5rem; }
+  .narrow { max-width: var(--measure); }
+
+  code {
+    font: 500 .88em/1.4 var(--mono);
+    background: var(--surface-2);
+    border: 1px solid var(--edge);
+    border-radius: 5px;
+    padding: .1em .38em;
+  }
+
+  a { color: var(--primary); text-underline-offset: .18em; }
+
+  /* ---- hero ---------------------------------------------------------- */
+
+  header {
+    padding: 5.5rem 0 3.5rem;
+    border-bottom: 1px solid var(--edge);
+    background: linear-gradient(180deg, var(--surface) 0%, var(--ground) 100%);
+  }
+
+  .identity { display: flex; align-items: center; gap: 1.1rem; margin-bottom: 2rem; }
+  .identity img { width: 84px; height: 84px; border-radius: 19px; box-shadow: var(--shadow); }
+  .identity h1 { margin: 0; font-size: 2.6rem; letter-spacing: -.022em; font-weight: 700; }
+  .identity .kind {
+    margin: .2rem 0 0;
+    font: 500 .78rem/1 var(--mono);
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .thesis {
+    max-width: 30rem;
+    margin: 0 0 1.4rem;
+    font-size: 2rem;
+    line-height: 1.22;
+    letter-spacing: -.018em;
+    font-weight: 400;
+    color: var(--ink-soft);
+  }
+  .thesis b { color: var(--ink); font-weight: 650; }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3rem;
+    align-items: end;
+  }
+  @media (max-width: 60rem) { .hero-grid { grid-template-columns: 1fr; align-items: start; } }
+
+  /* The release state is a first-class element and not a footnote, because the
+     honest answer to "can I install this" is currently no. When there is a
+     download, the pill becomes the button and nothing else has to move. */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: .55rem;
+    padding: .5rem .9rem;
+    border: 1px solid var(--edge-hard);
+    border-radius: 999px;
+    background: var(--surface);
+    font: 500 .84rem/1 var(--display);
+    color: var(--ink-soft);
+  }
+  .status-pill .dot {
+    width: .6rem; height: .6rem; border-radius: 50%;
+    background: var(--edge-hard);
+  }
+  .status-pill b { color: var(--ink); font-weight: 600; }
+
+  .shot { border-radius: var(--radius); border: 1px solid var(--edge); box-shadow: var(--shadow); display: block; max-width: 100%; height: auto; background: var(--surface); }
+  .shot-menu { width: 262px; border-radius: 12px; }
+
+  figure { margin: 0; }
+  figcaption {
+    margin-top: .8rem;
+    font-size: .88rem;
+    color: var(--ink-faint);
+    max-width: 26rem;
+  }
+
+  /* ---- sections ------------------------------------------------------ */
+
+  section { padding: 4.5rem 0; border-bottom: 1px solid var(--edge); }
+  section:last-of-type { border-bottom: 0; }
+
+  .label {
+    margin: 0 0 .7rem;
+    font: 500 .76rem/1 var(--mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  h2 {
+    margin: 0 0 1.1rem;
+    font-size: 1.85rem;
+    line-height: 1.24;
+    letter-spacing: -.016em;
+    font-weight: 650;
+    max-width: 26rem;
+  }
+  h3 {
+    margin: 2rem 0 .6rem;
+    font-size: 1.05rem;
+    font-weight: 650;
+  }
+  p { margin: 0 0 1.05rem; max-width: var(--measure); }
+  .lead { font-size: 1.12rem; color: var(--ink-soft); }
+  p:last-child { margin-bottom: 0; }
+
+  ul.plain { margin: 0; padding: 0; list-style: none; max-width: var(--measure); }
+  ul.plain li {
+    padding: .7rem 0 .7rem 1.5rem;
+    border-bottom: 1px solid var(--edge);
+    position: relative;
+  }
+  ul.plain li:last-child { border-bottom: 0; }
+  ul.plain li::before {
+    content: ""; position: absolute; left: 0; top: 1.28rem;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--edge-hard);
+  }
+
+  /* ---- the two questions --------------------------------------------- */
+
+  .rig {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 2.2rem 1.5rem 1.6rem;
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .lamp { text-align: center; }
+  .bulb {
+    width: 46px; height: 46px; margin: 0 auto .8rem;
+    border-radius: 50%;
+    border: 2px solid var(--edge-hard);
+    display: grid; place-items: center;
+    transition: border-color .5s, background .5s;
+  }
+  .bulb i {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--edge-hard);
+    transition: background .5s;
+  }
+  .lamp.on .bulb { border-color: var(--healthy); background: color-mix(in srgb, var(--healthy) 14%, transparent); }
+  .lamp.on .bulb i { background: var(--healthy); }
+  .lamp.warn .bulb { border-color: var(--on-attention); background: var(--attention); }
+  .lamp.warn .bulb i { background: var(--on-attention); }
+  .cap {
+    margin: 0; font: 500 .74rem/1.3 var(--mono);
+    letter-spacing: .07em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  .state { margin: .35rem 0 0; font-weight: 600; font-size: .98rem; }
+
+  .link { height: 2px; background: var(--edge); border-radius: 2px; position: relative; overflow: hidden; }
+  .link.alive::after {
+    content: ""; position: absolute; inset: 0;
+    background: var(--healthy);
+    animation: flow 2.4s linear infinite;
+  }
+  @keyframes flow { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+  .readout {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem;
+    margin-top: 1.4rem; padding-top: 1.2rem;
+    border-top: 1px solid var(--edge);
+    grid-column: 1 / -1;
+  }
+  .readout .k {
+    font: 500 .72rem/1 var(--mono); letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .readout .v { font-weight: 600; }
+  .readout .beat { margin-left: auto; font: 500 .8rem/1 var(--mono); color: var(--ink-faint); }
+
+  /* ---- state legend, using the app's own badge treatment -------------- */
+
+  .legend { display: grid; gap: .55rem; max-width: 44rem; }
+  .row {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    gap: 1rem;
+    align-items: baseline;
+    padding: .75rem 0;
+    border-bottom: 1px solid var(--edge);
+  }
+  .row:last-child { border-bottom: 0; }
+  .badge {
+    justify-self: start;
+    padding: .22rem .6rem;
+    border-radius: 999px;
+    font: 600 .8rem/1.35 var(--display);
+    border: 1px solid transparent;
+  }
+  .b-ok   { background: var(--healthy);   color: var(--on-healthy); }
+  .b-busy { background: var(--primary);   color: var(--on-primary); }
+  .b-warn { background: var(--attention); color: var(--on-attention); border-color: var(--edge-hard); }
+  .b-off  { background: var(--stopped);   color: var(--on-stopped); }
+  .row .d { color: var(--ink-soft); font-size: .96rem; }
+
+  /* ---- surfaces ------------------------------------------------------ */
+
+  .surfaces {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+    gap: 2.5rem;
+    margin-top: 2.5rem;
+    align-items: start;
+  }
+
+  /* ---- setup ---------------------------------------------------------- */
+
+  .steps { counter-reset: step; margin-top: 1.6rem; display: grid; gap: 1.4rem; max-width: var(--measure); }
+  .step { position: relative; padding-left: 2.6rem; }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute; left: 0; top: -.1rem;
+    width: 1.75rem; height: 1.75rem;
+    border-radius: 50%;
+    background: var(--primary); color: var(--on-primary);
+    display: grid; place-items: center;
+    font: 600 .85rem/1 var(--display);
+  }
+  .step h3 { margin: 0 0 .3rem; font-size: 1rem; }
+  .step p { margin: 0; font-size: .97rem; color: var(--ink-soft); }
+
+  .files { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); margin-top: 1.8rem; }
+  .file {
+    background: var(--surface); border: 1px solid var(--edge);
+    border-radius: var(--radius-sm); padding: 1rem 1.1rem;
+  }
+  .file .path { margin: 0 0 .6rem; font: 500 .78rem/1.4 var(--mono); color: var(--ink-faint); word-break: break-all; }
+  .file pre { margin: 0; font: 500 .8rem/1.65 var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .hl { color: var(--primary); font-weight: 700; }
+  .cm { color: var(--ink-faint); }
+
+  .qa { margin-top: 1.4rem; max-width: var(--measure); }
+  .qa details {
+    border-bottom: 1px solid var(--edge);
+    padding: .2rem 0;
+  }
+  .qa summary {
+    cursor: pointer; padding: .85rem 0; font-weight: 600;
+    list-style: none;
+  }
+  .qa summary::-webkit-details-marker { display: none; }
+  .qa summary::before { content: "+"; display: inline-block; width: 1.2rem; color: var(--ink-faint); font-weight: 500; }
+  .qa details[open] summary::before { content: "−"; }
+  .qa p { font-size: .97rem; color: var(--ink-soft); padding: 0 0 .9rem 1.2rem; }
+
+  footer {
+    padding: 3rem 0 4rem;
+    color: var(--ink-faint);
+    font-size: .92rem;
+    border-top: 1px solid var(--edge);
+  }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .link.alive::after { animation: none; }
+    * { scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="identity">
+          <img src="img/icon.png" width="84" height="84" alt="The Standfast app icon: a sentinel beacon.">
+          <div>
+            <p class="kind">macOS menu bar · self-hosted runners</p>
+            <h1>Standfast</h1>
+          </div>
+        </div>
+
+        <p class="thesis">Your runner is up. <b>That doesn&rsquo;t mean GitHub will send it work.</b></p>
+
+        <p class="status-pill">
+          <span class="dot" aria-hidden="true"></span>
+          <span><b>v0.5.0</b> &middot; unreleased &mdash; not yet tagged or downloadable</span>
+        </p>
+      </div>
+
+      <figure>
+        <img class="shot shot-menu" src="img/quick-menu.png" width="262" height="180"
+             alt="The Standfast menu open in the macOS menu bar, listing two runners — mac-mini-m4 and mac-mini-m4-standfast — each reading Listo, followed by freshness, Refresh, Open Standfast, Settings and Quit.">
+        <figcaption>The whole fleet in one glance, one row per runner. Everything else lives one level down.</figcaption>
+      </figure>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section class="reveal">
+    <p class="label">Why it exists</p>
+    <h2>The token expires. Nothing looks any different.</h2>
+    <p class="lead">A runner whose registration has lapsed keeps its process happily running. <code>svc.sh status</code> still says <code>Started</code>. Activity Monitor still shows it. The machine is fine. The next job simply never arrives, and you find out when someone asks why the build has been queued for an hour.</p>
+    <p>Standfast asks two questions instead of one, and never collapses them. <strong>launchd</strong> answers whether the process is alive. <strong>The GitHub API</strong> answers whether GitHub still counts on it. Only the second one decides whether your build runs — so a runner that is up but unreachable gets a state of its own rather than being filed under &ldquo;stopped&rdquo;. Different symptom, different fix.</p>
+
+    <div class="rig" style="margin-top:2rem">
+      <div class="lamp on" id="lampLocal">
+        <div class="bulb"><i></i></div>
+        <p class="cap">Process on this Mac</p>
+        <p class="state" id="vLocal">Running</p>
+      </div>
+
+      <div class="link alive" id="link" aria-hidden="true"></div>
+
+      <div class="lamp on" id="lampRemote">
+        <div class="bulb"><i></i></div>
+        <p class="cap">GitHub can see it</p>
+        <p class="state" id="vRemote">Online</p>
+      </div>
+
+      <div class="readout">
+        <span class="k">Menu bar reads</span>
+        <span class="v" id="verdict">Idle — ready for jobs</span>
+        <span class="beat" id="beat">token valid</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="label">The glyph</p>
+    <h2>Every aggregate answer, no click required</h2>
+    <p class="lead">These are the states, in the same colours the app uses for them.</p>
+    <div class="legend" style="margin-top:1.5rem">
+      <div class="row"><span class="badge b-ok">idle</span><span class="d">Registered, connected, waiting. The one you want.</span></div>
+      <div class="row"><span class="badge b-busy">busy</span><span class="d">Running a job right now.</span></div>
+      <div class="row"><span class="badge b-warn">disconnected</span><span class="d">Alive here, invisible to GitHub. No job is coming.</span></div>
+      <div class="row"><span class="badge b-off">stopped</span><span class="d">The service is down. Start it from the quick menu or Control Center.</span></div>
+      <div class="row"><span class="badge b-off">unknown</span><span class="d">Standfast could not tell — and says which of the reasons it was.</span></div>
+      <div class="row"><span class="badge b-busy">starting</span><span class="d">The service was asked to start; GitHub has not acknowledged it yet.</span></div>
+      <div class="row"><span class="badge b-off">no runners</span><span class="d">This Mac has no service-installed runner, rather than a failed reading.</span></div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="label">Two surfaces, one model</p>
+    <h2>A quick glance, then the complete Control Center</h2>
+    <p class="lead">The menu stays deliberately slim: one row per runner, compact discovery and thermal alerts, freshness, Refresh, Open Standfast, Settings and Quit. Stop, Restart, recent jobs, maintenance, preferences and confirmation dialogs do not compete for menu height.</p>
+    <p><strong>Open Standfast</strong> brings forward one persistent window with one scrolling column of runner cards: state, current work, full service controls, operation feedback, recent history, installed version, logs, and manual disk measurement and safe cleanup stay together per runner.</p>
+
+    <div class="surfaces">
+      <figure>
+        <img class="shot" loading="lazy" decoding="async" src="img/control-center.png" width="640" height="720"
+             alt="The Standfast Control Center: a single column of runner cards, each with a state badge, the current job, Start, Stop and Restart buttons, a link to workflow runs, and collapsed sections for recent jobs and maintenance.">
+        <figcaption>The Control Center. One card per runner, everything about that runner inside it.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot" loading="lazy" decoding="async" src="img/settings.png" width="480" height="680"
+             alt="Standfast Settings: three cards — Notifications with three switches, Power with a keep-awake switch, and Startup with open at login — each with an explanation underneath.">
+        <figcaption>Settings. Three sections, each switch explained where it lives.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="label">Operations</p>
+    <h2>Every service request keeps a bounded receipt</h2>
+    <p class="lead">Start, Stop, and Restart publish an outcome under the runner they act on. In flight, accepted, uncertain, and failed are different answers.</p>
+    <p>A command returning means the request was accepted; it does not prove the next probe&rsquo;s state. A timeout admits the result is uncertain. In-flight feedback remains while the command runs; accepted, uncertain, and failed receipts use a nominal five-minute scan-wall-clock window and are removed by the next normal scan at or after that wall-clock boundary. A system clock correction can shorten or extend that displayed interval; it is not an exact elapsed-time guarantee. Restart can say that Stop completed while its Start phase failed or timed out, so the next action is clear. One runner&rsquo;s result never overwrites another&rsquo;s.</p>
+    <p>Repository runners open their repository&rsquo;s workflow-runs page. Organization and enterprise runners serve several repositories, so their honest destination is runner settings rather than a registration page mislabeled as run history.</p>
+  </section>
+
+  <section class="reveal">
+    <p class="label">Setup</p>
+    <h2>There is nothing to configure</h2>
+    <p class="lead">Standfast finds your runners the way launchd does. It reads the LaunchAgent each runner installed, and the <code>.runner</code> file each one keeps beside itself. No path to type, no repository to name, no token to paste.</p>
+
+    <div class="files">
+      <div class="file">
+        <p class="path">~/Library/LaunchAgents/actions.runner.&hellip;.plist</p>
+<pre>&lt;key&gt;Label&lt;/key&gt;
+&lt;string&gt;actions.runner.acme-widget.build-mac&lt;/string&gt;
+&lt;key&gt;<span class="hl">WorkingDirectory</span>&lt;/key&gt;
+&lt;string&gt;<span class="hl">/Users/ci/actions-runner</span>&lt;/string&gt;
+<span class="cm">…and the eight keys we ignore</span></pre>
+      </div>
+      <div class="file">
+        <p class="path">/Users/ci/actions-runner/.runner</p>
+<pre>{
+  "<span class="hl">agentId</span>": 21,
+  "agentName": "build-mac",
+  "<span class="hl">gitHubUrl</span>": "https://github.com/acme/widget",
+  "workFolder": "_work"
+}</pre>
+      </div>
+    </div>
+
+    <h3>What you need</h3>
+    <div class="steps">
+      <div class="step">
+        <h3>macOS 14 or later</h3>
+        <p>Standfast runs as a menu bar agent with no Dock icon and no window you have to keep open.</p>
+      </div>
+      <div class="step">
+        <h3>A runner installed as a service</h3>
+        <p>The one <code>./svc.sh install</code> sets up. A runner started by hand with <code>./run.sh</code> leaves no LaunchAgent behind, so Standfast cannot see it yet.</p>
+      </div>
+      <div class="step">
+        <h3>The GitHub CLI, authenticated once</h3>
+        <p><code>gh auth login</code>. Standfast borrows those credentials for its status calls and never keeps a token of its own. Without it, the remote half of every answer reads <em>unknown</em> — and says so, rather than guessing.</p>
+      </div>
+    </div>
+
+    <h3>When something does not look right</h3>
+    <div class="qa">
+      <details>
+        <summary>A runner I know exists is missing</summary>
+        <p>It was probably started with <code>./run.sh</code> instead of installed as a service. Discovery reads <code>~/Library/LaunchAgents</code>, so a runner with no LaunchAgent has nothing to be found by. If the directory itself cannot be read, Standfast says the reading failed rather than reporting an empty Mac.</p>
+      </details>
+      <details>
+        <summary>Everything says &ldquo;unknown&rdquo;</summary>
+        <p>That is the answer when the GitHub half could not be established — usually <code>gh</code> missing, not authenticated, or GitHub not answering. The state carries the reason with it. The local half keeps working, so you still know whether the process is alive.</p>
+      </details>
+      <details>
+        <summary>It says disconnected, but the process is running</summary>
+        <p>That is the exact case this app exists for, and it is not a bug in the reading. The service is alive and GitHub is not counting on it — most often an expired registration token. Re-register the runner; restarting the service alone will not fix it.</p>
+      </details>
+      <details>
+        <summary>The disk is filling up</summary>
+        <p>Open the Control Center and expand Maintenance on the runner. It measures <code>_work</code> and <code>_diag</code> on demand and breaks the total down by what each directory is for. Only the two caches — the tool cache and the downloaded actions — are offered for deletion, and only while that runner is idle or stopped. Repository checkouts are never offered: a workflow may have written files git does not track.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="label">Settings and accessibility</p>
+    <h2>Preferences have a home; status has more than colour</h2>
+    <p class="lead">Notifications, SleepGuard, and Open at Login live in a separate native Settings scene, backed by the same long-lived state the app already observes.</p>
+    <p>The menu-bar item exposes the Standfast name and aggregate value. Runner cards, controls, and operation feedback expose semantic names and values, keep native keyboard order and visible focus, and pair meaningful symbols with text. No state is conveyed only by colour or motion, and v0.5 adds no state animation that needs a Reduce Motion alternative.</p>
+    <p>The original rounded sentinel/beacon app icon is identity, not runtime status. It has no text or third-party mark and is packaged at every macOS icon size inside the signed resource seal; the menu bar continues to use semantic SF Symbols for live state.</p>
+  </section>
+
+  <section class="reveal">
+    <p class="label">Availability boundary</p>
+    <h2>Unreleased means not published</h2>
+    <ul class="plain">
+      <li>The interface on this page describes the current v0.5.0 source tree, not an available v0.5.0 download.</li>
+      <li>The tag, signed and notarized bundle, final formula SHA, and tap publication remain pending in the release manager&rsquo;s lane.</li>
+      <li>The screenshots are of that source tree, taken on a real Mac with two service-installed runners.</li>
+    </ul>
+  </section>
+
+  <section class="reveal">
+    <p class="label">Honest limits</p>
+    <h2>What it will not do</h2>
+    <ul class="plain">
+      <li>It does not manage runners it did not find, register new ones, or edit their labels.</li>
+      <li>It does not support GitHub Enterprise Server yet. That waits on a GitHub client of its own.</li>
+      <li>Anti-sleep holds off idle sleep while a job runs. It cannot keep a laptop awake with the lid closed; macOS offers no public API that could promise otherwise.</li>
+      <li>It does not use <code>sudo</code>. A macOS runner is a per-user LaunchAgent, and nothing here needs more than that.</li>
+      <li>Standfast adds no telemetry. Its functional runner-status and release calls go through the installed <code>gh</code>, which may emit its own pseudonymous telemetry. Standfast uploads no runner logs and never reads or stores credentials; authentication remains with the installed <code>gh</code>, which necessarily transmits its credential to GitHub for authenticated calls.</li>
+    </ul>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <p>MIT licensed. Source and issues on <a href="https://github.com/Perafan18/standfast">GitHub</a>. v0.5.0 publication remains pending.</p>
+  </div>
+</footer>
+
+<script>
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }
+  }, { rootMargin: '0px 0px -12% 0px' });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  const lampRemote = document.getElementById('lampRemote');
+  const link = document.getElementById('link');
+  const vRemote = document.getElementById('vRemote');
+  const verdict = document.getElementById('verdict');
+  const beat = document.getElementById('beat');
+
+  // The whole product argument in four seconds: the left lamp never changes.
+  const connected = () => {
+    lampRemote.className = 'lamp on';
+    link.classList.add('alive');
+    vRemote.textContent = 'Online';
+    verdict.textContent = 'Idle — ready for jobs';
+    beat.textContent = 'token valid';
+  };
+
+  const severed = () => {
+    lampRemote.className = 'lamp warn';
+    link.classList.remove('alive');
+    vRemote.textContent = 'Not seen';
+    verdict.textContent = 'Running locally, but GitHub cannot see it';
+    beat.textContent = 'token expired 4m ago';
+  };
+
+  if (!reduced) {
+    let severedNow = false;
+    setInterval(() => {
+      severedNow = !severedNow;
+      severedNow ? severed() : connected();
+    }, 4200);
+  }
+</script>
+</body>
+</html>

@@ -211,6 +211,59 @@ CI never signs with a real identity. The certificate stays on the release manage
 machine, and what CI covers is that the ad-hoc branch still produces a bundle with a real
 identity, and that `notarize.sh` refuses to submit one.
 
+## The website
+
+`site/` holds the landing page, and `.github/workflows/pages.yml` publishes it. It is a
+separate lane on purpose: a copy change must not re-run the macOS test matrix, and a
+failing Swift test must not take the website down.
+
+**Nothing is published yet.** The site goes live when the repository becomes public, not
+before. Until then the workflow's `verify` job still runs on every change to `site/`, and
+the `publish` job is skipped — deliberately present and skipped rather than absent, so the
+deployment path is reviewed and ready on the day it is wanted instead of being written
+under release pressure. To turn it on: set the repository's Pages source to GitHub Actions,
+then set the repository variable `STANDFAST_PUBLISH_SITE` to `true`.
+
+**The page has no build step and no dependencies.** It is one HTML file with its CSS and
+its script inline, plus the screenshots in `site/img/`. That is not laziness — the product
+promises it collects nothing and talks to nobody it does not name, and a stylesheet or font
+fetched from another host breaks that promise in the visitor's browser with nothing in this
+repository to show for it. The workflow fails on any `src` or `href` pointing at a host
+other than `github.com` or the site's own `perafan18.github.io`. Add a generator only when
+there are pages enough to justify one; today there is a single page and a README.
+
+**Every colour on the page is a value the app actually ships**, copied from
+`Sources/Standfast/StandfastTheme.swift`. The page and the product are one identity or they
+are two, and a visitor who learns that orange means attention must find the same orange on
+first launch. If you change a token in the theme, the page is downstream of it.
+
+**The screenshots are real, and they are the point.** This is a visual macOS app; a page
+that describes the Control Center in prose and never shows it is not doing its job. Retake
+them from a build of `main` whenever a surface changes shape. They are captured at 1x on a
+non-Retina display, which is why they look soft next to the type — recapturing on a Retina
+Mac is a standing improvement, not a redesign.
+
+**There is no custom domain.** The site is served at its `github.io` address, and a domain
+gets bought when there is evidence somebody wants this — not before. Anything that assumes
+`standfast.dev` is a mistake, including a `CNAME` file, which a workflow-published site
+ignores anyway.
+
+**`site/` is not `docs/`.** `docs/` is untracked, holds internal Spanish design notes, and
+is never published. The old arrangement served Pages straight out of `docs/`, which meant a
+`_config.yml` existed purely to keep those notes off the public web — one edit away from
+publishing them. Serving `site/` through a workflow removes the question instead of
+answering it.
+
+**Do not add a `CNAME` file to `site/`.** When a site publishes from a workflow, GitHub
+ignores it and reads the custom domain from the repository's Pages settings. A `CNAME` in
+the tree would look load-bearing and be inert, which is the worst combination: the domain
+would appear configured in the repository while actually depending on a setting nobody can
+see from here.
+
+There is no `.nojekyll` either, and none is needed. Jekyll never runs on this path — the
+underscore rules that file exists to fight belong to the branch publishing source this
+repository does not use.
+
 ## Releasing
 
 Signing and notarisation happen on the release manager's machine, before the tag:
