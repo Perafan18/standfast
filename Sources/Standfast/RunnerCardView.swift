@@ -227,6 +227,10 @@ struct RunnerCardView: View {
       .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
+    // A greyed control that will not say why is a dead end. The runner state is
+    // the reason, already localised, so the tooltip reuses it rather than
+    // inventing a second vocabulary for the same fact.
+    .help(action.isEnabled ? "" : card.state)
     .accessibilityLabel(action.accessibilityLabel)
     .accessibilityIdentifier(identifier(for: action.kind))
   }
@@ -264,6 +268,7 @@ struct RunnerCardView: View {
       .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
+    .help(action.isEnabled ? "" : card.state)
     .accessibilityLabel(qualifiedLabel)
     .accessibilityInputLabels([
       Text(action.label), Text(qualifiedLabel),
@@ -315,6 +320,7 @@ struct RunnerCardView: View {
     isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content
   ) -> some View {
     content()
+      .padding(.leading, StandfastTheme.Spacing.xSmall)
       .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
       .contentShape(Rectangle())
       .onTapGesture { isExpanded.wrappedValue.toggle() }
@@ -349,8 +355,9 @@ struct RunnerCardView: View {
         ForEach(card.maintenance.usage, id: \.self) { usage in
           Text(usage)
         }
-        Text(card.maintenance.measured)
-          .foregroundStyle(palette.textSecondary.color)
+        // `measured` stays on the collapsed row, where it says what is inside
+        // without opening it. Repeating it here told the reader something they
+        // had already read on the line they clicked to get here.
         ForEach(card.maintenance.offers) { offer in
           maintenanceButton(offer)
         }
@@ -388,6 +395,7 @@ struct RunnerCardView: View {
     }
     .buttonStyle(.bordered)
     .disabled(!offer.isEnabled)
+    .help(offer.isEnabled ? "" : card.state)
     .accessibilityLabel(L10n.runnerInScope(offer.label, card.title))
     .accessibilityIdentifier(identifiers.maintenanceAction(offer.kind))
   }
