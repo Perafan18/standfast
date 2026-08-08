@@ -229,8 +229,13 @@ with its CSS and its script inline. That is not laziness — the product promise
 nothing and talks to nobody it does not name, and a stylesheet or font fetched from another
 host breaks that promise in the visitor's browser with nothing in this repository to show
 for it. The workflow fails on any `src` or `href` pointing at a host other than
-`github.com` or `standfast.dev`. Add a generator only when there are pages enough to
-justify one; today there is a single page and a README.
+`github.com` or the site's own `perafan18.github.io`. Add a generator only when there are
+pages enough to justify one; today there is a single page and a README.
+
+**There is no custom domain.** The site is served at its `github.io` address, and a domain
+gets bought when there is evidence somebody wants this — not before. Anything that assumes
+`standfast.dev` is a mistake, including a `CNAME` file, which a workflow-published site
+ignores anyway.
 
 **`site/` is not `docs/`.** `docs/` is untracked, holds internal Spanish design notes, and
 is never published. The old arrangement served Pages straight out of `docs/`, which meant a
