@@ -290,19 +290,34 @@ struct RunnerCardView: View {
       }
       .padding(.top, StandfastTheme.Spacing.compact)
     } label: {
-      HStack {
-        Text(L10n.recentJobs)
-          .font(.subheadline.weight(.semibold))
-        Spacer()
-        if case .available(let rows, true) = card.history {
-          Text("\(rows.count)+")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(palette.textSecondary.color)
+      disclosureLabel(isExpanded: $jobsExpanded) {
+        HStack {
+          Text(L10n.recentJobs)
+            .font(.subheadline.weight(.semibold))
+          Spacer()
+          if case .available(let rows, true) = card.history {
+            Text("\(rows.count)+")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(palette.textSecondary.color)
+          }
         }
       }
-      .frame(minHeight: StandfastTheme.controlMinimumHeight)
     }
     .accessibilityIdentifier(identifiers.jobs)
+  }
+
+  /// On macOS a `DisclosureGroup` toggles from its triangle and nothing else,
+  /// so the label beside it looks interactive and is not: the target is a few
+  /// points of chevron next to a whole row of text that ignores the click.
+  /// Every native disclosure — the Finder inspector, System Settings — opens
+  /// from the entire row, which is also the thing a pointer aims at.
+  private func disclosureLabel<Content: View>(
+    isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content
+  ) -> some View {
+    content()
+      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
+      .contentShape(Rectangle())
+      .onTapGesture { isExpanded.wrappedValue.toggle() }
   }
 
   private func historyRow(_ job: JobRow) -> some View {
@@ -346,15 +361,16 @@ struct RunnerCardView: View {
       }
       .padding(.top, StandfastTheme.Spacing.compact)
     } label: {
-      HStack {
-        Text(L10n.maintenance)
-          .font(.subheadline.weight(.semibold))
-        Spacer()
-        Text(card.maintenance.measured)
-          .font(.caption)
-          .foregroundStyle(palette.textSecondary.color)
+      disclosureLabel(isExpanded: $maintenanceExpanded) {
+        HStack {
+          Text(L10n.maintenance)
+            .font(.subheadline.weight(.semibold))
+          Spacer()
+          Text(card.maintenance.measured)
+            .font(.caption)
+            .foregroundStyle(palette.textSecondary.color)
+        }
       }
-      .frame(minHeight: StandfastTheme.controlMinimumHeight)
     }
     .accessibilityIdentifier(identifiers.maintenance)
   }

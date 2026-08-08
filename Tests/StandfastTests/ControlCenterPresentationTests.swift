@@ -275,7 +275,18 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(!source.contains("GroupBox"))
   #expect(!source.contains("LabeledContent"))
   #expect(!source.contains("ControlGroup"))
-  #expect(source.components(separatedBy: "DisclosureGroup").count - 1 == 2)
+  // Count constructions, not the word. Prose about `DisclosureGroup` in a
+  // comment used to move this number, which made an explanation of the code
+  // indistinguishable from a change to it.
+  #expect(source.components(separatedBy: "DisclosureGroup(isExpanded:").count - 1 == 2)
+  // Both sections open from the whole row. On macOS the group toggles from its
+  // triangle alone, so without this the label is a decoy: it reads as the
+  // control and ignores the click.
+  let cardSource = standfastSource("RunnerCardView.swift")
+  #expect(
+    cardSource.components(separatedBy: "disclosureLabel(isExpanded:").count - 1 == 2)
+  #expect(cardSource.contains(".onTapGesture { isExpanded.wrappedValue.toggle() }"))
+  #expect(cardSource.contains(".contentShape(Rectangle())"))
   #expect(source.contains(".accessibilityElement(children: .contain)"))
   #expect(!source.contains(".lineLimit(1)"))
   #expect(
