@@ -112,11 +112,40 @@ private func controlCenterSnapshot(
 
 private func card(
   _ snapshot: RunnerSnapshot, measurement: DiskMeasurement? = nil,
-  latestRelease: RunnerVersion? = nil
+  latestRelease: RunnerVersion? = nil, fleetSize: Int = 1
 ) -> RunnerCardPresentation {
   RunnerCardPresentation.building(
     snapshot, measurement: measurement, latestRelease: latestRelease,
-    isMaintenanceWorking: false, maintenanceNotice: nil, now: controlCenterNow)
+    isMaintenanceWorking: false, maintenanceNotice: nil, now: controlCenterNow,
+    fleetSize: fleetSize)
+}
+
+@Test func aSmallFleetNeverFoldsACardTheOperatorDidNotFold() {
+  for tone in [StateTone.healthy, .active, .attention, .stopped, .neutral] {
+    for size in 1...RunnerCardPresentation.compactFleetThreshold {
+      #expect(
+        !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: size),
+        "tone \(tone) at fleet size \(size)")
+    }
+  }
+}
+
+@Test func aLargeFleetFoldsOnlyTheRunnersWithNothingToAnswerFor() {
+  let large = RunnerCardPresentation.compactFleetThreshold + 1
+
+  #expect(RunnerCardPresentation.startsCollapsed(tone: .healthy, fleetSize: large))
+  #expect(RunnerCardPresentation.startsCollapsed(tone: .active, fleetSize: large))
+
+  // The states that are the reason somebody opened the window stay open, no
+  // matter how many runners are on the machine.
+  for tone in [StateTone.attention, .stopped, .neutral] {
+    #expect(
+      !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: large),
+      "tone \(tone)")
+    #expect(
+      !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: 40),
+      "tone \(tone) on a very large fleet")
+  }
 }
 
 @MainActor

@@ -596,7 +596,8 @@ final class RunnerFleetModel: ObservableObject {
         snapshot, measurement: housekeeping.measurement(for: snapshot.runner),
         latestRelease: latestRelease,
         isMaintenanceWorking: housekeeping.isWorking(on: snapshot.runner),
-        maintenanceNotice: housekeeping.notice(for: snapshot.runner), now: now)
+        maintenanceNotice: housekeeping.notice(for: snapshot.runner), now: now,
+        fleetSize: snapshots.count)
     }
   }
 
