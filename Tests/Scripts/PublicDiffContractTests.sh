@@ -141,6 +141,34 @@ printf 'checkout: %s/example/private\n' "$local_root" >> "$repo/fixture.txt"
 commit_case
 expect_fail "base...HEAD" "private workspace references"
 
+# The website's screenshots are pictures of a real Mac published on the open
+# web. They are allowed, they are strings-scanned like every allowed binary, and
+# the exemption reaches exactly one directory.
+begin_case "a website screenshot is an allowed binary"
+mkdir -p "$repo/site/img"
+printf '\211PNG\r\n\032\n\000clean capture\n' > "$repo/site/img/control-center.png"
+commit_case
+expect_pass "base...HEAD"
+
+begin_case "a private string inside a website screenshot is rejected"
+mkdir -p "$repo/site/img"
+printf '\211PNG\r\n\032\n\000captured at %s/example/private\n' "$local_root" \
+  > "$repo/site/img/control-center.png"
+commit_case
+expect_fail "base...HEAD" "private workspace references"
+
+begin_case "a binary nested below the screenshot directory is rejected"
+mkdir -p "$repo/site/img/nested"
+printf '\211PNG\r\n\032\n\000clean capture\n' > "$repo/site/img/nested/shot.png"
+commit_case
+expect_fail "base...HEAD" "unauthorized binary"
+
+begin_case "a binary elsewhere under the site is still rejected"
+mkdir -p "$repo/site"
+printf '\211PNG\r\n\032\n\000clean capture\n' > "$repo/site/loose.png"
+commit_case
+expect_fail "base...HEAD" "unauthorized binary"
+
 begin_case "the placeholder is not exempt inside the allowed binary"
 cp "$ROOT/Resources/AppIcon.png" "$repo/Resources/AppIcon.png"
 printf '\211PNG\r\n\032\n\000%s/actions-runner\n' "$published_home" \
