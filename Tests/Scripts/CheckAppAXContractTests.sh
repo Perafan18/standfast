@@ -49,19 +49,51 @@ assert_status_open_transitions() {
   local transition_count
   transition_count="$(awk '
     stage == 0 && /set menuClosedBeforePress to false/ { stage = 1; next }
-    stage == 1 && /set menuClosedBeforePress to not \(selected of statusItem\)/ {
+    stage == 1 && /set menuClosedBeforePress to not \(my menuIsTracking\(statusItem\)\)/ {
       stage = 2
       next
     }
     stage == 2 && /if not menuClosedBeforePress then/ { stage = 3; next }
-    stage == 3 && /perform action "AXPress" of statusItem/ {
+    stage == 3 && /my clickCentre\(position of statusItem, size of statusItem\)/ {
       count += 1
       stage = 0
     }
     END { print count + 0 }
   ' "$script")"
   [ "$transition_count" -eq "$expected" ] \
-    || fail "$label must prove a closed-to-exposed transition before every AXPress"
+    || fail "$label must prove a closed-to-tracking transition before every opening click"
+}
+
+# macOS 27 answers `perform action "AXPress"` on a SwiftUI MenuBarExtra item by
+# marking it selected and running nothing: no scene opens and the app's own
+# activation logger never fires. Both signals it used to trust are therefore
+# unsafe — `AXSelected` reports a press that did nothing, and `AXPress` reports
+# success for an action that never ran. Only real HID input starts menu
+# tracking, and only the menu's on-screen geometry proves it started.
+assert_press_primitive_is_a_real_click() {
+  local script="$1"
+  local label="$2"
+  if grep -Fq 'perform action "AXPress" of statusItem' "$script"; then
+    fail "$label reverted the status menu to AXPress, which macOS 27 discards"
+  fi
+  if grep -Fq 'perform action "AXPress" of targetMenuItem' "$script"; then
+    fail "$label reverted the menu action to AXPress, which macOS 27 discards"
+  fi
+  if grep -Fq 'selected of statusItem' "$script"; then
+    fail "$label still reads AXSelected, which is true for a press that ran nothing"
+  fi
+  grep -Fq 'on menuIsTracking(statusItem)' "$script" \
+    || fail "$label does not define a menu-tracking predicate"
+  grep -Fq 'set menuSize to size of menu 1 of statusItem' "$script" \
+    || fail "$label does not prove menu tracking from real on-screen geometry"
+  grep -Fq 'return ((item 1 of menuSize) > 0) and ((item 2 of menuSize) > 0)' "$script" \
+    || fail "$label accepts a zero-sized, closed menu as tracking"
+  grep -Fq 'on clickCentre(elementPosition, elementSize)' "$script" \
+    || fail "$label does not define the real-click handler"
+  grep -Fq 'system attribute "CHECK_CLICK_TOOL"' "$script" \
+    || fail "$label does not take its click helper from the caller"
+  grep -Fq 'if clickTool is "" then error' "$script" \
+    || fail "$label would silently skip clicking when no helper is supplied"
 }
 
 assert_exact_process_binding() {
@@ -576,14 +608,15 @@ menu_script="$capture_dir/call-1.applescript"
 # Everything below is a structural source contract plus an osacompile syntax
 # check. It never executes System Events; the unlocked es/en runtime gate owns
 # the behavioral proof for selection transitions and window lifecycle.
-menu_status_press_count="$(grep -Fc 'perform action "AXPress" of statusItem' "$menu_script" || true)"
+menu_status_press_count="$(grep -Fc 'my clickCentre(position of statusItem, size of statusItem)' "$menu_script" || true)"
 [ "$menu_status_press_count" -eq 1 ] \
-  || fail "the menu probe does not expose the status menu through AXPress"
-grep -Fq 'set menuExposed to selected of statusItem' "$menu_script" \
-  || fail "the menu probe does not wait for AXSelected before reading"
-grep -Fq 'status menu did not become exposed through AXPress; the GUI session may be locked' \
+  || fail "the menu probe does not open the status menu with a real click"
+grep -Fq 'set menuExposed to my menuIsTracking(statusItem)' "$menu_script" \
+  || fail "the menu probe does not wait for real menu tracking before reading"
+grep -Fq 'status menu did not begin tracking after a real click on the status item' \
   "$menu_script" \
-  || fail "the menu probe has no causal locked-session diagnostic"
+  || fail "the menu probe has no causal menu-tracking diagnostic"
+assert_press_primitive_is_a_real_click "$menu_script" "the menu probe"
 assert_exact_process_binding "$menu_script" "the menu probe"
 if grep -Eq 'AXVisibleChildren|visibleMenuItem|dev\.standfast\.quick-menu\.|every menu item of targetMenu' \
   "$menu_script"; then
@@ -631,7 +664,7 @@ grep -Fq 'return joinedMenuRecords' "$menu_script" \
 grep -Fq 'set text item delimiters of AppleScript to linefeed' "$menu_script" \
   || fail "the menu probe concatenates adjacent item names without a delimiter"
 assert_status_open_transitions "$menu_script" 1 "the menu probe"
-grep -Fq 'set menuClosedAfterCancel to not (selected of statusItem)' "$menu_script" \
+grep -Fq 'set menuClosedAfterCancel to not (my menuIsTracking(statusItem))' "$menu_script" \
   || fail "the menu probe returns before AXCancel has closed the status menu"
 grep -Fq 'status menu did not close after AXCancel' "$menu_script" \
   || fail "the menu probe has no causal AXCancel transition diagnostic"
@@ -647,13 +680,14 @@ if grep -Eq 'delay (1|1\.5|0\.25)$' "$menu_script"; then
 fi
 /usr/bin/osacompile -o "$TEST_ROOT/menu.scpt" "$menu_script" \
   >/dev/null || fail "the menu AppleScript does not compile"
-lifecycle_status_press_count="$(grep -Fc 'perform action "AXPress" of statusItem' "$lifecycle_script" || true)"
+lifecycle_status_press_count="$(grep -Fc 'my clickCentre(position of statusItem, size of statusItem)' "$lifecycle_script" || true)"
 [ "$lifecycle_status_press_count" -eq 3 ] \
-  || fail "Control, Settings, and Control return must expose the status menu through AXPress"
-lifecycle_exposure_count="$(grep -Fc 'set menuExposed to selected of statusItem' "$lifecycle_script" || true)"
+  || fail "Control, Settings, and Control return must open the status menu with a real click"
+lifecycle_exposure_count="$(grep -Fc 'set menuExposed to my menuIsTracking(statusItem)' "$lifecycle_script" || true)"
 [ "$lifecycle_exposure_count" -eq 3 ] \
-  || fail "all three lifecycle actions must wait for AXSelected"
+  || fail "all three lifecycle actions must wait for real menu tracking"
 assert_status_open_transitions "$lifecycle_script" 3 "all three lifecycle actions"
+assert_press_primitive_is_a_real_click "$lifecycle_script" "the lifecycle probe"
 assert_exact_process_binding "$lifecycle_script" "the lifecycle probe"
 if grep -Eq 'AXVisibleChildren|visibleMenuItem|staticMenuIdentifier|dev\.standfast\.quick-menu\.|every menu item of targetMenu' \
   "$lifecycle_script"; then
@@ -715,7 +749,7 @@ target_submenu_guard_count="$(grep -Fc 'if exists menu 1 of targetMenuItem then'
 target_enabled_guard_count="$(grep -Fc 'if not (enabled of targetMenuItem) then' "$lifecycle_script" || true)"
 [ "$target_enabled_guard_count" -eq 3 ] \
   || fail "all three lifecycle actions must reject a disabled Text row"
-menu_item_press_count="$(grep -Fc 'perform action "AXPress" of targetMenuItem' "$lifecycle_script" || true)"
+menu_item_press_count="$(grep -Fc 'my clickCentre(position of targetMenuItem, size of targetMenuItem)' "$lifecycle_script" || true)"
 [ "$menu_item_press_count" -eq 3 ] \
   || fail "all three lifecycle actions must invoke the uniquely indexed native action"
 grep -Fq 'system attribute "CHECK_LANGUAGE"' "$lifecycle_script" \

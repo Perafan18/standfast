@@ -116,7 +116,15 @@ private func settingsSource(_ name: String) -> String {
       ".accessibilityIdentifier(SettingsAccessibility.version)"))
   #expect(compact.contains("supportingText(presentation.power)"))
   #expect(!compact.contains("ifsleep.isEnabled"))
-  #expect(compact.contains(".frame(minHeight:44)"))
+  // The row keeps the 44 pt pointer target and takes the whole card width, so
+  // every switch lands on one trailing edge. An intrinsically sized row hugs
+  // its own label instead, and the section reads as a ragged, centred stack.
+  #expect(compact.contains(".frame(maxWidth:.infinity,minHeight:44)"))
+  #expect(
+    compact.contains(
+      "Label(title,systemImage:systemImage).foregroundStyle(palette.textPrimary.color)"
+        + ".frame(maxWidth:.infinity,alignment:.leading)"))
+  #expect(compact.contains("VStack(alignment:.leading,spacing:0){"))
 }
 
 @Test func settingsGeometryUsesMeasuredThemeTokensAtTheViewAndScene() {
