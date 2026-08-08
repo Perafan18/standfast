@@ -43,19 +43,36 @@ struct RunnerCardView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: StandfastTheme.Spacing.roomy) {
-      identity
-      focus
-      if let feedback = card.operationFeedback {
-        operationFeedback(feedback)
+    // One spacing value between every section says every section is equally
+    // related to the one above it, which is the same as saying nothing about
+    // structure at all. The gaps below carry the grouping instead: what this
+    // runner is and is doing reads as one block, its controls as a second, and
+    // the two things you open on purpose as a quieter third.
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
+        identity
+        focus
+        if let feedback = card.operationFeedback {
+          operationFeedback(feedback)
+        }
       }
-      serviceActions
-      navigation
+
+      VStack(spacing: StandfastTheme.Spacing.small) {
+        serviceActions
+        navigation
+      }
+      .padding(.top, StandfastTheme.Spacing.large)
+
       Rectangle()
         .fill(palette.structuralBorder.color)
         .frame(height: StandfastTheme.Stroke.structural)
-      history
-      maintenance
+        .padding(.top, StandfastTheme.Spacing.xLarge)
+
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
+        history
+        maintenance
+      }
+      .padding(.top, StandfastTheme.Spacing.compact)
     }
     .padding(StandfastTheme.Spacing.large)
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,7 +223,7 @@ struct RunnerCardView: View {
           Label(action.label, systemImage: action.symbolName)
         }
       }
-      .frame(maxWidth: .infinity, minHeight: 44)
+      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
       .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
@@ -243,7 +260,7 @@ struct RunnerCardView: View {
           Label(action.label, systemImage: action.symbolName)
         }
       }
-      .frame(maxWidth: .infinity, minHeight: 44)
+      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
       .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
@@ -275,7 +292,7 @@ struct RunnerCardView: View {
     } label: {
       HStack {
         Text(L10n.recentJobs)
-          .font(.headline)
+          .font(.subheadline.weight(.semibold))
         Spacer()
         if case .available(let rows, true) = card.history {
           Text("\(rows.count)+")
@@ -283,7 +300,7 @@ struct RunnerCardView: View {
             .foregroundStyle(palette.textSecondary.color)
         }
       }
-      .frame(minHeight: 44)
+      .frame(minHeight: StandfastTheme.controlMinimumHeight)
     }
     .accessibilityIdentifier(identifiers.jobs)
   }
@@ -331,13 +348,13 @@ struct RunnerCardView: View {
     } label: {
       HStack {
         Text(L10n.maintenance)
-          .font(.headline)
+          .font(.subheadline.weight(.semibold))
         Spacer()
         Text(card.maintenance.measured)
           .font(.caption)
           .foregroundStyle(palette.textSecondary.color)
       }
-      .frame(minHeight: 44)
+      .frame(minHeight: StandfastTheme.controlMinimumHeight)
     }
     .accessibilityIdentifier(identifiers.maintenance)
   }
@@ -347,7 +364,10 @@ struct RunnerCardView: View {
       performMaintenance(offer.kind)
     } label: {
       Text(offer.label)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .frame(
+          maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight,
+          alignment: .leading
+        )
         .contentShape(Rectangle())
     }
     .buttonStyle(.bordered)

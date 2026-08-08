@@ -128,6 +128,12 @@ enum StandfastTheme {
     static let separator: CGFloat = 0.5
   }
 
+  /// AppKit's own bordered push button reports an intrinsic height of 24 pt.
+  /// The 44 pt this replaced is the iOS *touch* target, and on a pointer-driven
+  /// Mac it makes every control read as a ported phone button. This keeps a few
+  /// points of comfort over the system's own height without leaving it behind.
+  static let controlMinimumHeight: CGFloat = 28
+
   static let controlCenterMinimumWidth: CGFloat = 520
   static let controlCenterDefaultWidth: CGFloat = 540
   static let controlCenterDefaultHeight: CGFloat = 720
