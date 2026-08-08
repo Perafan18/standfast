@@ -60,6 +60,14 @@ owned by the release manager.
 - The local app check now requires readable menu and window Accessibility evidence by
   default. CI opts explicitly into a packaging smoke mode whose output states that menu,
   windows, and Accessibility are not covered.
+- Every Settings row now spans its card, so the switches share one trailing edge instead of
+  each row hugging its own label and leaving the notification section ragged.
+- The Accessibility lifecycle probe drives the status menu with real pointer events and
+  proves the menu is open from its on-screen geometry. On macOS 27 `AXPress` marks a
+  `MenuBarExtra` item as pressed without running its action, and `AXSelected` then reports
+  success for a press that opened nothing — so the probe failed against a working app and
+  blamed a screen lock that was not there. A locked screen is now reported as a diagnosis
+  attached to whatever the probe actually observed, never as the verdict itself.
 
 No Standfast version has been published yet. The 0.1.0 through 0.4.0 sections below are
 integrated development milestones that were built and reviewed in sequence, never tags or

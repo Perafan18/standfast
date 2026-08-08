@@ -34,7 +34,7 @@ struct SettingsView: View {
           title: L10n.settingsNotifications,
           systemImage: "bell.badge.fill"
         ) {
-          VStack(spacing: 0) {
+          VStack(alignment: .leading, spacing: 0) {
             ForEach(NotificationKind.allCases, id: \.self) { kind in
               notificationToggle(kind)
               if kind != NotificationKind.allCases.last { separator }
@@ -125,12 +125,16 @@ struct SettingsView: View {
   private func settingsToggle(
     title: String, systemImage: String, isOn: Binding<Bool>
   ) -> some View {
+    // The row owns the full card width so every switch lands on the same
+    // trailing edge. Left to its intrinsic width, each row hugs its own label
+    // and the section reads as a ragged, centred stack instead of a list.
     Toggle(isOn: isOn) {
       Label(title, systemImage: systemImage)
         .foregroundStyle(palette.textPrimary.color)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     .toggleStyle(.switch)
-    .frame(minHeight: 44)
+    .frame(maxWidth: .infinity, minHeight: 44)
     .contentShape(Rectangle())
   }
 

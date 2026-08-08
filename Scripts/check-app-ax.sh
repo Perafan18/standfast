@@ -32,16 +32,88 @@ fi
 
 AX_STDERR_FILE="$(mktemp "${TMPDIR:-/tmp}/standfast-ax.XXXXXX")" \
   || fail "could not create an Accessibility diagnostic file"
+AX_CLICK_TOOL=""
+AX_POINTER_ORIGIN=""
+restore_pointer() {
+  [ -n "$AX_CLICK_TOOL" ] || return 0
+  [ -n "$AX_POINTER_ORIGIN" ] || return 0
+  # Leaving the pointer parked over a menu bar item is its own small lie about
+  # the machine's state; put it back where the operator left it.
+  # shellcheck disable=SC2086 # Two integers, deliberately word-split.
+  "$AX_CLICK_TOOL" move $AX_POINTER_ORIGIN >/dev/null 2>&1 || return 0
+}
 cleanup() {
   rm -f -- "$AX_STDERR_FILE"
+  restore_pointer
+  return 0
 }
 trap cleanup EXIT
+
+# A locked screen starts no menu tracking and discards synthetic clicks, so
+# every press below fails and the app looks broken when it is not. This is a
+# diagnosis, never a verdict: the probe still runs and still reports what it
+# actually saw, and only appends the lock as the likely cause of a failure.
+SESSION_LOCK_NOTE=""
+if ioreg -n Root -d1 -a 2>/dev/null \
+  | grep -A1 -F '<key>IOConsoleLocked</key>' \
+  | grep -qF '<true/>'; then
+  SESSION_LOCK_NOTE=" (this login session's screen is locked, which discards the synthetic input this probe needs; unlock the Mac and run the gate again)"
+fi
+
+# `perform action "AXPress"` reaches a SwiftUI MenuBarExtra item's Accessibility
+# entry without running its action on macOS 27: the item reports itself pressed,
+# no scene opens, and the app's own activation logger never fires. Menu tracking
+# begins only for genuine HID events, so the probe posts real clicks.
+if [ -n "${STANDFAST_AX_CLICK_TOOL:-}" ]; then
+  AX_CLICK_TOOL="$STANDFAST_AX_CLICK_TOOL"
+  [ -x "$AX_CLICK_TOOL" ] \
+    || fail "STANDFAST_AX_CLICK_TOOL is not executable: $AX_CLICK_TOOL"
+else
+  AX_CLICK_SOURCE="$(dirname "$0")/ax-click.swift"
+  [ -f "$AX_CLICK_SOURCE" ] \
+    || fail "the click helper source is missing: $AX_CLICK_SOURCE"
+  # Cached beside the build products, not in a temporary directory: this gate
+  # runs many times in a row and a fresh compile each time is pure latency.
+  AX_CLICK_TOOL="$(dirname "$0")/../.build/standfast-ax-click"
+  if [ ! -x "$AX_CLICK_TOOL" ] || [ "$AX_CLICK_SOURCE" -nt "$AX_CLICK_TOOL" ]; then
+    mkdir -p -- "$(dirname "$AX_CLICK_TOOL")" \
+      || fail "could not create the click helper cache directory"
+    swiftc -O "$AX_CLICK_SOURCE" -o "$AX_CLICK_TOOL" \
+      || fail "could not build the click helper from $AX_CLICK_SOURCE"
+  fi
+fi
+AX_POINTER_ORIGIN="$("$AX_CLICK_TOOL" where 2>/dev/null)" || AX_POINTER_ORIGIN=""
 
 echo "==> Reading the menu (Accessibility coverage is required)"
 # Menu bar 2, not 1: an agent app still gets a main menu bar it never shows,
 # and that is the one holding the Apple menu. Status items live in the second.
 menuStatus=0
-menu="$(CHECK_PID="$PID" osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
+menu="$(CHECK_PID="$PID" CHECK_CLICK_TOOL="$AX_CLICK_TOOL" \
+  osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
+on clickCentre(elementPosition, elementSize)
+  set clickTool to system attribute "CHECK_CLICK_TOOL"
+  if clickTool is "" then error "the lifecycle probe has no click helper"
+  set centreX to ((item 1 of elementPosition) + ((item 1 of elementSize) / 2)) as integer
+  set centreY to ((item 2 of elementPosition) + ((item 2 of elementSize) / 2)) as integer
+  do shell script quoted form of clickTool & " " & centreX & " " & centreY
+end clickCentre
+
+-- Geometry, not `AXSelected`. A status item reports itself selected for an
+-- `AXPress` that never opened anything, so only a menu with real on-screen
+-- size proves the menu is tracking and can receive a click.
+on menuIsTracking(statusItem)
+  tell application "System Events"
+    try
+      set menuSize to size of menu 1 of statusItem
+    on error
+      return false
+    end try
+    if menuSize is missing value then return false
+    if (count of menuSize) is not 2 then return false
+    return ((item 1 of menuSize) > 0) and ((item 2 of menuSize) > 0)
+  end tell
+end menuIsTracking
+
 tell application "System Events"
   set targetPID to (system attribute "CHECK_PID") as integer
   set targetProcessCount to count of (every application process whose unix id is targetPID)
@@ -70,13 +142,13 @@ tell application "System Events"
       set statusItem to menu bar item 1 of menu bar 2
       set menuClosedBeforePress to false
       try
-        if selected of statusItem then
+        if my menuIsTracking(statusItem) then
           perform action "AXCancel" of menu 1 of statusItem
         end if
       end try
       repeat with pollAttempt from 1 to pollAttemptLimit
         try
-          set menuClosedBeforePress to not (selected of statusItem)
+          set menuClosedBeforePress to not (my menuIsTracking(statusItem))
         on error
           set menuClosedBeforePress to false
         end try
@@ -84,13 +156,13 @@ tell application "System Events"
         delay pollDelaySeconds
       end repeat
       if not menuClosedBeforePress then
-        error "status menu did not become closed before AXPress"
+        error "status menu did not become closed before the opening click"
       end if
-      perform action "AXPress" of statusItem
+      my clickCentre(position of statusItem, size of statusItem)
     set menuExposed to false
     repeat with pollAttempt from 1 to pollAttemptLimit
       try
-        set menuExposed to selected of statusItem
+        set menuExposed to my menuIsTracking(statusItem)
       on error
         set menuExposed to false
       end try
@@ -98,7 +170,7 @@ tell application "System Events"
       delay pollDelaySeconds
     end repeat
     if not menuExposed then
-      error "status menu did not become exposed through AXPress; the GUI session may be locked"
+      error "status menu did not begin tracking after a real click on the status item"
     end if
       set targetMenu to menu 1 of statusItem
       set menuItemCount to count of menu items of targetMenu
@@ -134,7 +206,7 @@ tell application "System Events"
       set menuClosedAfterCancel to false
       repeat with pollAttempt from 1 to pollAttemptLimit
         try
-          set menuClosedAfterCancel to not (selected of statusItem)
+          set menuClosedAfterCancel to not (my menuIsTracking(statusItem))
         on error
           set menuClosedAfterCancel to false
         end try
@@ -157,13 +229,13 @@ APPLESCRIPT
 )" || menuStatus=$?
 menuError="$(<"$AX_STDERR_FILE")"
 if [ "$menuStatus" -ne 0 ]; then
-  fail "Accessibility coverage is required, but the status menu could not be read: ${menuError:-osascript exited with status $menuStatus}"
+  fail "Accessibility coverage is required, but the status menu could not be read: ${menuError:-osascript exited with status $menuStatus}$SESSION_LOCK_NOTE"
 fi
 if [ -z "$menu" ]; then
   if [ -n "$menuError" ]; then
-    fail "Accessibility coverage is required, but the status menu could not be read: $menuError"
+    fail "Accessibility coverage is required, but the status menu could not be read: $menuError$SESSION_LOCK_NOTE"
   fi
-  fail "Accessibility coverage is required, but the status menu could not be read"
+  fail "Accessibility coverage is required, but the status menu could not be read$SESSION_LOCK_NOTE"
 fi
 if [ -n "$menuError" ]; then
   printf '    osascript warning: %s\n' "$menuError" >&2
@@ -268,7 +340,32 @@ done <<< "$runnerMenu"
 echo "==> Exercising Control Center and Settings through Accessibility"
 : > "$AX_STDERR_FILE"
 windowsStatus=0
-windows="$(CHECK_PID="$PID" CHECK_LANGUAGE="$menuLanguage" osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
+windows="$(CHECK_PID="$PID" CHECK_LANGUAGE="$menuLanguage" \
+  CHECK_CLICK_TOOL="$AX_CLICK_TOOL" osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
+on clickCentre(elementPosition, elementSize)
+  set clickTool to system attribute "CHECK_CLICK_TOOL"
+  if clickTool is "" then error "the lifecycle probe has no click helper"
+  set centreX to ((item 1 of elementPosition) + ((item 1 of elementSize) / 2)) as integer
+  set centreY to ((item 2 of elementPosition) + ((item 2 of elementSize) / 2)) as integer
+  do shell script quoted form of clickTool & " " & centreX & " " & centreY
+end clickCentre
+
+-- Geometry, not `AXSelected`. A status item reports itself selected for an
+-- `AXPress` that never opened anything, so only a menu with real on-screen
+-- size proves the menu is tracking and can receive a click.
+on menuIsTracking(statusItem)
+  tell application "System Events"
+    try
+      set menuSize to size of menu 1 of statusItem
+    on error
+      return false
+    end try
+    if menuSize is missing value then return false
+    if (count of menuSize) is not 2 then return false
+    return ((item 1 of menuSize) > 0) and ((item 2 of menuSize) > 0)
+  end tell
+end menuIsTracking
+
 tell application "System Events"
   set targetPID to (system attribute "CHECK_PID") as integer
   set menuLanguage to system attribute "CHECK_LANGUAGE"
@@ -331,13 +428,13 @@ tell application "System Events"
       set statusItem to menu bar item 1 of menu bar 2
       set menuClosedBeforePress to false
       try
-        if selected of statusItem then
+        if my menuIsTracking(statusItem) then
           perform action "AXCancel" of menu 1 of statusItem
         end if
       end try
       repeat with pollAttempt from 1 to pollAttemptLimit
         try
-          set menuClosedBeforePress to not (selected of statusItem)
+          set menuClosedBeforePress to not (my menuIsTracking(statusItem))
         on error
           set menuClosedBeforePress to false
         end try
@@ -345,13 +442,13 @@ tell application "System Events"
         delay pollDelaySeconds
       end repeat
       if not menuClosedBeforePress then
-        error "status menu did not become closed before Control Center AXPress"
+        error "status menu did not become closed before the Control Center opening click"
       end if
-      perform action "AXPress" of statusItem
+      my clickCentre(position of statusItem, size of statusItem)
     set menuExposed to false
     repeat with pollAttempt from 1 to pollAttemptLimit
       try
-        set menuExposed to selected of statusItem
+        set menuExposed to my menuIsTracking(statusItem)
       on error
         set menuExposed to false
       end try
@@ -359,7 +456,7 @@ tell application "System Events"
       delay pollDelaySeconds
     end repeat
     if not menuExposed then
-      error "status menu did not become exposed for Control Center; the GUI session may be locked"
+      error "status menu did not begin tracking for Control Center after a real click on the status item"
       end if
       set targetMenu to menu 1 of statusItem
       set menuItemCount to count of menu items of targetMenu
@@ -393,10 +490,10 @@ tell application "System Events"
     if targetMenuItemMatchCount is not 1 then error "Control Center menu action missing or ambiguous"
     set targetMenuItem to a reference to menu item targetMenuItemIndex of targetMenu
     if (role of targetMenuItem as text) is not "AXMenuItem" then error "Control Center action has unexpected role"
-    if (name of targetMenuItem as text) is not targetItemName then error "Control Center action changed before AXPress"
+    if (name of targetMenuItem as text) is not targetItemName then error "Control Center action changed before the click"
     if exists menu 1 of targetMenuItem then error "Control Center action became a submenu"
     if not (enabled of targetMenuItem) then error "Control Center action is disabled"
-    perform action "AXPress" of targetMenuItem
+    my clickCentre(position of targetMenuItem, size of targetMenuItem)
 
     set controlWindow to missing value
     set controlOpened to false
@@ -432,7 +529,7 @@ tell application "System Events"
       delay pollDelaySeconds
     end repeat
     if not controlOpened then
-      error "Control Center action produced no window with AXIdentifier " & controlWindowIdentifier & " after AXPress on an exposed menu; the GUI session may be locked"
+      error "Control Center action produced no window with AXIdentifier " & controlWindowIdentifier & " after a real click on a tracking menu, so the app never opened the scene"
     end if
     if not settingsAbsentAfterInitialControl then
       error "Settings window appeared while opening the initial Control Center window"
@@ -443,13 +540,13 @@ tell application "System Events"
 
       set menuClosedBeforePress to false
       try
-        if selected of statusItem then
+        if my menuIsTracking(statusItem) then
           perform action "AXCancel" of menu 1 of statusItem
         end if
       end try
       repeat with pollAttempt from 1 to pollAttemptLimit
         try
-          set menuClosedBeforePress to not (selected of statusItem)
+          set menuClosedBeforePress to not (my menuIsTracking(statusItem))
         on error
           set menuClosedBeforePress to false
         end try
@@ -457,13 +554,13 @@ tell application "System Events"
         delay pollDelaySeconds
       end repeat
       if not menuClosedBeforePress then
-        error "status menu did not become closed before Settings AXPress"
+        error "status menu did not become closed before the Settings opening click"
       end if
-      perform action "AXPress" of statusItem
+      my clickCentre(position of statusItem, size of statusItem)
     set menuExposed to false
     repeat with pollAttempt from 1 to pollAttemptLimit
       try
-        set menuExposed to selected of statusItem
+        set menuExposed to my menuIsTracking(statusItem)
       on error
         set menuExposed to false
       end try
@@ -471,7 +568,7 @@ tell application "System Events"
       delay pollDelaySeconds
     end repeat
     if not menuExposed then
-      error "status menu did not become exposed for Settings; the GUI session may be locked"
+      error "status menu did not begin tracking for Settings after a real click on the status item"
       end if
       set targetMenu to menu 1 of statusItem
       set menuItemCount to count of menu items of targetMenu
@@ -505,10 +602,10 @@ tell application "System Events"
     if targetMenuItemMatchCount is not 1 then error "Settings menu action missing or ambiguous"
     set targetMenuItem to a reference to menu item targetMenuItemIndex of targetMenu
     if (role of targetMenuItem as text) is not "AXMenuItem" then error "Settings action has unexpected role"
-    if (name of targetMenuItem as text) is not targetItemName then error "Settings action changed before AXPress"
+    if (name of targetMenuItem as text) is not targetItemName then error "Settings action changed before the click"
     if exists menu 1 of targetMenuItem then error "Settings action became a submenu"
     if not (enabled of targetMenuItem) then error "Settings action is disabled"
-    perform action "AXPress" of targetMenuItem
+    my clickCentre(position of targetMenuItem, size of targetMenuItem)
 
     set settingsWindow to missing value
     set settingsOpened to false
@@ -546,7 +643,7 @@ tell application "System Events"
       delay pollDelaySeconds
     end repeat
     if not settingsOpened then
-      error "Settings action produced no window with AXIdentifier " & settingsWindowIdentifier & " after AXPress on an exposed menu; the GUI session may be locked"
+      error "Settings action produced no window with AXIdentifier " & settingsWindowIdentifier & " after a real click on a tracking menu, so the app never opened the scene"
     end if
     if not controlRetainedForSettings then
       error "Control Center window was lost while opening Settings"
@@ -597,13 +694,13 @@ tell application "System Events"
 
     set menuClosedBeforePress to false
     try
-      if selected of statusItem then
+      if my menuIsTracking(statusItem) then
         perform action "AXCancel" of menu 1 of statusItem
       end if
     end try
     repeat with pollAttempt from 1 to pollAttemptLimit
       try
-        set menuClosedBeforePress to not (selected of statusItem)
+        set menuClosedBeforePress to not (my menuIsTracking(statusItem))
       on error
         set menuClosedBeforePress to false
       end try
@@ -611,13 +708,13 @@ tell application "System Events"
       delay pollDelaySeconds
     end repeat
     if not menuClosedBeforePress then
-      error "status menu did not become closed before Control Center return AXPress"
+      error "status menu did not become closed before the Control Center return click"
     end if
-    perform action "AXPress" of statusItem
+    my clickCentre(position of statusItem, size of statusItem)
     set menuExposed to false
     repeat with pollAttempt from 1 to pollAttemptLimit
       try
-        set menuExposed to selected of statusItem
+        set menuExposed to my menuIsTracking(statusItem)
       on error
         set menuExposed to false
       end try
@@ -625,7 +722,7 @@ tell application "System Events"
       delay pollDelaySeconds
     end repeat
     if not menuExposed then
-      error "status menu did not become exposed for Control Center return; the GUI session may be locked"
+      error "status menu did not begin tracking for the Control Center return after a real click on the status item"
     end if
     set targetMenu to menu 1 of statusItem
     set menuItemCount to count of menu items of targetMenu
@@ -659,10 +756,10 @@ tell application "System Events"
     if targetMenuItemMatchCount is not 1 then error "Control Center return action missing or ambiguous"
     set targetMenuItem to a reference to menu item targetMenuItemIndex of targetMenu
     if (role of targetMenuItem as text) is not "AXMenuItem" then error "Control Center return action has unexpected role"
-    if (name of targetMenuItem as text) is not targetItemName then error "Control Center return action changed before AXPress"
+    if (name of targetMenuItem as text) is not targetItemName then error "Control Center return action changed before the click"
     if exists menu 1 of targetMenuItem then error "Control Center return action became a submenu"
     if not (enabled of targetMenuItem) then error "Control Center return action is disabled"
-    perform action "AXPress" of targetMenuItem
+    my clickCentre(position of targetMenuItem, size of targetMenuItem)
 
     set controlReturned to false
     set settingsRetainedForControl to false
@@ -809,7 +906,7 @@ APPLESCRIPT
 )" || windowsStatus=$?
 windowsError="$(<"$AX_STDERR_FILE")"
 if [ "$windowsStatus" -ne 0 ]; then
-  fail "Accessibility lifecycle probe aborted: ${windowsError:-osascript exited with status $windowsStatus}"
+  fail "Accessibility lifecycle probe aborted: ${windowsError:-osascript exited with status $windowsStatus}$SESSION_LOCK_NOTE"
 fi
 if [ -n "$windowsError" ]; then
   printf '    osascript warning: %s\n' "$windowsError" >&2
