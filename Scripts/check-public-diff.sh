@@ -26,14 +26,29 @@ p3="va""ult"
 p4="iC""loud"
 p5="[""["
 
+# One home directory is published on purpose. The website shows a real
+# LaunchAgent, and a plist's `WorkingDirectory` is absolute — writing it with a
+# tilde would make the figure wrong, and this project does not put a convenient
+# lie in front of a reader. `ci` is a placeholder, alongside the invented
+# organisation in the same figure.
+#
+# The exemption is this exact prefix and nothing else, removed before the scan.
+# A longer name that merely begins the same way keeps its leading marker and
+# still fails, because the trailing separator is part of what is removed; so
+# does any real home. It is deliberately not applied to the binary scan below —
+# the icon has no reason to name a home directory at all.
+published_home="/""Users/ci/"
+scannable_lines="${added_lines//$published_home/}"
+scannable_docs="${added_docs//$published_home/}"
+
 matches=""
 for marker in "$p1" "$p2" "$p3" "$p4"; do
-  found="$(printf '%s\n' "$added_lines" | grep -Fni "$marker" || true)"
+  found="$(printf '%s\n' "$scannable_lines" | grep -Fni "$marker" || true)"
   if [ -n "$found" ]; then
     matches="${matches}${matches:+$'\n'}${found}"
   fi
 done
-found="$(printf '%s\n' "$added_docs" | grep -Fni "$p5" || true)"
+found="$(printf '%s\n' "$scannable_docs" | grep -Fni "$p5" || true)"
 if [ -n "$found" ]; then
   matches="${matches}${matches:+$'\n'}${found}"
 fi

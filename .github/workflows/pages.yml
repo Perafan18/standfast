@@ -1,0 +1,90 @@
+name: Pages
+
+# The site is its own publication lane. It does not gate the app's CI, and the
+# app's CI does not gate it: a landing copy change should not re-run the macOS
+# matrix, and a failing Swift test should not take the website down.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# Pages has one live deployment. Cancelling a run that is already uploading
+# would abandon a half-published site, so a newer push waits rather than
+# replacing the one in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # This half runs from the first commit, long before anything is published.
+  # The page is reviewed like source, so the invariant that makes it safe to
+  # publish is worth enforcing while it is still only a file in a branch.
+  verify:
+    name: Verify the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The page promises the product collects nothing and talks to nobody it
+      # does not name. A stylesheet, font or script pulled from another host
+      # would break that promise silently, in the visitor's browser, with
+      # nothing in this repository to show for it. Subresources must be inline.
+      - name: The page depends on no other host
+        run: |
+          offsite="$(
+            grep -oE '(src|href)="https?://[^"]*"' site/index.html \
+              | grep -vE '"https://(github\.com|standfast\.dev)/' \
+              || true
+          )"
+          if [ -n "$offsite" ]; then
+            echo "FAIL: the page loads or links to an unexpected host:" >&2
+            printf '%s\n' "$offsite" >&2
+            exit 1
+          fi
+          echo "==> No offsite subresources"
+
+  # Publication waits for the repository to be public. Until then this job is
+  # skipped rather than absent, so the deployment path is reviewed and ready on
+  # the day it is wanted instead of being written under release pressure — and
+  # it cannot leave a red run on `main` for a Pages site nobody has enabled yet.
+  #
+  # To publish: set the repository's Pages source to GitHub Actions, then set
+  # the repository variable STANDFAST_PUBLISH_SITE to `true`.
+  publish:
+    name: Publish the site
+    needs: verify
+    if: github.ref == 'refs/heads/main' && vars.STANDFAST_PUBLISH_SITE == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The artifact is served verbatim: no Jekyll runs on this path. That is
+      # why `site/` carries no `_config.yml` and needs no `.nojekyll` — the
+      # underscore rules those files exist to fight belong to the branch
+      # publishing source this repository deliberately does not use.
+      #
+      # It also carries no `CNAME`. When a site publishes from a workflow,
+      # GitHub ignores that file and reads the custom domain from the
+      # repository's Pages settings instead. A `CNAME` in the tree would look
+      # load-bearing and be inert.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

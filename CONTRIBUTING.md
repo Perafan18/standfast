@@ -211,6 +211,43 @@ CI never signs with a real identity. The certificate stays on the release manage
 machine, and what CI covers is that the ad-hoc branch still produces a bundle with a real
 identity, and that `notarize.sh` refuses to submit one.
 
+## The website
+
+`site/` holds the landing page, and `.github/workflows/pages.yml` publishes it. It is a
+separate lane on purpose: a copy change must not re-run the macOS test matrix, and a
+failing Swift test must not take the website down.
+
+**Nothing is published yet.** The site goes live when the repository becomes public, not
+before. Until then the workflow's `verify` job still runs on every change to `site/`, and
+the `publish` job is skipped — deliberately present and skipped rather than absent, so the
+deployment path is reviewed and ready on the day it is wanted instead of being written
+under release pressure. To turn it on: set the repository's Pages source to GitHub Actions,
+then set the repository variable `STANDFAST_PUBLISH_SITE` to `true`.
+
+**The page has no build step and no dependencies.** It is one self-contained HTML file
+with its CSS and its script inline. That is not laziness — the product promises it collects
+nothing and talks to nobody it does not name, and a stylesheet or font fetched from another
+host breaks that promise in the visitor's browser with nothing in this repository to show
+for it. The workflow fails on any `src` or `href` pointing at a host other than
+`github.com` or `standfast.dev`. Add a generator only when there are pages enough to
+justify one; today there is a single page and a README.
+
+**`site/` is not `docs/`.** `docs/` is untracked, holds internal Spanish design notes, and
+is never published. The old arrangement served Pages straight out of `docs/`, which meant a
+`_config.yml` existed purely to keep those notes off the public web — one edit away from
+publishing them. Serving `site/` through a workflow removes the question instead of
+answering it.
+
+**Do not add a `CNAME` file to `site/`.** When a site publishes from a workflow, GitHub
+ignores it and reads the custom domain from the repository's Pages settings. A `CNAME` in
+the tree would look load-bearing and be inert, which is the worst combination: the domain
+would appear configured in the repository while actually depending on a setting nobody can
+see from here.
+
+There is no `.nojekyll` either, and none is needed. Jekyll never runs on this path — the
+underscore rules that file exists to fight belong to the branch publishing source this
+repository does not use.
+
 ## Releasing
 
 Signing and notarisation happen on the release manager's machine, before the tag:
