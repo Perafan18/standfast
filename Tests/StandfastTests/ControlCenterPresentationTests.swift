@@ -112,11 +112,40 @@ private func controlCenterSnapshot(
 
 private func card(
   _ snapshot: RunnerSnapshot, measurement: DiskMeasurement? = nil,
-  latestRelease: RunnerVersion? = nil
+  latestRelease: RunnerVersion? = nil, fleetSize: Int = 1
 ) -> RunnerCardPresentation {
   RunnerCardPresentation.building(
     snapshot, measurement: measurement, latestRelease: latestRelease,
-    isMaintenanceWorking: false, maintenanceNotice: nil, now: controlCenterNow)
+    isMaintenanceWorking: false, maintenanceNotice: nil, now: controlCenterNow,
+    fleetSize: fleetSize)
+}
+
+@Test func aSmallFleetNeverFoldsACardTheOperatorDidNotFold() {
+  for tone in [StateTone.healthy, .active, .attention, .stopped, .neutral] {
+    for size in 1...RunnerCardPresentation.compactFleetThreshold {
+      #expect(
+        !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: size),
+        "tone \(tone) at fleet size \(size)")
+    }
+  }
+}
+
+@Test func aLargeFleetFoldsOnlyTheRunnersWithNothingToAnswerFor() {
+  let large = RunnerCardPresentation.compactFleetThreshold + 1
+
+  #expect(RunnerCardPresentation.startsCollapsed(tone: .healthy, fleetSize: large))
+  #expect(RunnerCardPresentation.startsCollapsed(tone: .active, fleetSize: large))
+
+  // The states that are the reason somebody opened the window stay open, no
+  // matter how many runners are on the machine.
+  for tone in [StateTone.attention, .stopped, .neutral] {
+    #expect(
+      !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: large),
+      "tone \(tone)")
+    #expect(
+      !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: 40),
+      "tone \(tone) on a very large fleet")
+  }
 }
 
 @MainActor
@@ -275,7 +304,18 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(!source.contains("GroupBox"))
   #expect(!source.contains("LabeledContent"))
   #expect(!source.contains("ControlGroup"))
-  #expect(source.components(separatedBy: "DisclosureGroup").count - 1 == 2)
+  // Count constructions, not the word. Prose about `DisclosureGroup` in a
+  // comment used to move this number, which made an explanation of the code
+  // indistinguishable from a change to it.
+  #expect(source.components(separatedBy: "DisclosureGroup(isExpanded:").count - 1 == 2)
+  // Both sections open from the whole row. On macOS the group toggles from its
+  // triangle alone, so without this the label is a decoy: it reads as the
+  // control and ignores the click.
+  let cardSource = standfastSource("RunnerCardView.swift")
+  #expect(
+    cardSource.components(separatedBy: "disclosureLabel(isExpanded:").count - 1 == 2)
+  #expect(cardSource.contains(".onTapGesture { isExpanded.wrappedValue.toggle() }"))
+  #expect(cardSource.contains(".contentShape(Rectangle())"))
   #expect(source.contains(".accessibilityElement(children: .contain)"))
   #expect(!source.contains(".lineLimit(1)"))
   #expect(

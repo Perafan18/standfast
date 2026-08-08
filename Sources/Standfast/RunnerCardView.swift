@@ -43,19 +43,36 @@ struct RunnerCardView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: StandfastTheme.Spacing.roomy) {
-      identity
-      focus
-      if let feedback = card.operationFeedback {
-        operationFeedback(feedback)
+    // One spacing value between every section says every section is equally
+    // related to the one above it, which is the same as saying nothing about
+    // structure at all. The gaps below carry the grouping instead: what this
+    // runner is and is doing reads as one block, its controls as a second, and
+    // the two things you open on purpose as a quieter third.
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
+        identity
+        focus
+        if let feedback = card.operationFeedback {
+          operationFeedback(feedback)
+        }
       }
-      serviceActions
-      navigation
+
+      VStack(spacing: StandfastTheme.Spacing.small) {
+        serviceActions
+        navigation
+      }
+      .padding(.top, StandfastTheme.Spacing.large)
+
       Rectangle()
         .fill(palette.structuralBorder.color)
         .frame(height: StandfastTheme.Stroke.structural)
-      history
-      maintenance
+        .padding(.top, StandfastTheme.Spacing.xLarge)
+
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
+        history
+        maintenance
+      }
+      .padding(.top, StandfastTheme.Spacing.compact)
     }
     .padding(StandfastTheme.Spacing.large)
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,10 +223,14 @@ struct RunnerCardView: View {
           Label(action.label, systemImage: action.symbolName)
         }
       }
-      .frame(maxWidth: .infinity, minHeight: 44)
+      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
       .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
+    // A greyed control that will not say why is a dead end. The runner state is
+    // the reason, already localised, so the tooltip reuses it rather than
+    // inventing a second vocabulary for the same fact.
+    .help(action.isEnabled ? "" : card.state)
     .accessibilityLabel(action.accessibilityLabel)
     .accessibilityIdentifier(identifier(for: action.kind))
   }
@@ -243,10 +264,11 @@ struct RunnerCardView: View {
           Label(action.label, systemImage: action.symbolName)
         }
       }
-      .frame(maxWidth: .infinity, minHeight: 44)
+      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
       .contentShape(Rectangle())
     }
     .disabled(!action.isEnabled)
+    .help(action.isEnabled ? "" : card.state)
     .accessibilityLabel(qualifiedLabel)
     .accessibilityInputLabels([
       Text(action.label), Text(qualifiedLabel),
@@ -273,19 +295,35 @@ struct RunnerCardView: View {
       }
       .padding(.top, StandfastTheme.Spacing.compact)
     } label: {
-      HStack {
-        Text(L10n.recentJobs)
-          .font(.headline)
-        Spacer()
-        if case .available(let rows, true) = card.history {
-          Text("\(rows.count)+")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(palette.textSecondary.color)
+      disclosureLabel(isExpanded: $jobsExpanded) {
+        HStack {
+          Text(L10n.recentJobs)
+            .font(.subheadline.weight(.semibold))
+          Spacer()
+          if case .available(let rows, true) = card.history {
+            Text("\(rows.count)+")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(palette.textSecondary.color)
+          }
         }
       }
-      .frame(minHeight: 44)
     }
     .accessibilityIdentifier(identifiers.jobs)
+  }
+
+  /// On macOS a `DisclosureGroup` toggles from its triangle and nothing else,
+  /// so the label beside it looks interactive and is not: the target is a few
+  /// points of chevron next to a whole row of text that ignores the click.
+  /// Every native disclosure — the Finder inspector, System Settings — opens
+  /// from the entire row, which is also the thing a pointer aims at.
+  private func disclosureLabel<Content: View>(
+    isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content
+  ) -> some View {
+    content()
+      .padding(.leading, StandfastTheme.Spacing.xSmall)
+      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
+      .contentShape(Rectangle())
+      .onTapGesture { isExpanded.wrappedValue.toggle() }
   }
 
   private func historyRow(_ job: JobRow) -> some View {
@@ -317,8 +355,9 @@ struct RunnerCardView: View {
         ForEach(card.maintenance.usage, id: \.self) { usage in
           Text(usage)
         }
-        Text(card.maintenance.measured)
-          .foregroundStyle(palette.textSecondary.color)
+        // `measured` stays on the collapsed row, where it says what is inside
+        // without opening it. Repeating it here told the reader something they
+        // had already read on the line they clicked to get here.
         ForEach(card.maintenance.offers) { offer in
           maintenanceButton(offer)
         }
@@ -329,15 +368,16 @@ struct RunnerCardView: View {
       }
       .padding(.top, StandfastTheme.Spacing.compact)
     } label: {
-      HStack {
-        Text(L10n.maintenance)
-          .font(.headline)
-        Spacer()
-        Text(card.maintenance.measured)
-          .font(.caption)
-          .foregroundStyle(palette.textSecondary.color)
+      disclosureLabel(isExpanded: $maintenanceExpanded) {
+        HStack {
+          Text(L10n.maintenance)
+            .font(.subheadline.weight(.semibold))
+          Spacer()
+          Text(card.maintenance.measured)
+            .font(.caption)
+            .foregroundStyle(palette.textSecondary.color)
+        }
       }
-      .frame(minHeight: 44)
     }
     .accessibilityIdentifier(identifiers.maintenance)
   }
@@ -347,11 +387,15 @@ struct RunnerCardView: View {
       performMaintenance(offer.kind)
     } label: {
       Text(offer.label)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .frame(
+          maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight,
+          alignment: .leading
+        )
         .contentShape(Rectangle())
     }
     .buttonStyle(.bordered)
     .disabled(!offer.isEnabled)
+    .help(offer.isEnabled ? "" : card.state)
     .accessibilityLabel(L10n.runnerInScope(offer.label, card.title))
     .accessibilityIdentifier(identifiers.maintenanceAction(offer.kind))
   }

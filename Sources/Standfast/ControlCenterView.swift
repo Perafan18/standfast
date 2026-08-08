@@ -31,7 +31,7 @@ struct ControlCenterView: View {
         header(presentation.header)
 
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
+          LazyVStack(alignment: .leading, spacing: StandfastTheme.Spacing.large) {
             if let notice = presentation.notice {
               noticeView(notice)
             }
@@ -95,12 +95,16 @@ struct ControlCenterView: View {
         .foregroundStyle(palette.textPrimary.color)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
+        // This sentence is the answer the window exists to give. `headline`
+        // renders at 13 pt on macOS — the same size as body text and smaller
+        // than the runner names underneath it, which put the window's own
+        // conclusion below the details it summarises.
         Text(presentation.summary)
-          .font(.headline)
+          .font(.title2.weight(.semibold))
           .foregroundStyle(palette.textPrimary.color)
         if let attention = presentation.attention {
           Text(attention)
-            .font(.subheadline.weight(.medium))
+            .font(.subheadline)
             .foregroundStyle(palette.attentionForeground.color)
         }
         Text(presentation.freshness)
@@ -116,7 +120,7 @@ struct ControlCenterView: View {
       fleet.refresh()
     } label: {
       Label(L10n.refreshNow, systemImage: "arrow.clockwise")
-        .frame(minHeight: 44)
+        .frame(minHeight: StandfastTheme.controlMinimumHeight)
         .contentShape(Rectangle())
     }
     .buttonStyle(.bordered)
@@ -164,7 +168,7 @@ struct ControlCenterView: View {
         .foregroundStyle(palette.textPrimary.color)
         .accessibilityHidden(true)
       Text(presentation.title)
-        .font(.headline)
+        .font(.title3.weight(.semibold))
         .foregroundStyle(palette.textPrimary.color)
       ForEach(presentation.detailLines, id: \.self) { detail in
         Text(detail)

@@ -177,13 +177,39 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   let recentJobs: [RunnerRow.RecentJob]
   let maintenance: MaintenanceSection
   let githubDestination: GitHubDestination
+  /// Whether this card opens folded on a fleet the operator has not touched.
+  ///
+  /// A column of complete cards is the right shape for the two or three runners
+  /// one Mac usually hosts and the wrong shape for ten, where the operator
+  /// scrolls past nine healthy runners to reach the one that broke. The product
+  /// decides this rather than the reader: a runner with nothing to answer for
+  /// folds itself away once the fleet is large enough for that to matter, and a
+  /// runner that needs a person never does.
+  let startsCollapsed: Bool
+}
+
+extension RunnerCardPresentation {
+  /// Below this, folding hides a control the operator can already see and
+  /// solves a scrolling problem that does not exist yet.
+  static let compactFleetThreshold = 3
+
+  static func startsCollapsed(tone: StateTone, fleetSize: Int) -> Bool {
+    guard fleetSize > compactFleetThreshold else { return false }
+    switch tone {
+    // Idle and busy are the two states with nothing to decide. Everything else
+    // — disconnected, stopped, or a reading that failed — is the reason the
+    // window was opened, so it stays open.
+    case .healthy, .active: return true
+    case .attention, .stopped, .neutral: return false
+    }
+  }
 }
 
 extension RunnerCardPresentation {
   static func building(
     _ snapshot: RunnerSnapshot, measurement: DiskMeasurement?,
     latestRelease: RunnerVersion?, isMaintenanceWorking: Bool,
-    maintenanceNotice: String?, now: Date
+    maintenanceNotice: String?, now: Date, fleetSize: Int
   ) -> Self {
     let row = snapshot.row
     let destination = GitHubDestination.forScope(snapshot.runner.scope)
@@ -226,7 +252,8 @@ extension RunnerCardPresentation {
       maintenance: MaintenanceSection.building(
         snapshot, measurement: measurement, latest: latestRelease,
         isWorking: isMaintenanceWorking, notice: maintenanceNotice, now: now),
-      githubDestination: destination)
+      githubDestination: destination,
+      startsCollapsed: startsCollapsed(tone: snapshot.display.tone, fleetSize: fleetSize))
   }
 
   func action(_ kind: RunnerRow.Action.Kind) -> RunnerCardAction? {
