@@ -224,13 +224,24 @@ deployment path is reviewed and ready on the day it is wanted instead of being w
 under release pressure. To turn it on: set the repository's Pages source to GitHub Actions,
 then set the repository variable `STANDFAST_PUBLISH_SITE` to `true`.
 
-**The page has no build step and no dependencies.** It is one self-contained HTML file
-with its CSS and its script inline. That is not laziness — the product promises it collects
-nothing and talks to nobody it does not name, and a stylesheet or font fetched from another
-host breaks that promise in the visitor's browser with nothing in this repository to show
-for it. The workflow fails on any `src` or `href` pointing at a host other than
-`github.com` or the site's own `perafan18.github.io`. Add a generator only when there are
-pages enough to justify one; today there is a single page and a README.
+**The page has no build step and no dependencies.** It is one HTML file with its CSS and
+its script inline, plus the screenshots in `site/img/`. That is not laziness — the product
+promises it collects nothing and talks to nobody it does not name, and a stylesheet or font
+fetched from another host breaks that promise in the visitor's browser with nothing in this
+repository to show for it. The workflow fails on any `src` or `href` pointing at a host
+other than `github.com` or the site's own `perafan18.github.io`. Add a generator only when
+there are pages enough to justify one; today there is a single page and a README.
+
+**Every colour on the page is a value the app actually ships**, copied from
+`Sources/Standfast/StandfastTheme.swift`. The page and the product are one identity or they
+are two, and a visitor who learns that orange means attention must find the same orange on
+first launch. If you change a token in the theme, the page is downstream of it.
+
+**The screenshots are real, and they are the point.** This is a visual macOS app; a page
+that describes the Control Center in prose and never shows it is not doing its job. Retake
+them from a build of `main` whenever a surface changes shape. They are captured at 1x on a
+non-Retina display, which is why they look soft next to the type — recapturing on a Retina
+Mac is a standing improvement, not a redesign.
 
 **There is no custom domain.** The site is served at its `github.io` address, and a domain
 gets bought when there is evidence somebody wants this — not before. Anything that assumes
