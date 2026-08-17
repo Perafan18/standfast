@@ -13,6 +13,8 @@
 "controlCenter.history.empty" = "Sin trabajos registrados";
 "controlCenter.history.unavailable" = "Historial no disponible";
 "controlCenter.maintenance.compact" = "Sin medir";
+"controlCenter.fold" = "Plegar";
+"controlCenter.unfold" = "Desplegar";
 "controlCenter.action.start" = "Arrancar %@";
 "controlCenter.action.stop" = "Parar %@";
 "controlCenter.action.restart" = "Reiniciar %@";

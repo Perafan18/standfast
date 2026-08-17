@@ -294,20 +294,49 @@ private func snapshot(
 // MARK: - When the machine was last read
 
 @Test func aMenuThatHasNeverReadTheMachineSaysSo() {
-  #expect(FleetStatus.lastCheckedLine(readAt: nil, now: noon) == L10n.checkedNever)
+  #expect(
+    FleetStatus.lastCheckedLine(readAt: nil, now: noon, isScanning: false)
+      == L10n.checkedNever)
 }
 
 @Test func aFreshReadingSaysJustNowRatherThanCountingSeconds() {
   #expect(
-    FleetStatus.lastCheckedLine(readAt: noon.addingTimeInterval(-3), now: noon)
+    FleetStatus.lastCheckedLine(
+      readAt: noon.addingTimeInterval(-3), now: noon, isScanning: false)
       == L10n.checkedJustNow)
+}
+
+@Test func aScanInFlightSaysSoInsteadOfAgeingTheLastOne() {
+  // A `gh` call has a 30s ceiling per runner, so pressing Refresh can leave
+  // the operator watching an unchanged window for most of a minute. The line
+  // that exists to say how old this reading is, is the honest place to say
+  // that a newer one is on its way.
+  #expect(
+    FleetStatus.lastCheckedLine(
+      readAt: noon.addingTimeInterval(-245), now: noon, isScanning: true)
+      == L10n.checkingRunners)
+}
+
+@Test func aFinishedScanGoesBackToReportingItsAge() {
+  #expect(
+    FleetStatus.lastCheckedLine(
+      readAt: noon.addingTimeInterval(-245), now: noon, isScanning: false)
+      == L10n.checkedAgo("4m"))
+}
+
+@Test func aMachineNeverReadStillSaysSoWhileTheFirstScanRuns() {
+  // "Checking" and "not checked yet" answer different questions, and the one
+  // in flight is the one that will change.
+  #expect(
+    FleetStatus.lastCheckedLine(readAt: nil, now: noon, isScanning: true)
+      == L10n.checkingRunners)
 }
 
 @Test func aStaleReadingSaysHowStale() {
   // The whole point of the line. A `gh` that hangs leaves the menu describing a
   // machine from four minutes ago, and this is what says so.
   let line = FleetStatus.lastCheckedLine(
-    readAt: noon.addingTimeInterval(-245), now: noon)
+    readAt: noon.addingTimeInterval(-245), now: noon, isScanning: false)
   #expect(line == L10n.checkedAgo("4m"))
   #expect(line != L10n.checkedJustNow)
 }

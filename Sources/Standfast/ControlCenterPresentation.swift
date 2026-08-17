@@ -114,7 +114,8 @@ struct ControlCenterHeaderPresentation: Equatable {
   let freshness: String
 
   static func building(
-    overview: FleetOverviewPresentation, readAt: Date?, now: Date
+    overview: FleetOverviewPresentation, readAt: Date?, now: Date,
+    isScanning: Bool = false
   ) -> Self {
     return Self(
       summary: overview.summary,
@@ -122,7 +123,8 @@ struct ControlCenterHeaderPresentation: Equatable {
       symbolName: overview.symbolName,
       tone: overview.tone,
       attention: overview.attention,
-      freshness: FleetStatus.lastCheckedLine(readAt: readAt, now: now))
+      freshness: FleetStatus.lastCheckedLine(
+        readAt: readAt, now: now, isScanning: isScanning))
   }
 }
 

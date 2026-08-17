@@ -13,6 +13,8 @@
 "controlCenter.history.empty" = "No jobs recorded";
 "controlCenter.history.unavailable" = "Job history unavailable";
 "controlCenter.maintenance.compact" = "Not measured";
+"controlCenter.fold" = "Fold";
+"controlCenter.unfold" = "Unfold";
 "controlCenter.action.start" = "Start %@";
 "controlCenter.action.stop" = "Stop %@";
 "controlCenter.action.restart" = "Restart %@";

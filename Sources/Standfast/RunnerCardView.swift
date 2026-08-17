@@ -22,6 +22,13 @@ struct StateBadge: View {
 
 struct RunnerCardView: View {
   let card: RunnerCardPresentation
+  /// Whether this runner's card is folded right now.
+  ///
+  /// Told, never decided here. `@State` takes its initial value once and the
+  /// enclosing `LazyVStack` recycles card views as they scroll, so a fold
+  /// seeded inside this type would follow a view slot instead of a runner.
+  let isCollapsed: Bool
+  let toggleCollapsed: () -> Void
   let performAction: (RunnerRow.Action.Kind) -> Void
   let performMaintenance: (MaintenanceOffer.Kind) -> Void
 
@@ -43,36 +50,16 @@ struct RunnerCardView: View {
   }
 
   var body: some View {
-    // One spacing value between every section says every section is equally
-    // related to the one above it, which is the same as saying nothing about
-    // structure at all. The gaps below carry the grouping instead: what this
-    // runner is and is doing reads as one block, its controls as a second, and
-    // the two things you open on purpose as a quieter third.
+    // Folded is status, unfolded is actions. A column of complete cards is the
+    // right shape for the two or three runners one Mac usually hosts and the
+    // wrong shape for ten, where the operator scrolls past nine healthy
+    // runners to reach the one that broke — so a folded card keeps answering
+    // "what is this runner doing" and drops everything you would open it for.
     VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
-        identity
-        focus
-        if let feedback = card.operationFeedback {
-          operationFeedback(feedback)
-        }
+      situation
+      if !isCollapsed {
+        detail
       }
-
-      VStack(spacing: StandfastTheme.Spacing.small) {
-        serviceActions
-        navigation
-      }
-      .padding(.top, StandfastTheme.Spacing.large)
-
-      Rectangle()
-        .fill(palette.structuralBorder.color)
-        .frame(height: StandfastTheme.Stroke.structural)
-        .padding(.top, StandfastTheme.Spacing.xLarge)
-
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
-        history
-        maintenance
-      }
-      .padding(.top, StandfastTheme.Spacing.compact)
     }
     .padding(StandfastTheme.Spacing.large)
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -93,7 +80,61 @@ struct RunnerCardView: View {
     .accessibilityIdentifier(identifiers.card)
   }
 
+  /// What the card answers whether or not it is folded: which runner this is,
+  /// what state it is in, and what it is doing about it.
+  private var situation: some View {
+    VStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
+      identity
+      focus
+      // The receipt for the last Start or Stop stays with the situation on
+      // purpose: hiding the outcome of an action the operator just took would
+      // make folding feel like the app forgot.
+      if let feedback = card.operationFeedback {
+        operationFeedback(feedback)
+      }
+    }
+  }
+
+  /// Everything a person opens a card in order to do.
+  ///
+  /// One spacing value between every section says every section is equally
+  /// related to the one above it, which is the same as saying nothing about
+  /// structure at all. The gaps carry the grouping instead: controls read as
+  /// one block and the two things you open on purpose as a quieter second.
+  private var detail: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(spacing: StandfastTheme.Spacing.small) {
+        serviceActions
+        navigation
+      }
+      .padding(.top, StandfastTheme.Spacing.large)
+
+      Rectangle()
+        .fill(palette.structuralBorder.color)
+        .frame(height: StandfastTheme.Stroke.structural)
+        .padding(.top, StandfastTheme.Spacing.xLarge)
+
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
+        history
+        maintenance
+      }
+      .padding(.top, StandfastTheme.Spacing.compact)
+    }
+  }
+
   private var identity: some View {
+    HStack(alignment: .firstTextBaseline, spacing: StandfastTheme.Spacing.compact) {
+      identitySummary
+      foldControl
+    }
+    // The lesson the disclosure rows already learned: a chevron on its own is
+    // a few points of target beside a whole row that reads interactive and
+    // ignores the click. The row is the target; the chevron says which way.
+    .contentShape(Rectangle())
+    .onTapGesture(perform: toggleCollapsed)
+  }
+
+  private var identitySummary: some View {
     HStack(alignment: .firstTextBaseline, spacing: StandfastTheme.Spacing.compact) {
       Image(systemName: card.stateSymbolName)
         .font(.title2.weight(.semibold))
@@ -118,6 +159,31 @@ struct RunnerCardView: View {
     .accessibilityLabel(card.title)
     .accessibilityValue("\(card.compactState), \(card.scope). \(card.state)")
     .accessibilityIdentifier(identifiers.status)
+    // Without this the combined status element is a dead end for VoiceOver:
+    // it reads the runner's state and offers no way to open the card it is
+    // describing without navigating back out to the chevron.
+    .accessibilityAction(named: Text(foldLabel), toggleCollapsed)
+  }
+
+  /// What pressing the control would do next, not what it did last.
+  private var foldLabel: String {
+    isCollapsed ? L10n.unfoldCard : L10n.foldCard
+  }
+
+  private var foldControl: some View {
+    Button(action: toggleCollapsed) {
+      Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+        .font(.body.weight(.semibold))
+        .foregroundStyle(palette.textSecondary.color)
+        .frame(
+          minWidth: StandfastTheme.controlMinimumHeight,
+          minHeight: StandfastTheme.controlMinimumHeight
+        )
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.borderless)
+    .accessibilityLabel(L10n.runnerInScope(foldLabel, card.title))
+    .accessibilityIdentifier(identifiers.fold)
   }
 
   @ViewBuilder

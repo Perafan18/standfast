@@ -9,15 +9,6 @@ import Testing
 
 private let controlCenterNow = Date(timeIntervalSince1970: 1_785_962_174)
 
-private func standfastSource(_ name: String) -> String {
-  let repository = URL(fileURLWithPath: #filePath)
-    .deletingLastPathComponent()
-    .deletingLastPathComponent()
-    .deletingLastPathComponent()
-  let source = repository.appendingPathComponent("Sources/Standfast/\(name)")
-  return (try? String(contentsOf: source, encoding: .utf8)) ?? ""
-}
-
 private func reflectedReference<T: AnyObject>(
   _ type: T.Type, in value: Any, remainingDepth: Int = 3
 ) -> T? {
@@ -279,6 +270,45 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(!controlCenter.contains("controlCenterPresentation(now: Date())"))
   #expect(!controlCenter.contains("fleet.controlCenterCards"))
   #expect(!controlCenter.contains("fleet.snapshots"))
+}
+
+@Test func bothSurfacesTakeTheScanStateFromTheModelRatherThanDefaultingIt() {
+  // `isScanning` defaults to false at both builders so the suite's many
+  // fixtures do not have to answer a question they are not asking. That default
+  // is exactly what would swallow a surface wired up without it, and the two
+  // call sites that matter are in one file.
+  let model = standfastSource("RunnerFleetModel.swift")
+  let compact = model.filter { !$0.isWhitespace }
+
+  // Both, counted. Asserting each call site with a substring that the other
+  // one also contains proves only that one of them is wired.
+  #expect(compact.components(separatedBy: "isScanning:isScanning").count - 1 == 2)
+  #expect(
+    compact.contains(
+      "thermalLines:thermalLines,readAt:lastReadAt,now:now,isScanning:isScanning"))
+  #expect(
+    compact.contains(
+      "header:.building(overview:overview,readAt:lastReadAt,now:now,isScanning:isScanning)"
+    ))
+}
+
+@Test func theHeaderSaysAScanIsRunningRatherThanAgeingTheLastOne() {
+  let overview = FleetOverviewPresentation.building(
+    snapshots: [controlCenterSnapshot()], notice: nil)
+  let readAt = controlCenterNow.addingTimeInterval(-245)
+
+  let scanning = ControlCenterHeaderPresentation.building(
+    overview: overview, readAt: readAt, now: controlCenterNow, isScanning: true)
+  let settled = ControlCenterHeaderPresentation.building(
+    overview: overview, readAt: readAt, now: controlCenterNow, isScanning: false)
+
+  #expect(scanning.freshness == L10n.checkingRunners)
+  #expect(settled.freshness == L10n.checkedAgo("4m"))
+  // Only the freshness line moves. The aggregate a scan has not answered yet
+  // is still the one on screen, and saying otherwise would invent a state.
+  #expect(scanning.summary == settled.summary)
+  #expect(scanning.symbolName == settled.symbolName)
+  #expect(scanning.tone == settled.tone)
 }
 
 @Test func timelineDateMovesTheHeaderAcrossTheFreshnessBoundary() {

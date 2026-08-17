@@ -12,6 +12,8 @@ enum L10n {
   static let controlCenterScope = t("controlCenter.scope")
   static let controlCenterStatus = t("controlCenter.status")
   static let controlCenterService = t("controlCenter.service")
+  static let foldCard = t("controlCenter.fold")
+  static let unfoldCard = t("controlCenter.unfold")
   static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
   static let openRunnerSettings = t("controlCenter.openRunnerSettings")
   static let settingsNotifications = t("settings.notifications")
@@ -504,6 +506,8 @@ enum L10n {
     "controlCenter.history.empty": "No jobs recorded",
     "controlCenter.history.unavailable": "Job history unavailable",
     "controlCenter.maintenance.compact": "Not measured",
+    "controlCenter.fold": "Fold",
+    "controlCenter.unfold": "Unfold",
     "controlCenter.action.start": "Start %@",
     "controlCenter.action.stop": "Stop %@",
     "controlCenter.action.restart": "Restart %@",

@@ -189,7 +189,12 @@ enum FleetStatus {
   ///   for thirty seconds leaves a stale menu, and this is the line that has to
   ///   say so — stamping it on arrival would report freshly-read data that is
   ///   half a minute old.
-  static func lastCheckedLine(readAt: Date?, now: Date) -> String {
+  /// - Parameter isScanning: whether a reading is in flight right now. A `gh`
+  ///   call has a 30s ceiling per runner, so Refresh can leave an unchanged
+  ///   window on screen for most of a minute; this line is where that belongs,
+  ///   because it is already the one answering how current the window is.
+  static func lastCheckedLine(readAt: Date?, now: Date, isScanning: Bool) -> String {
+    if isScanning { return L10n.checkingRunners }
     guard let readAt else { return L10n.checkedNever }
     let elapsed = now.timeIntervalSince(readAt)
     guard elapsed >= justNow else { return L10n.checkedJustNow }

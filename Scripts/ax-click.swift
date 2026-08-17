@@ -8,12 +8,18 @@
 //
 // This is a probe-only tool. Nothing in the shipping app depends on it.
 
+import AppKit
 import CoreGraphics
 import Foundation
 
 private func failUsage() -> Never {
   FileHandle.standardError.write(
-    Data("usage: ax-click <x> <y> | ax-click move <x> <y> | ax-click where\n".utf8))
+    Data(
+      """
+      usage: ax-click <x> <y> | ax-click move <x> <y> | ax-click where \
+      | ax-click reveal-menu-bar
+
+      """.utf8))
   exit(2)
 }
 
@@ -31,7 +37,59 @@ private func post(_ type: CGEventType, at point: CGPoint) -> Bool {
   return true
 }
 
+/// Whether the frontmost app is covering the menu bar with a full-screen
+/// window.
+///
+/// `NSScreen.visibleFrame` was the obvious way to ask and it is the wrong one:
+/// an app full screen in its own Space leaves the reporting screen's frames
+/// untouched, so it measures a bar that is visible somewhere the clicks are
+/// not going. The window doing the covering is the one that knows.
+private func frontmostWindowIsFullScreen() -> Bool {
+  guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+  let application = AXUIElementCreateApplication(app.processIdentifier)
+  var focused: CFTypeRef?
+  guard
+    AXUIElementCopyAttributeValue(
+      application, kAXFocusedWindowAttribute as CFString, &focused) == .success,
+    CFGetTypeID(focused) == AXUIElementGetTypeID()
+  else { return false }
+  // swift-format-ignore: NeverForceUnwrap
+  let window = focused as! AXUIElement
+  var fullScreen: CFTypeRef?
+  guard
+    AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &fullScreen)
+      == .success
+  else { return false }
+  return (fullScreen as? Bool) ?? false
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
+
+if arguments == ["menu-bar-state"] {
+  print(frontmostWindowIsFullScreen() ? "hidden" : "visible")
+  exit(0)
+}
+
+// Bring the menu bar back the way a person does, by pushing the pointer into
+// the top edge of the screen that owns it.
+//
+// Unconditional, because this process cannot tell whether the bar is hidden.
+// `NSScreen.visibleFrame` was the obvious answer and it is the wrong one: an
+// app full screen in its own Space leaves the reporting screen's frames
+// untouched, so the helper measured a bar that was visible somewhere the
+// clicks were not going. Pushing into the top edge of a screen whose bar is
+// already showing costs nothing, so it simply always happens.
+if arguments == ["reveal-menu-bar"] {
+  guard let screen = NSScreen.screens.first else { exit(0) }
+  guard post(.mouseMoved, at: CGPoint(x: screen.frame.midX, y: 0)) else {
+    FileHandle.standardError.write(Data("cannot post a pointer move\n".utf8))
+    exit(1)
+  }
+  // The reveal is animated, and a click posted into the middle of it lands on
+  // whatever is still underneath.
+  usleep(500_000)
+  exit(0)
+}
 
 if arguments == ["where"] {
   guard let location = currentLocation() else {

@@ -1065,4 +1065,103 @@ if grep -Fq 'DispatchQueue.main.async {' "$QUICK_MENU"; then
   fail "scene activation regressed to an unconditioned single queue hop"
 fi
 
+# An app in full screen hides the menu bar, and the status item keeps
+# reporting the position it would occupy. Every synthetic click then lands in
+# the full-screen app, the menu never tracks, and the probe blames the app it
+# is testing. It already extends this courtesy to a locked screen; the same
+# fact deserves the same treatment.
+AX_CLICK_SOURCE="$ROOT/Scripts/ax-click.swift"
+grep -Fq 'reveal-menu-bar' "$AX_CLICK_SOURCE" \
+  || fail "the click helper cannot reveal a hidden menu bar"
+grep -Fq 'reveal-menu-bar' "$AX_CHECK" \
+  || fail "the probe never tries to reveal the menu bar before clicking"
+
+# `NSScreen.visibleFrame` does not answer this. An app full screen in its own
+# Space leaves the reporting screen's frames unchanged, so the helper measured
+# a bar that was visible somewhere the clicks were not going. The window that
+# is actually covering the bar is the one to ask, through Accessibility.
+grep -Fq 'AXFullScreen' "$AX_CLICK_SOURCE" \
+  || fail "the click helper does not ask the front window whether it is full screen"
+grep -Fq 'menu-bar-state' "$AX_CHECK" \
+  || fail "the probe never asks whether the menu bar is covered"
+# Through the helper, never a third AppleScript: the two osascript calls below
+# are the menu read and the window lifecycle, and a diagnostic that quietly
+# became a third would shift both of their answers by one.
+osascript_calls="$(grep -c '^  osascript\|osascript 2>' "$AX_CHECK" || true)"
+[ "$osascript_calls" -eq 2 ] \
+  || fail "the probe makes $osascript_calls osascript calls, not the expected 2"
+# Uses, not mentions. The comment explaining why `visibleFrame` is the wrong
+# question contains the word, and a check that cannot tell the two apart makes
+# an explanation of the code indistinguishable from a change to it.
+visible_frame_uses="$(awk '
+  { line = $0 }
+  line ~ /^[[:space:]]*\/\// { next }
+  line ~ /\.visibleFrame/ { count += 1 }
+  END { print count + 0 }
+' "$AX_CLICK_SOURCE")"
+[ "$visible_frame_uses" -eq 0 ] \
+  || fail "the click helper still decides the menu bar from screen frames alone"
+
+# The reveal is unconditional: the helper cannot tell whether the bar is
+# hidden, and pushing the pointer into the top edge of a screen whose bar is
+# already showing costs nothing.
+grep -Fq 'CGPoint(x: screen.frame.midX, y: 0)' "$AX_CLICK_SOURCE" \
+  || fail "the click helper does not push the pointer into the top edge"
+
+reveal_bin="$TEST_ROOT/reveal-bin"
+mkdir -p "$reveal_bin"
+reveal_log="$TEST_ROOT/reveal-log"
+# shellcheck disable=SC2016 # Variables expand when the generated fake runs.
+printf '%s\n' \
+  '#!/bin/bash' \
+  'printf "%s\n" "${1:-}" >> "$STANDFAST_REVEAL_LOG"' \
+  'case "${1:-}" in' \
+  '  where) echo "10 10" ;;' \
+  '  menu-bar-state) echo "${STANDFAST_FAKE_MENU_BAR:-visible}" ;;' \
+  'esac' \
+  'exit 0' > "$reveal_bin/ax-click"
+chmod +x "$reveal_bin/ax-click"
+
+rm -f "$SENTINEL" "$reveal_log"
+if PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+  STANDFAST_AX_CLICK_TOOL="$reveal_bin/ax-click" \
+  STANDFAST_REVEAL_LOG="$reveal_log" \
+  STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" "$AX_CHECK" "$$" >/dev/null 2>&1
+then
+  fail "require mode passed without a readable menu"
+fi
+grep -Fxq 'reveal-menu-bar' "$reveal_log" \
+  || fail "the probe did not reveal the menu bar before reading it"
+# Before the first click, not after it failed.
+[ "$(head -n1 "$reveal_log")" = where ] \
+  || fail "the probe moved the pointer before remembering where it was"
+[ "$(sed -n 2p "$reveal_log")" = reveal-menu-bar ] \
+  || fail "the probe reveals the menu bar after it has already clicked"
+
+rm -f "$SENTINEL" "$reveal_log"
+covered_output=""
+if covered_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_AX_CLICK_TOOL="$reveal_bin/ax-click" \
+    STANDFAST_REVEAL_LOG="$reveal_log" STANDFAST_FAKE_MENU_BAR=hidden \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "require mode passed without a readable menu"
+fi
+assert_contains "$covered_output" "full screen"
+
+rm -f "$SENTINEL" "$reveal_log"
+uncovered_output=""
+if uncovered_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_AX_CLICK_TOOL="$reveal_bin/ax-click" \
+    STANDFAST_REVEAL_LOG="$reveal_log" STANDFAST_FAKE_MENU_BAR=visible \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "require mode passed without a readable menu"
+fi
+# A diagnosis, never noise: an uncovered menu bar has nothing to add to a
+# failure it had no part in.
+assert_not_contains "$uncovered_output" "full screen"
+
 echo "PASS: check-app AX mode contract"

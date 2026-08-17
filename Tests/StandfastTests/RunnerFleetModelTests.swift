@@ -217,6 +217,26 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   #expect(box.scanCount == 3)
 }
 
+@Test @MainActor func theModelSaysWhileItIsReadingTheMachine() async throws {
+  // UI-003: Start, Stop and Restart publish receipts and Refresh published
+  // nothing, so the one control whose work is invisible was also the one that
+  // could take the longest.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let fleet = model(box)
+  await fleet.quiesce()
+
+  #expect(!fleet.isScanning)
+
+  box.set(delay: 0.2)
+  fleet.refresh()
+  #expect(fleet.isScanning)
+
+  await fleet.quiesce()
+  #expect(!fleet.isScanning)
+}
+
 // MARK: - The ticker, and the loop it used to become
 
 @Test @MainActor func aTickArrivingDuringAScanIsDroppedRatherThanRemembered()

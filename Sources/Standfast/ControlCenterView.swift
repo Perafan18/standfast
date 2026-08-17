@@ -7,6 +7,9 @@ struct ControlCenterView: View {
   /// Invalidation-only: the body still derives exclusively from the fleet's
   /// complete presentation, which reads this model's published memory.
   @ObservedObject private var housekeeping: HousekeepingModel
+  /// Invalidation-only, for the same reason: a fold has to redraw the card it
+  /// was performed on, and the fold itself is remembered by the fleet.
+  @ObservedObject private var folding: RunnerCardFolding
 
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -15,6 +18,7 @@ struct ControlCenterView: View {
   init(fleet: RunnerFleetModel) {
     self.fleet = fleet
     housekeeping = fleet.housekeeping
+    folding = fleet.folding
   }
 
   private var palette: StandfastPalette {
@@ -42,6 +46,8 @@ struct ControlCenterView: View {
               ForEach(presentation.cards) { card in
                 RunnerCardView(
                   card: card,
+                  isCollapsed: fleet.folding.isCollapsed(card),
+                  toggleCollapsed: { fleet.folding.toggle(card) },
                   performAction: { action in
                     fleet.perform(action, onRunnerID: card.id)
                   },

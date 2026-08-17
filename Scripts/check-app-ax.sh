@@ -84,6 +84,27 @@ else
 fi
 AX_POINTER_ORIGIN="$("$AX_CLICK_TOOL" where 2>/dev/null)" || AX_POINTER_ORIGIN=""
 
+# An app in full screen hides the menu bar, and the status item goes on
+# reporting the position it would occupy. Every click below then lands in the
+# full-screen app, no menu tracks, and the failure reads as a broken app.
+#
+# Push the pointer into the top edge first, which is what a person does to get
+# the bar back. Unconditional: the helper cannot tell whether the bar is
+# hidden, and doing it to a screen whose bar is already showing costs nothing.
+"$AX_CLICK_TOOL" reveal-menu-bar >/dev/null 2>&1 || true
+
+# Then name the condition, so a failure below does not get blamed on the app.
+# Asked through the click helper rather than a third `osascript`: the two
+# AppleScript calls below are the menu read and the window lifecycle, and a
+# diagnostic that quietly became a third would be a change to what this gate
+# does. Like the locked screen above, this is a diagnosis and never a verdict:
+# the probe still runs and still reports what it actually saw.
+MENU_BAR_NOTE=""
+menuBarState="$("$AX_CLICK_TOOL" menu-bar-state 2>/dev/null)" || menuBarState=""
+if [ "$menuBarState" = hidden ]; then
+  MENU_BAR_NOTE=" (the frontmost app is in full screen, which hides the menu bar while the status item goes on reporting the position it would occupy, so the synthetic clicks this probe needs land in that app instead; leave full screen and run the gate again)"
+fi
+
 echo "==> Reading the menu (Accessibility coverage is required)"
 # Menu bar 2, not 1: an agent app still gets a main menu bar it never shows,
 # and that is the one holding the Apple menu. Status items live in the second.
@@ -229,13 +250,13 @@ APPLESCRIPT
 )" || menuStatus=$?
 menuError="$(<"$AX_STDERR_FILE")"
 if [ "$menuStatus" -ne 0 ]; then
-  fail "Accessibility coverage is required, but the status menu could not be read: ${menuError:-osascript exited with status $menuStatus}$SESSION_LOCK_NOTE"
+  fail "Accessibility coverage is required, but the status menu could not be read: ${menuError:-osascript exited with status $menuStatus}$SESSION_LOCK_NOTE$MENU_BAR_NOTE"
 fi
 if [ -z "$menu" ]; then
   if [ -n "$menuError" ]; then
-    fail "Accessibility coverage is required, but the status menu could not be read: $menuError$SESSION_LOCK_NOTE"
+    fail "Accessibility coverage is required, but the status menu could not be read: $menuError$SESSION_LOCK_NOTE$MENU_BAR_NOTE"
   fi
-  fail "Accessibility coverage is required, but the status menu could not be read$SESSION_LOCK_NOTE"
+  fail "Accessibility coverage is required, but the status menu could not be read$SESSION_LOCK_NOTE$MENU_BAR_NOTE"
 fi
 if [ -n "$menuError" ]; then
   printf '    osascript warning: %s\n' "$menuError" >&2
@@ -906,7 +927,7 @@ APPLESCRIPT
 )" || windowsStatus=$?
 windowsError="$(<"$AX_STDERR_FILE")"
 if [ "$windowsStatus" -ne 0 ]; then
-  fail "Accessibility lifecycle probe aborted: ${windowsError:-osascript exited with status $windowsStatus}$SESSION_LOCK_NOTE"
+  fail "Accessibility lifecycle probe aborted: ${windowsError:-osascript exited with status $windowsStatus}$SESSION_LOCK_NOTE$MENU_BAR_NOTE"
 fi
 if [ -n "$windowsError" ]; then
   printf '    osascript warning: %s\n' "$windowsError" >&2

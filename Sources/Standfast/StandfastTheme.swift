@@ -201,6 +201,10 @@ enum ControlCenterAccessibility {
     }
 
     var card: String { "\(root).card" }
+    /// The control that folds this card. Hung off `card` rather than the
+    /// identity row it sits in: the row keeps its own status identity, and a
+    /// fold has to stay reachable by name when everything below it is hidden.
+    var fold: String { "\(card).fold" }
     var status: String { "\(root).status" }
     var focus: String { "\(root).focus" }
     var start: String { "\(root).action.start" }

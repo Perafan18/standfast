@@ -105,6 +105,12 @@ final class RunnerFleetModel: ObservableObject {
   /// that hangs for thirty seconds leaves a stale menu, and a mark taken when
   /// the answer landed would describe it as fresh.
   @Published private(set) var lastReadAt: Date?
+  /// Whether a reading of the machine is in flight right now.
+  ///
+  /// Published rather than derived from `inFlight` on demand: the freshness
+  /// line is what tells the operator a slow scan is running, and a plain
+  /// property would never redraw it.
+  @Published private(set) var isScanning = false
   /// The newest runner GitHub has published, and nil until it has been asked.
   /// Fleet-wide because the question is: there is one `actions/runner`.
   @Published private(set) var latestRelease: RunnerVersion?
@@ -116,6 +122,9 @@ final class RunnerFleetModel: ObservableObject {
   let notifications: NotificationSettings
   let sleep: SleepGuard
   let housekeeping: HousekeepingModel
+  /// Which cards the operator folded. Owned here rather than by the window
+  /// so a fold outlives closing and reopening the Control Center.
+  let folding: RunnerCardFolding
 
   private let discover: @Sendable () -> DiscoveryResult
   private let resolver: RunnerStateResolver
@@ -199,6 +208,7 @@ final class RunnerFleetModel: ObservableObject {
     notifications: NotificationSettings = NotificationSettings(),
     sleep: SleepGuard = SleepGuard(),
     housekeeping: HousekeepingModel = HousekeepingModel(),
+    folding: RunnerCardFolding = RunnerCardFolding(),
     versions: any RunnerVersionReading = RunnerVersionReader(),
     releases: any RunnerReleaseChecking = GHCommandLineClient(),
     opener: any URLOpening = WorkspaceURLOpener(),
@@ -221,6 +231,7 @@ final class RunnerFleetModel: ObservableObject {
     self.notifications = notifications
     self.sleep = sleep
     self.housekeeping = housekeeping
+    self.folding = folding
     self.versions = versions
     self.releases = releases
     self.opener = opener
@@ -272,12 +283,14 @@ final class RunnerFleetModel: ObservableObject {
     {
       checkForNewRelease(at: startedAt)
     }
+    isScanning = true
     inFlight = Task { [discover, resolver, jobLogs, versions, clock] in
       let scan = await Self.scan(
         discover: discover, resolver: resolver, readers: jobLogs, versions: versions,
         clock: clock)
       apply(scan, startedAt: startedAt)
       inFlight = nil
+      isScanning = false
       if refreshRequested {
         refreshRequested = false
         refresh()
@@ -585,7 +598,7 @@ final class RunnerFleetModel: ObservableObject {
   ) -> QuickMenuPresentation {
     QuickMenuPresentation.building(
       snapshots: snapshots, overview: overview, thermalLines: thermalLines,
-      readAt: lastReadAt, now: now)
+      readAt: lastReadAt, now: now, isScanning: isScanning)
   }
 
   /// The complete card projection, built only from model and housekeeping
@@ -607,7 +620,8 @@ final class RunnerFleetModel: ObservableObject {
     let cards = controlCenterCards(now: now)
     let overview = overview
     return ControlCenterPresentation(
-      header: .building(overview: overview, readAt: lastReadAt, now: now),
+      header: .building(
+        overview: overview, readAt: lastReadAt, now: now, isScanning: isScanning),
       cards: cards,
       empty: cards.isEmpty ? .building(overview: overview) : nil,
       notice: cards.isEmpty ? nil : .building(overview: overview))

@@ -89,7 +89,7 @@ extension QuickMenuPresentation {
   static func building(
     snapshots: [RunnerSnapshot], overview: FleetOverviewPresentation,
     thermalLines: [String],
-    readAt: Date?, now: Date,
+    readAt: Date?, now: Date, isScanning: Bool = false,
     identityFormatting: RunnerIdentityFormatting = .localized
   ) -> Self {
     let identities = runnerIdentities(
@@ -105,7 +105,9 @@ extension QuickMenuPresentation {
     }
     items += thermalLines.prefix(Self.thermalLinesShown).map(Item.thermal)
     items += [
-      .freshness(FleetStatus.lastCheckedLine(readAt: readAt, now: now)),
+      .freshness(
+        FleetStatus.lastCheckedLine(
+          readAt: readAt, now: now, isScanning: isScanning)),
       .refresh, .openControlCenter, .openSettings, .quit,
     ]
     return Self(items: items)
