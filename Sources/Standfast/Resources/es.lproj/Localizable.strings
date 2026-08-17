@@ -130,6 +130,7 @@
 "job.running" = "Ejecutando %@ — %@";
 "job.runningWithTypical" = "Ejecutando %@ — %@, suele tardar %@";
 "job.row" = "%@ — %@ (%@)";
+"job.ageAndDuration" = "hace %@ · duró %@";
 "job.rowNoDuration" = "%@ — %@";
 
 "job.result.succeeded" = "Correcto";
@@ -169,6 +170,7 @@
 
 "duration.hoursMinutes" = "%dh %02dm";
 "duration.minutesSeconds" = "%dm %02ds";
+"duration.days" = "%dd";
 "duration.hours" = "%dh";
 "duration.minutes" = "%dm";
 "duration.seconds" = "%ds";

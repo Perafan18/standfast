@@ -196,7 +196,9 @@ struct RunnerCardView: View {
     case .currentJob(let progress):
       focusLine(symbol: "bolt.fill", title: progress)
     case .lastJob(let job):
-      focusLine(symbol: job.outcome.symbolName, title: job.text)
+      focusLine(
+        symbol: job.outcome.symbolName, title: job.text,
+        detail: job.circumstances)
     case .state(let state):
       focusLine(symbol: card.stateSymbolName, title: state)
     }
@@ -402,6 +404,13 @@ struct RunnerCardView: View {
       Spacer(minLength: StandfastTheme.Spacing.small)
       Text(job.outcome.label)
         .foregroundStyle(palette.textSecondary.color)
+      // When first, then how long. Five rows of "Correcto" with no dates do
+      // not say whether they are from today or from last month.
+      if let age = job.age {
+        Text(age)
+          .monospacedDigit()
+          .foregroundStyle(palette.textSecondary.color)
+      }
       if let duration = job.duration {
         Text(duration)
           .monospacedDigit()

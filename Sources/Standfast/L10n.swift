@@ -51,6 +51,17 @@ enum L10n {
   static let preventSleep = t("menu.preventSleep")
   static let preventSleepLidNotice = t("menu.preventSleep.lid")
 
+  /// How long ago it ran and how long it took, in that order.
+  ///
+  /// The order is the whole fix: a bare `(2m 52s)` after an outcome reads as
+  /// an age to anybody who did not write it, so the age goes first and the
+  /// duration arrives with a verb attached.
+  static func jobAgeAndDuration(
+    _ age: String, _ duration: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("job.ageAndDuration", in: bundles), age, duration)
+  }
+
   static let maintenance = t("menu.maintenance")
   static let measureDiskUse = t("menu.maintenance.measure")
   static let deletingOnlyWhenIdle = t("menu.maintenance.onlyWhenIdle")
@@ -348,6 +359,12 @@ enum L10n {
     String(format: t("duration.minutesSeconds"), minutes, seconds)
   }
 
+  /// `3 d` — the step `coarse` was missing. Without it a job from the day
+  /// before yesterday read as "hace 53 h", which is a number, not an answer.
+  static func durationDays(_ days: Int, in bundles: [Bundle]? = nil) -> String {
+    String(format: t("duration.days", in: bundles), days)
+  }
+
   static func durationHours(_ hours: Int) -> String {
     String(format: t("duration.hours"), hours)
   }
@@ -641,6 +658,7 @@ enum L10n {
     "job.running": "Running %@ — %@",
     "job.runningWithTypical": "Running %@ — %@, usually %@",
     "job.row": "%@ — %@ (%@)",
+    "job.ageAndDuration": "%@ ago · took %@",
     "job.rowNoDuration": "%@ — %@",
     "job.result.succeeded": "Succeeded",
     "job.result.failed": "Failed",
@@ -681,6 +699,7 @@ enum L10n {
     "notification.stopped.body": "%@ stopped on its own and is taking no jobs",
     "duration.hoursMinutes": "%dh %02dm",
     "duration.minutesSeconds": "%dm %02ds",
+    "duration.days": "%dd",
     "duration.hours": "%dh",
     "duration.minutes": "%dm",
     "duration.seconds": "%ds",

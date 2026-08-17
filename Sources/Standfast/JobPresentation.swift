@@ -23,32 +23,54 @@ struct JobRow: Equatable, Identifiable, Sendable {
   let duration: String?
   let startedAt: Date
   let finishedAt: Date?
+  /// How long ago this job ended, or nil while it is still running.
+  ///
+  /// Measured from `finishedAt`, never from `startedAt`: a job that began four
+  /// hours ago and ran for three finished one hour ago, and "hace 4 h" would
+  /// describe the beginning of something already over.
+  let age: String?
 
-  static func building(_ record: JobRecord) -> Self {
-    building(record, occurrence: 0)
+  static func building(_ record: JobRecord, now: Date) -> Self {
+    building(record, occurrence: 0, now: now)
   }
 
-  private static func building(_ record: JobRecord, occurrence: Int) -> Self {
+  private static func building(
+    _ record: JobRecord, occurrence: Int, now: Date
+  ) -> Self {
     Self(
       id: ID(startedAt: record.startedAt, occurrence: occurrence), name: record.name,
       outcome: record.outcomePresentation,
       duration: record.duration.map(DurationText.precise),
-      startedAt: record.startedAt, finishedAt: record.finishedAt)
+      startedAt: record.startedAt, finishedAt: record.finishedAt,
+      age: record.finishedAt.map { DurationText.coarse(max(0, now.timeIntervalSince($0))) })
   }
 
-  static func building(_ records: [JobRecord]) -> [Self] {
+  static func building(_ records: [JobRecord], now: Date) -> [Self] {
     var occurrences: [Date: Int] = [:]
 
     return records.map { record in
       let occurrence = occurrences[record.startedAt, default: 0]
       occurrences[record.startedAt] = occurrence + 1
-      return building(record, occurrence: occurrence)
+      return building(record, occurrence: occurrence, now: now)
     }
   }
 
+  /// What happened: the job and how it ended, and nothing else.
   var text: String {
-    guard let duration else { return L10n.jobRowNoDuration(name, outcome.label) }
-    return L10n.jobRow(name, outcome.label, duration)
+    L10n.jobRowNoDuration(name, outcome.label)
+  }
+
+  /// When it happened and how long it took, for the line underneath.
+  ///
+  /// Pedro, looking at `testflight — Correcto (2m 52s)`: "¿hace cuánto fue?
+  /// ¿hace 2 minutos, 3 días, 2 años?" A bare parenthesis after an outcome
+  /// reads as an age and was a duration, so it answers a question nobody
+  /// asked in the shape of the one they did.
+  /// Nil while the job is still running: `finishedAt` is what produces both
+  /// halves of this line, so they are absent together or present together.
+  var circumstances: String? {
+    guard let age, let duration else { return nil }
+    return L10n.jobAgeAndDuration(age, duration)
   }
 }
 
@@ -72,6 +94,10 @@ enum DurationText {
   /// `3m` — for how long ago something happened, where the seconds are noise.
   static func coarse(_ seconds: TimeInterval) -> String {
     let total = Int(seconds)
+    // Days have no ceiling on purpose. "Hace 45 d" is not a formatting
+    // failure: it is this app saying the runner has not been given work in a
+    // month and a half, which is exactly the thing it exists to notice.
+    if total >= 86400 { return L10n.durationDays(total / 86400) }
     if total >= 3600 { return L10n.durationHours(total / 3600) }
     if total >= 60 { return L10n.durationMinutes(total / 60) }
     return L10n.durationSeconds(max(0, total))

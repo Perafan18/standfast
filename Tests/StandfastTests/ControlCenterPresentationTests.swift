@@ -655,7 +655,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   let subject = card(
     controlCenterSnapshot(jobs: JobHistory(records: [finished])))
 
-  #expect(subject.focus == .lastJob(JobRow.building(finished)))
+  #expect(subject.focus == .lastJob(JobRow.building(finished, now: controlCenterNow)))
 }
 
 @Test func longStateIsTheFallbackWhenThereIsNoOperationOrJob() {
@@ -688,7 +688,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
   #expect(
     subject.history
-      == .unavailable(lastKnownRows: [JobRow.building(finished)]))
+      == .unavailable(lastKnownRows: [JobRow.building(finished, now: controlCenterNow)]))
 }
 
 @Test func runningJobDoesNotConsumeAHistorySlotOrCreateFalseTruncation() {
@@ -708,7 +708,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
   #expect(
     subject.history
-      == .available(rows: past.map(JobRow.building), isTruncated: false))
+      == .available(rows: JobRow.building(past, now: controlCenterNow), isTruncated: false))
 }
 
 @Test func historyReportsTrueTruncationAfterRemovingTheRunningJob() {
@@ -729,7 +729,8 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(
     subject.history
       == .available(
-        rows: Array(past.prefix(RunnerRow.recentJobsShown)).map(JobRow.building),
+        rows: JobRow.building(
+          Array(past.prefix(RunnerRow.recentJobsShown)), now: controlCenterNow),
         isTruncated: true))
 }
 

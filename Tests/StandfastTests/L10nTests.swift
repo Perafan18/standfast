@@ -166,9 +166,10 @@ private func l10nSource() -> String {
       "state.unknown.noAnswer", "state.unknown.noLocalAnswer", "state.checkedAgo",
       "state.checkedJustNow", "state.checkedNever", "job.running",
       "job.runningWithTypical", "job.row", "job.rowNoDuration",
+      "job.ageAndDuration",
       "job.result.succeeded", "job.result.failed", "job.result.canceled",
       "job.result.interrupted", "duration.hoursMinutes", "duration.minutesSeconds",
-      "duration.hours", "duration.minutes", "duration.seconds",
+      "duration.days", "duration.hours", "duration.minutes", "duration.seconds",
       "menu.maintenance", "menu.maintenance.measure",
       "menu.maintenance.freeToolCache", "menu.maintenance.freeActionCache",
       "menu.maintenance.cleanStandfastTrash", "menu.maintenance.trimLogs",
@@ -512,7 +513,7 @@ private func l10nSource() -> String {
   // and `String(format:)` will not say a word about it.
   let expected = [
     "job.running": 2, "job.runningWithTypical": 3, "job.row": 3,
-    "job.rowNoDuration": 2, "state.checkedAgo": 1,
+    "job.rowNoDuration": 2, "job.ageAndDuration": 2, "state.checkedAgo": 1,
     // A banner is read out of the corner of an eye. A translation that dropped
     // the runner's name leaves "failed on" and a Mac with two runners, which is
     // a notification that costs a trip to GitHub to act on.

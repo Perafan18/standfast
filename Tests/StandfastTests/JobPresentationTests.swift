@@ -177,7 +177,7 @@ private func snapshot(
   let subject = JobRow.building(
     JobRecord(
       name: "testflight", startedAt: startedAt, finishedAt: finishedAt,
-      result: .succeeded))
+      result: .succeeded), now: noon)
 
   #expect(subject.id == JobRow.ID(startedAt: startedAt, occurrence: 0))
   #expect(subject.name == "testflight")
@@ -200,16 +200,23 @@ private func snapshot(
       finishedAt: startedAt.addingTimeInterval(20), result: .failed),
   ]
 
-  let firstBuild = JobRow.building(records)
-  let secondBuild = JobRow.building(records)
+  let firstBuild = JobRow.building(records, now: noon)
+  let secondBuild = JobRow.building(records, now: noon)
 
   #expect(firstBuild.map(\.id) == secondBuild.map(\.id))
   #expect(Set(firstBuild.map(\.id)).count == 2)
   #expect(firstBuild.map(\.id.occurrence) == [0, 1])
+  // The duration left `text` and moved to `circumstances`, behind the age:
+  // a bare parenthesis after an outcome was being read as "hace 10s".
   #expect(
     firstBuild.map(\.text) == [
-      L10n.jobRow("first", L10n.jobSucceeded, "10s"),
-      L10n.jobRow("second", L10n.jobFailed, "20s"),
+      L10n.jobRowNoDuration("first", L10n.jobSucceeded),
+      L10n.jobRowNoDuration("second", L10n.jobFailed),
+    ])
+  #expect(
+    firstBuild.map(\.circumstances) == [
+      L10n.jobAgeAndDuration(L10n.durationMinutes(59), "10s"),
+      L10n.jobAgeAndDuration(L10n.durationMinutes(59), "20s"),
     ])
 }
 
@@ -219,22 +226,23 @@ private func snapshot(
     JobRecord(name: "first", startedAt: sharedStart, result: .succeeded),
     JobRecord(name: "second", startedAt: sharedStart, result: .failed),
   ]
-  let before = JobRow.building(sameSecond)
+  let before = JobRow.building(sameSecond, now: noon)
   let unrelated = JobRecord(
     name: "newer", startedAt: sharedStart.addingTimeInterval(60), result: .canceled)
 
-  let after = JobRow.building([unrelated] + sameSecond)
+  let after = JobRow.building([unrelated] + sameSecond, now: noon)
 
   #expect(Array(after.dropFirst()).map(\.id) == before.map(\.id))
 }
 
 @Test func everyJobOutcomeKeepsItsOwnSemanticPresentation() {
   let outcomes = [
-    JobRow.building(record("ok", ago: 60, lasting: 10, .succeeded)).outcome,
-    JobRow.building(record("bad", ago: 60, lasting: 10, .failed)).outcome,
-    JobRow.building(record("cancel", ago: 60, lasting: 10, .canceled)).outcome,
-    JobRow.building(record("lost", ago: 60, lasting: nil)).outcome,
-    JobRow.building(record("new", ago: 60, lasting: 10, .other("Skipped"))).outcome,
+    JobRow.building(record("ok", ago: 60, lasting: 10, .succeeded), now: noon).outcome,
+    JobRow.building(record("bad", ago: 60, lasting: 10, .failed), now: noon).outcome,
+    JobRow.building(record("cancel", ago: 60, lasting: 10, .canceled), now: noon).outcome,
+    JobRow.building(record("lost", ago: 60, lasting: nil), now: noon).outcome,
+    JobRow.building(record("new", ago: 60, lasting: 10, .other("Skipped")), now: noon)
+      .outcome,
   ]
 
   #expect(
