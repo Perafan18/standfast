@@ -24,11 +24,13 @@ private var renderDirectory: URL? {
 }
 
 @MainActor
-private func render(_ view: some View, to url: URL, height: CGFloat = 720) throws {
-  // 640, not the 540 token: macOS restores the window at 640 and that is the
-  // width a person actually looks at. At 540 the header stacks vertically,
-  // which would put a layout on screen that no user sees.
-  let size = NSSize(width: 640, height: height)
+private func render(
+  _ view: some View, to url: URL, width: CGFloat = 640, height: CGFloat = 720
+) throws {
+  // 640, not the 540 token: macOS restores the Control Center at 640 and that
+  // is the width a person actually looks at. At 540 the header stacks
+  // vertically, which would put a layout on screen that no user sees.
+  let size = NSSize(width: width, height: height)
   let hosting = NSHostingView(
     rootView:
       view
@@ -68,6 +70,30 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   guard let directory = renderDirectory else { return }
   try FileManager.default.createDirectory(
     at: directory, withIntermediateDirectories: true)
+
+  // 0. The everyday shape: two healthy runners, which is what the window looks
+  // like on the Mac it was built against and the baseline every other state is
+  // judged against.
+  let healthy = try FleetSandbox(serviceRunning: true)
+  defer { healthy.cleanUp() }
+  _ = try healthy.addRunner(name: "mac-mini-m4", scope: "acme-widget")
+  _ = try healthy.addRunner(name: "mac-mini-m4-build", scope: "acme-tooling")
+  let healthyFleet = fleet(healthy)
+  await healthyFleet.quiesce()
+  try render(
+    ControlCenterView(fleet: healthyFleet),
+    to: directory.appendingPathComponent("0-normal.png"))
+
+  // 0b. The other window. Settings takes its own size, not the Control
+  // Center's.
+  try render(
+    SettingsView(
+      loginItem: LoginItem(), notifications: healthyFleet.notifications,
+      sleep: healthyFleet.sleep,
+      infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
+    to: directory.appendingPathComponent("0c-ajustes.png"),
+    width: StandfastTheme.settingsIdealWidth,
+    height: StandfastTheme.settingsDefaultHeight)
 
   // 1. A runner GitHub cannot see. The reason somebody opens this window.
   let disconnected = try FleetSandbox(serviceRunning: true)

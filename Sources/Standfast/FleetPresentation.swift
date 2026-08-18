@@ -341,7 +341,13 @@ struct FleetOverviewPresentation: Equatable {
       // A nil notice is inconclusive and must not invent a clean empty result.
       state = .checking
     }
-    let attentionCount = snapshots.count { $0.display.needsAttention }
+    // A runner that is perfectly healthy and whose last order failed is still
+    // a runner somebody has to look at. Both facts are true; the summary used
+    // to print only the flattering one, so the failure lived on as small print
+    // inside a card with a green badge at the top.
+    let attentionCount = snapshots.count {
+      $0.display.needsAttention || $0.operation?.hasFailed == true
+    }
     return Self(
       state: state, recovery: recovery,
       attention: attentionCount == 0 ? nil : L10n.runnerAttention(attentionCount))

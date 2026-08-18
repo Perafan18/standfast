@@ -104,7 +104,17 @@ final class RunnerFleetModel: ObservableObject {
   /// one has. Stamped at the start rather than on arrival on purpose: a `gh`
   /// that hangs for thirty seconds leaves a stale menu, and a mark taken when
   /// the answer landed would describe it as fresh.
+  /// When the last reading that actually resolved was started.
+  ///
+  /// A failed attempt deliberately does not move this: it is the age of what
+  /// the window is showing, and a scan nobody could complete did not make that
+  /// any newer.
   @Published private(set) var lastReadAt: Date?
+  /// Whether the most recent scan left any runner unresolved.
+  ///
+  /// Fleet-wide on purpose, because the freshness line speaks for the fleet:
+  /// one runner nobody could read means the window is older than it looks.
+  @Published private(set) var lastAttemptFailed = false
   /// Whether a reading of the machine is in flight right now.
   ///
   /// Published rather than derived from `inFlight` on demand: the freshness
@@ -541,7 +551,14 @@ final class RunnerFleetModel: ObservableObject {
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable,
       failure: scan.found.failure)
-    lastReadAt = startedAt
+    // The attempt is only a reading when every runner resolved. Anything
+    // unknown — GitHub silent, or launchd not answering — means what is on
+    // screen is older than this scan, so the timestamp stays where it was.
+    lastAttemptFailed = snapshots.contains { snapshot in
+      if case .resolved(.unknown) = snapshot.display { return true }
+      return false
+    }
+    if !lastAttemptFailed { lastReadAt = startedAt }
     // Read from what the menu is about to show rather than from the scan, so a
     // runner the settling window is covering for cannot be announced as
     // disconnected while the menu says it is starting.
@@ -598,7 +615,8 @@ final class RunnerFleetModel: ObservableObject {
   ) -> QuickMenuPresentation {
     QuickMenuPresentation.building(
       snapshots: snapshots, overview: overview, thermalLines: thermalLines,
-      readAt: lastReadAt, now: now, isScanning: isScanning)
+      readAt: lastReadAt, now: now, isScanning: isScanning,
+      lastAttemptFailed: lastAttemptFailed)
   }
 
   /// The complete card projection, built only from model and housekeeping
@@ -621,7 +639,8 @@ final class RunnerFleetModel: ObservableObject {
     let overview = overview
     return ControlCenterPresentation(
       header: .building(
-        overview: overview, readAt: lastReadAt, now: now, isScanning: isScanning),
+        overview: overview, readAt: lastReadAt, now: now, isScanning: isScanning,
+        lastAttemptFailed: lastAttemptFailed),
       cards: cards,
       empty: cards.isEmpty ? .building(overview: overview) : nil,
       notice: cards.isEmpty ? nil : .building(overview: overview))

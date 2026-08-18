@@ -8,9 +8,11 @@ enum ServiceOperationAction: Equatable, Sendable {
 
   var title: String {
     switch self {
-    case .start: L10n.start
-    case .stop: L10n.stop
-    case .restart: L10n.restart
+    // The same words the button used, so a receipt cannot end up describing
+    // an action by a different name than the control that caused it.
+    case .start: L10n.serviceStart
+    case .stop: L10n.serviceStop
+    case .restart: L10n.serviceRestart
     }
   }
 }
@@ -50,6 +52,20 @@ struct ServiceOperation: Equatable, Sendable {
     return
       scanWallClock.timeIntervalSince(changedAt)
       < Self.terminalReceiptScanWallClockWindow
+  }
+}
+
+extension ServiceOperation {
+  /// Whether the last order this runner was given ended in a failure that is
+  /// still standing.
+  ///
+  /// `.uncertain` deliberately does not count: a command that timed out may
+  /// well have worked, the card already says so, and treating it as a failure
+  /// would make the fleet summary cry wolf on the state this app most often
+  /// lands in.
+  var hasFailed: Bool {
+    if case .failed = phase { return true }
+    return false
   }
 }
 

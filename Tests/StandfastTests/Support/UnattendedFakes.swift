@@ -125,7 +125,8 @@ func snapshot(
   jobs: JobHistory = .empty, isJobHistoryAvailable: Bool = true,
   readAt: Date = Date(timeIntervalSince1970: 1_785_962_174),
   stateReadAt: Date? = nil,
-  version: RunnerVersion? = nil
+  version: RunnerVersion? = nil,
+  operation: ServiceOperation? = nil
 ) -> RunnerSnapshot {
   RunnerSnapshot(
     runner: DiscoveredRunner(
@@ -134,7 +135,7 @@ func snapshot(
       scope: .repository(owner: "acme", name: scope)),
     display: display, qualifier: qualifier, jobs: jobs, readAt: readAt,
     isJobHistoryAvailable: isJobHistoryAvailable, stateReadAt: stateReadAt,
-    version: version)
+    version: version, operation: operation)
 }
 
 /// A measurement built by hand, so the menu can be asked what it would show for

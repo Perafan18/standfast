@@ -472,7 +472,7 @@ if ! flota_named_runner_output="$(
   PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
     STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
     STANDFAST_OSASCRIPT_CAPTURE_DIR="$flota_named_runner_dir" \
-    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tFlota — mac-mini-m4 · Ejecutando\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tFlota — mac-mini-m4 · Ejecutando\nstatic\tAbrir Standfast\nstatic\tAjustes\nstatic\tSalir' \
     "$AX_CHECK" "$$" 2>&1
 )"; then
   fail "the AX smoke rejected a legitimate Flota-prefixed runner: $flota_named_runner_output"
@@ -499,7 +499,7 @@ if ! last_delimiter_output="$(
   PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
     STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
     STANDFAST_OSASCRIPT_CAPTURE_DIR="$last_delimiter_dir" \
-    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tfoo · bar · Listo\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tfoo · bar · Listo\nstatic\tAbrir Standfast\nstatic\tAjustes\nstatic\tSalir' \
     "$AX_CHECK" "$$" 2>&1
 )"; then
   fail "the AX smoke did not split the runner identity from the last delimiter: $last_delimiter_output"
@@ -515,7 +515,7 @@ spanish_output="$(
   PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
     STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
     STANDFAST_OSASCRIPT_CAPTURE_DIR="$spanish_dir" \
-    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tmac-mini-m4 · Ejecutando\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tmac-mini-m4 · Ejecutando\nstatic\tAbrir Standfast\nstatic\tAjustes\nstatic\tSalir' \
     "$AX_CHECK" "$$" 2>&1
 )"
 assert_contains "$spanish_output" "$LIFECYCLE_SUCCESS"
@@ -551,11 +551,11 @@ expect_menu_output_rejected \
   "unknown AX menu record type"
 expect_menu_output_rejected \
   "mixed-language" \
-  'static\tFleet idle\nstatic\tOpen Standfast\nstatic\tConfiguración\nstatic\tQuit' \
+  'static\tFleet idle\nstatic\tOpen Standfast\nstatic\tAjustes\nstatic\tQuit' \
   "one complete English or Spanish static action set"
 expect_menu_output_rejected \
   "two-languages" \
-  'static\tOpen Standfast\nstatic\tSettings\nstatic\tQuit\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+  'static\tOpen Standfast\nstatic\tSettings\nstatic\tQuit\nstatic\tAbrir Standfast\nstatic\tAjustes\nstatic\tSalir' \
   "one complete English or Spanish static action set"
 expect_menu_output_rejected \
   "runner-action-spoof" \
@@ -567,7 +567,7 @@ expect_menu_output_rejected \
   "aggregate Fleet/Flota row escaped into the quick menu"
 expect_menu_output_rejected \
   "spanish-fleet-aggregate" \
-  'static\tFlota — Listo\nstatic\tAbrir Standfast\nstatic\tConfiguración\nstatic\tSalir' \
+  'static\tFlota — Listo\nstatic\tAbrir Standfast\nstatic\tAjustes\nstatic\tSalir' \
   "aggregate Fleet/Flota row escaped into the quick menu"
 expect_menu_output_rejected \
   "runner-without-separator" \

@@ -12,6 +12,20 @@ enum L10n {
   static let controlCenterScope = t("controlCenter.scope")
   static let controlCenterStatus = t("controlCenter.status")
   static let controlCenterService = t("controlCenter.service")
+  /// The service buttons, with the object the bare verbs were missing.
+  ///
+  /// `Parar` alone can be read as "stop taking work", "cancel this job
+  /// cleanly" or "stop the service". The confirmation dialog does say which —
+  /// after the click. These say it before, and leave `Cancelar job` free for
+  /// the day that function exists.
+  static let serviceStart = t("controlCenter.service.start")
+  static let serviceStop = t("controlCenter.service.stop")
+  static let serviceRestart = t("controlCenter.service.restart")
+  /// The two halves a runner's state is made of, named only where they
+  /// disagree — which is where one word alone lies.
+  static let stateLayerRunningLocally = t("state.layer.runningLocally")
+  static let stateLayerGitHubSilent = t("state.layer.gitHubSilent")
+  static let stateLayerLocalUnreadable = t("state.layer.localUnreadable")
   static let foldCard = t("controlCenter.fold")
   static let unfoldCard = t("controlCenter.unfold")
   static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
@@ -345,6 +359,14 @@ enum L10n {
   }
 
   /// How long ago the machine was last read.
+  /// What the line says when the last attempt failed: the failure first,
+  /// then how old the reading it is still showing actually is.
+  static func checkFailedThenChecked(
+    _ checked: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("state.checkFailed", in: bundles), checked)
+  }
+
   static func checkedAgo(_ elapsed: String) -> String {
     String(format: t("state.checkedAgo"), elapsed)
   }
@@ -523,6 +545,12 @@ enum L10n {
     "controlCenter.history.empty": "No jobs recorded",
     "controlCenter.history.unavailable": "Job history unavailable",
     "controlCenter.maintenance.compact": "Not measured",
+    "controlCenter.service.start": "Start service",
+    "controlCenter.service.stop": "Stop service",
+    "controlCenter.service.restart": "Restart service",
+    "state.layer.runningLocally": "Running locally",
+    "state.layer.gitHubSilent": "GitHub not answering",
+    "state.layer.localUnreadable": "Local service unreadable",
     "controlCenter.fold": "Fold",
     "controlCenter.unfold": "Unfold",
     "controlCenter.action.start": "Start %@",
@@ -637,7 +665,7 @@ enum L10n {
     "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",
-    "state.idle": "Idle — ready for jobs",
+    "state.idle": "Ready — no job right now",
     "state.busy": "Running a job",
     "state.disconnected": "Running locally, but GitHub cannot see it",
     "state.stopped": "Stopped",
@@ -648,10 +676,15 @@ enum L10n {
     "state.short.stopped": "Stopped",
     "state.short.starting": "Starting",
     "state.short.unknown": "Unknown",
-    "state.unknown.noCLI": "Unknown — install the GitHub CLI (gh)",
-    "state.unknown.notAuthenticated": "Unknown — run gh auth login in a terminal",
-    "state.unknown.noAnswer": "Unknown — gh got no answer; check your network",
-    "state.unknown.noLocalAnswer": "Unknown — launchctl did not answer; try Refresh now",
+    "state.unknown.noCLI":
+      "Running locally, GitHub not answering — install the GitHub CLI (gh)",
+    "state.unknown.notAuthenticated":
+      "Running locally, GitHub not answering — run gh auth login in a terminal",
+    "state.unknown.noAnswer":
+      "Running locally, GitHub not answering — gh got no answer; check your network",
+    "state.unknown.noLocalAnswer":
+      "Local service unreadable — launchctl did not answer; try Refresh now",
+    "state.checkFailed": "Update failed · %@",
     "state.checkedAgo": "Checked %@ ago",
     "state.checkedJustNow": "Checked just now",
     "state.checkedNever": "Not checked yet",

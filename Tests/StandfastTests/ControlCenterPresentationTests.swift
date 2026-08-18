@@ -285,10 +285,12 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(compact.components(separatedBy: "isScanning:isScanning").count - 1 == 2)
   #expect(
     compact.contains(
-      "thermalLines:thermalLines,readAt:lastReadAt,now:now,isScanning:isScanning"))
+      "thermalLines:thermalLines,readAt:lastReadAt,now:now,isScanning:isScanning,"
+        + "lastAttemptFailed:lastAttemptFailed"))
   #expect(
     compact.contains(
-      "header:.building(overview:overview,readAt:lastReadAt,now:now,isScanning:isScanning)"
+      "header:.building(overview:overview,readAt:lastReadAt,now:now,isScanning:isScanning,"
+        + "lastAttemptFailed:lastAttemptFailed)"
     ))
 }
 
@@ -611,10 +613,10 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(subject.operation == operation.presentation)
   #expect(
     subject.operation?.title
-      == L10n.serviceOperationConfirmationUnavailableTitle(L10n.stop))
+      == L10n.serviceOperationConfirmationUnavailableTitle(L10n.serviceStop))
   #expect(
     subject.operation?.detail
-      == L10n.serviceOperationConfirmationUnavailableDetail(L10n.stop))
+      == L10n.serviceOperationConfirmationUnavailableDetail(L10n.serviceStop))
   #expect(subject.operation?.symbolName == "exclamationmark.triangle")
   #expect(subject.operation?.isInFlight == false)
 }
@@ -739,7 +741,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(
     stopped.action(.start)
       == RunnerCardAction(
-        kind: .start, label: L10n.start,
+        kind: .start, label: L10n.serviceStart,
         accessibilityLabel: L10n.startRunner("build-mac"),
         symbolName: "play.fill", isEnabled: true, emphasis: .prominent,
         requiresConfirmation: false))

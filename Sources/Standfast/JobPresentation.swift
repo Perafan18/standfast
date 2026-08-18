@@ -219,8 +219,23 @@ enum FleetStatus {
   ///   call has a 30s ceiling per runner, so Refresh can leave an unchanged
   ///   window on screen for most of a minute; this line is where that belongs,
   ///   because it is already the one answering how current the window is.
-  static func lastCheckedLine(readAt: Date?, now: Date, isScanning: Bool) -> String {
+  /// - Parameters:
+  ///   - readAt: when the last reading that actually resolved was *started*.
+  ///     A failed attempt does not move it, so this stays the age of what is
+  ///     on screen rather than the age of the last thing tried.
+  ///   - lastAttemptFailed: whether the most recent scan left any runner
+  ///     unresolved. Said out loud, because a line reading "just now" over a
+  ///     state nobody could read is the app sounding most confident exactly
+  ///     where it knows least.
+  static func lastCheckedLine(
+    readAt: Date?, now: Date, isScanning: Bool, lastAttemptFailed: Bool
+  ) -> String {
     if isScanning { return L10n.checkingRunners }
+    let checked = checkedLine(readAt: readAt, now: now)
+    return lastAttemptFailed ? L10n.checkFailedThenChecked(checked) : checked
+  }
+
+  private static func checkedLine(readAt: Date?, now: Date) -> String {
     guard let readAt else { return L10n.checkedNever }
     let elapsed = now.timeIntervalSince(readAt)
     guard elapsed >= justNow else { return L10n.checkedJustNow }

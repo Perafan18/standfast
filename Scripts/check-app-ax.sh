@@ -320,7 +320,7 @@ for action in "Open Standfast" "Settings" "Quit"; do
     englishActionCount=$((englishActionCount + 1))
   fi
 done
-for action in "Abrir Standfast" "Configuración" "Salir"; do
+for action in "Abrir Standfast" "Ajustes" "Salir"; do
   if static_has "$action"; then
     spanishActionCount=$((spanishActionCount + 1))
   fi
@@ -395,7 +395,7 @@ tell application "System Events"
     set settingsItemName to "Settings"
   else if menuLanguage is "es" then
     set controlCenterItemName to "Abrir Standfast"
-    set settingsItemName to "Configuración"
+    set settingsItemName to "Ajustes"
   else
     error "unsupported validated menu language: " & menuLanguage
   end if

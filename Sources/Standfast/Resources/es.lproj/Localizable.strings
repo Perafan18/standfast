@@ -13,6 +13,12 @@
 "controlCenter.history.empty" = "Sin trabajos registrados";
 "controlCenter.history.unavailable" = "Historial no disponible";
 "controlCenter.maintenance.compact" = "Sin medir";
+"controlCenter.service.start" = "Arrancar servicio";
+"controlCenter.service.stop" = "Parar servicio";
+"controlCenter.service.restart" = "Reiniciar servicio";
+"state.layer.runningLocally" = "Corriendo en local";
+"state.layer.gitHubSilent" = "GitHub sin respuesta";
+"state.layer.localUnreadable" = "No se pudo leer el servicio local";
 "controlCenter.fold" = "Plegar";
 "controlCenter.unfold" = "Desplegar";
 "controlCenter.action.start" = "Arrancar %@";
@@ -33,7 +39,7 @@
 "menu.refreshNow" = "Actualizar ahora";
 "menu.quit" = "Salir";
 "menu.controlCenter" = "Abrir Standfast";
-"menu.settings" = "Configuración";
+"menu.settings" = "Ajustes";
 "menu.recentJobs" = "Trabajos recientes";
 "menu.openAtLogin" = "Abrir al iniciar sesión";
 "menu.openAtLogin.failed" = "No se pudo activar Abrir al iniciar sesión";
@@ -106,7 +112,7 @@
 "state.unreadable" = "No se pudieron leer algunos archivos de runner:";
 "state.unreadable.more" = "…y más";
 
-"state.idle" = "Inactivo — listo para trabajos";
+"state.idle" = "Listo — sin trabajo ahora mismo";
 "state.busy" = "Ejecutando un job";
 "state.disconnected" = "Corriendo en local, pero GitHub no lo ve";
 "state.stopped" = "Detenido";
@@ -118,11 +124,12 @@
 "state.short.starting" = "Arrancando";
 "state.short.unknown" = "Desconocido";
 
-"state.unknown.noCLI" = "Desconocido — instala la CLI de GitHub (gh)";
-"state.unknown.notAuthenticated" = "Desconocido — ejecuta gh auth login en una terminal";
-"state.unknown.noAnswer" = "Desconocido — gh no obtuvo respuesta; revisa tu red";
-"state.unknown.noLocalAnswer" = "Desconocido — launchctl no respondió; prueba Actualizar ahora";
+"state.unknown.noCLI" = "Corriendo en local, GitHub sin respuesta — instala la CLI de GitHub (gh)";
+"state.unknown.notAuthenticated" = "Corriendo en local, GitHub sin respuesta — ejecuta gh auth login en una terminal";
+"state.unknown.noAnswer" = "Corriendo en local, GitHub sin respuesta — gh no obtuvo respuesta; revisa tu red";
+"state.unknown.noLocalAnswer" = "No se pudo leer el servicio local — launchctl no respondió; prueba Actualizar ahora";
 
+"state.checkFailed" = "Actualización fallida · %@";
 "state.checkedAgo" = "Consultado hace %@";
 "state.checkedJustNow" = "Consultado ahora mismo";
 "state.checkedNever" = "Aún sin consultar";

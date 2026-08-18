@@ -115,7 +115,7 @@ struct ControlCenterHeaderPresentation: Equatable {
 
   static func building(
     overview: FleetOverviewPresentation, readAt: Date?, now: Date,
-    isScanning: Bool = false
+    isScanning: Bool = false, lastAttemptFailed: Bool = false
   ) -> Self {
     return Self(
       summary: overview.summary,
@@ -124,7 +124,8 @@ struct ControlCenterHeaderPresentation: Equatable {
       tone: overview.tone,
       attention: overview.attention,
       freshness: FleetStatus.lastCheckedLine(
-        readAt: readAt, now: now, isScanning: isScanning))
+        readAt: readAt, now: now, isScanning: isScanning,
+        lastAttemptFailed: lastAttemptFailed))
   }
 }
 
@@ -271,15 +272,15 @@ extension RunnerCardPresentation {
     let symbolName: String
     switch action.kind {
     case .start:
-      label = L10n.start
+      label = L10n.serviceStart
       accessibilityLabel = L10n.startRunner(runnerName)
       symbolName = "play.fill"
     case .stop:
-      label = L10n.stop
+      label = L10n.serviceStop
       accessibilityLabel = L10n.stopRunner(runnerName)
       symbolName = "stop.fill"
     case .restart:
-      label = L10n.restart
+      label = L10n.serviceRestart
       accessibilityLabel = L10n.restartRunner(runnerName)
       symbolName = "arrow.clockwise"
     case .openOnGitHub:

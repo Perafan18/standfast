@@ -28,13 +28,13 @@ private func temporaryLocalisationBundle(
     language: "en", entries: ["menu.controlCenter": "Open Standfast"])
   let spanishStateOnly = try temporaryLocalisationBundle(
     in: root.appendingPathComponent("spanish", isDirectory: true),
-    language: "es", entries: ["state.idle": "Inactivo — listo para trabajos"])
+    language: "es", entries: ["state.idle": "Listo — sin trabajo ahora mismo"])
   for candidates in [
     [englishActionOnly, spanishStateOnly],
     [spanishStateOnly, englishActionOnly],
   ] {
     #expect(L10n.t("menu.controlCenter", in: candidates) == "Open Standfast")
-    #expect(L10n.t("state.idle", in: candidates) == "Idle — ready for jobs")
+    #expect(L10n.t("state.idle", in: candidates) == L10n.english["state.idle"])
   }
 }
 
@@ -65,5 +65,5 @@ private func temporaryLocalisationBundle(
   let candidates = [rawKeyPack, spanishPack]
 
   #expect(L10n.t("menu.controlCenter", in: candidates) == "Abrir Standfast")
-  #expect(L10n.t("state.idle", in: candidates) == "Inactivo — listo para trabajos")
+  #expect(L10n.t("state.idle", in: candidates) == spanish["state.idle"])
 }

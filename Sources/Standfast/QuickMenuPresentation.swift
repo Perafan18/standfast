@@ -90,6 +90,7 @@ extension QuickMenuPresentation {
     snapshots: [RunnerSnapshot], overview: FleetOverviewPresentation,
     thermalLines: [String],
     readAt: Date?, now: Date, isScanning: Bool = false,
+    lastAttemptFailed: Bool = false,
     identityFormatting: RunnerIdentityFormatting = .localized
   ) -> Self {
     let identities = runnerIdentities(
@@ -107,7 +108,8 @@ extension QuickMenuPresentation {
     items += [
       .freshness(
         FleetStatus.lastCheckedLine(
-          readAt: readAt, now: now, isScanning: isScanning)),
+          readAt: readAt, now: now, isScanning: isScanning,
+          lastAttemptFailed: lastAttemptFailed)),
       .refresh, .openControlCenter, .openSettings, .quit,
     ]
     return Self(items: items)

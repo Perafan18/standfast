@@ -303,14 +303,16 @@ private func snapshot(
 
 @Test func aMenuThatHasNeverReadTheMachineSaysSo() {
   #expect(
-    FleetStatus.lastCheckedLine(readAt: nil, now: noon, isScanning: false)
+    FleetStatus.lastCheckedLine(
+      readAt: nil, now: noon, isScanning: false, lastAttemptFailed: false)
       == L10n.checkedNever)
 }
 
 @Test func aFreshReadingSaysJustNowRatherThanCountingSeconds() {
   #expect(
     FleetStatus.lastCheckedLine(
-      readAt: noon.addingTimeInterval(-3), now: noon, isScanning: false)
+      readAt: noon.addingTimeInterval(-3), now: noon, isScanning: false,
+      lastAttemptFailed: false)
       == L10n.checkedJustNow)
 }
 
@@ -321,14 +323,16 @@ private func snapshot(
   // that a newer one is on its way.
   #expect(
     FleetStatus.lastCheckedLine(
-      readAt: noon.addingTimeInterval(-245), now: noon, isScanning: true)
+      readAt: noon.addingTimeInterval(-245), now: noon, isScanning: true,
+      lastAttemptFailed: false)
       == L10n.checkingRunners)
 }
 
 @Test func aFinishedScanGoesBackToReportingItsAge() {
   #expect(
     FleetStatus.lastCheckedLine(
-      readAt: noon.addingTimeInterval(-245), now: noon, isScanning: false)
+      readAt: noon.addingTimeInterval(-245), now: noon, isScanning: false,
+      lastAttemptFailed: false)
       == L10n.checkedAgo("4m"))
 }
 
@@ -336,7 +340,8 @@ private func snapshot(
   // "Checking" and "not checked yet" answer different questions, and the one
   // in flight is the one that will change.
   #expect(
-    FleetStatus.lastCheckedLine(readAt: nil, now: noon, isScanning: true)
+    FleetStatus.lastCheckedLine(
+      readAt: nil, now: noon, isScanning: true, lastAttemptFailed: false)
       == L10n.checkingRunners)
 }
 
@@ -344,7 +349,8 @@ private func snapshot(
   // The whole point of the line. A `gh` that hangs leaves the menu describing a
   // machine from four minutes ago, and this is what says so.
   let line = FleetStatus.lastCheckedLine(
-    readAt: noon.addingTimeInterval(-245), now: noon, isScanning: false)
+    readAt: noon.addingTimeInterval(-245), now: noon, isScanning: false,
+    lastAttemptFailed: false)
   #expect(line == L10n.checkedAgo("4m"))
   #expect(line != L10n.checkedJustNow)
 }
