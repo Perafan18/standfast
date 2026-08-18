@@ -56,7 +56,7 @@ private struct SuspendedDiagnostics {
 
 @MainActor
 private struct DiagnosticsRefusingConfirmation: CleanupConfirming {
-  func confirm(_ prompt: CleanupPrompt) -> Bool { false }
+  func confirm(_ prompt: CleanupPrompt) -> CleanupConfirmationResult { .cancelled }
 }
 
 private struct DiagnosticsUntouchableFiles: DestructiveFileOperations {

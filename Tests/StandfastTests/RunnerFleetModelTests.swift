@@ -68,7 +68,7 @@ private func unattendedHousekeeping() -> HousekeepingModel {
 /// dialogue nobody is there to dismiss is a suite that hangs.
 @MainActor
 private struct RefusingConfirmation: CleanupConfirming {
-  func confirm(_ prompt: CleanupPrompt) -> Bool { false }
+  func confirm(_ prompt: CleanupPrompt) -> CleanupConfirmationResult { .cancelled }
 }
 
 @MainActor
@@ -1581,9 +1581,13 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
 
 @Test @MainActor func openingTheAppAnnouncesNoneOfWhatItFindsOnDisk() async throws {
   // The rule, end to end and through the real log reader: a runner that is
-  // already disconnected, with a failed build sitting in `_diag`, produces
-  // nothing. `_diag` reaches back two days — announcing what is in it at launch
-  // would fire at every login for as long as the log survives.
+  // already disconnected, with a failed build sitting in `_diag`, announces
+  // the disconnection and *nothing about the build*. `_diag` reaches back two
+  // days — announcing what is in it at launch would fire at every login for as
+  // long as the log survives.
+  //
+  // The disconnection itself is D-R19: staying silent about it meant you could
+  // log in, walk away, and never learn the runner was down.
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   let directory = try box.addRunner()
@@ -1596,7 +1600,8 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   await fleet.quiesce()
 
   #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
-  #expect(delivery.posted.isEmpty)
+  #expect(delivery.posted.map(\.id) == ["disconnected.build-mac"])
+  #expect(!delivery.posted.contains { $0.id.hasPrefix("job") })
 }
 
 @Test @MainActor func aRunnerThatFallsOffGitHubWhileTheAppRunsIsAnnounced()
@@ -2376,7 +2381,11 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   await fleet.quiesce()
 
   #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
-  #expect(delivery.posted.isEmpty)
+  // What this test protects is that the *expected* stop stays silent. The one
+  // banner here is D-R19 announcing the runner that was already disconnected
+  // when the app opened — a different fact, from a different scan.
+  #expect(!delivery.posted.contains { $0.id.hasPrefix("stopped") })
+  #expect(delivery.posted.map(\.id) == ["disconnected.build-mac"])
 }
 
 @Test @MainActor func aRestartWhoseStartTimesOutCanBeSettledByStarting()

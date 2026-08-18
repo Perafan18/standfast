@@ -59,6 +59,7 @@
 "menu.maintenance.freeActionCache" = "Free up downloaded actions (%@)…";
 "menu.maintenance.cleanStandfastTrash" = "Delete Standfast cleanup leftovers (%@)…";
 "menu.maintenance.trimLogs" = "Delete old logs (%@)…";
+"cleanup.checkoutNotOffered" = "Repository checkouts are not offered: they can hold build output that exists nowhere else.";
 "menu.maintenance.onlyWhenIdle" = "Deleting is offered while this runner is idle or stopped";
 
 "menu.runnerVersion" = "Runner %@";
@@ -102,6 +103,7 @@
 "cleanup.logs.title" = "Delete %d old log files from %@?";
 "cleanup.logs.effect.one" = "%d file nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history shown in the Standfast Control Center.";
 "cleanup.logs.effect" = "%d files nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history shown in the Standfast Control Center.";
+"cleanup.confirmationUnavailable" = "Could not ask for confirmation: the screen is locked. Unlock this Mac and try again.";
 "cleanup.refused" = "Cleanup stopped: %@ picked up work";
 "cleanup.failed" = "Nothing could be deleted; check that %@ is writable";
 "cleanup.partiallyFailed" = "Some files may have been deleted, but cleanup did not finish; check that %@ is writable";

@@ -141,7 +141,7 @@ private func card(
 
 @MainActor
 private struct PresentationConfirmation: CleanupConfirming {
-  func confirm(_ prompt: CleanupPrompt) -> Bool { false }
+  func confirm(_ prompt: CleanupPrompt) -> CleanupConfirmationResult { .cancelled }
 }
 
 @MainActor

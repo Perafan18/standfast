@@ -59,6 +59,7 @@
 "menu.maintenance.freeActionCache" = "Liberar las acciones descargadas (%@)…";
 "menu.maintenance.cleanStandfastTrash" = "Borrar restos de limpieza de Standfast (%@)…";
 "menu.maintenance.trimLogs" = "Borrar los logs antiguos (%@)…";
+"cleanup.checkoutNotOffered" = "Las copias de trabajo no se ofrecen: pueden contener resultados de compilación que no existen en ningún otro sitio.";
 "menu.maintenance.onlyWhenIdle" = "Borrar se ofrece con este runner inactivo o detenido";
 
 "menu.runnerVersion" = "Runner %@";
@@ -102,6 +103,7 @@
 "cleanup.logs.title" = "¿Borrar %d archivos de log antiguos de %@?";
 "cleanup.logs.effect.one" = "%d archivo en el que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra el Centro de control de Standfast.";
 "cleanup.logs.effect" = "%d archivos en los que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra el Centro de control de Standfast.";
+"cleanup.confirmationUnavailable" = "No se pudo pedir confirmación: la pantalla está bloqueada. Desbloquea este Mac y vuelve a intentarlo.";
 "cleanup.refused" = "La limpieza se detuvo: %@ tomó trabajo";
 "cleanup.failed" = "No se pudo borrar nada; comprueba que se puede escribir en %@";
 "cleanup.partiallyFailed" = "Es posible que se hayan borrado algunos archivos, pero la limpieza no terminó; comprueba que se puede escribir en %@";

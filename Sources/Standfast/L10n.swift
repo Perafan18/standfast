@@ -78,6 +78,11 @@ enum L10n {
 
   static let maintenance = t("menu.maintenance")
   static let measureDiskUse = t("menu.maintenance.measure")
+  /// Why the biggest directory on the list has no button (D-R21). Listing it
+  /// with a size and no action reads as a missing feature; the reason is that
+  /// this app cannot tell a regenerable cache from work that exists nowhere
+  /// else.
+  static let checkoutNotOffered = t("cleanup.checkoutNotOffered")
   static let deletingOnlyWhenIdle = t("menu.maintenance.onlyWhenIdle")
 
   static let diskWorking = t("disk.working")
@@ -501,6 +506,9 @@ enum L10n {
   /// Said when the runner picked up work between the confirmation and the
   /// deletion. The one outcome that has to be reported, because the user asked
   /// for something and did not get it.
+  /// Said when the delete dialogue could not be presented at all — a locked
+  /// screen means no modal appears and the click does nothing (D-R20).
+  static let cleanupConfirmationUnavailable = t("cleanup.confirmationUnavailable")
   static func cleanupRefused(_ runner: String) -> String {
     String(format: t("cleanup.refused"), runner)
   }
@@ -595,6 +603,8 @@ enum L10n {
     "menu.maintenance.cleanStandfastTrash":
       "Delete Standfast cleanup leftovers (%@)…",
     "menu.maintenance.trimLogs": "Delete old logs (%@)…",
+    "cleanup.checkoutNotOffered":
+      "Repository checkouts are not offered: they can hold build output that exists nowhere else.",
     "menu.maintenance.onlyWhenIdle":
       "Deleting is offered while this runner is idle or stopped",
     "menu.runnerVersion": "Runner %@",
@@ -656,6 +666,8 @@ enum L10n {
       "%d files nothing has written to in over a week. The log the runner is "
       + "writing now is never deleted, and neither is the history shown in the "
       + "Standfast Control Center.",
+    "cleanup.confirmationUnavailable":
+      "Could not ask for confirmation: the screen is locked. Unlock this Mac and try again.",
     "cleanup.refused": "Cleanup stopped: %@ picked up work",
     "cleanup.failed": "Nothing could be deleted; check that %@ is writable",
     "cleanup.partiallyFailed":

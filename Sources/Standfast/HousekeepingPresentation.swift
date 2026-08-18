@@ -159,6 +159,11 @@ extension MaintenanceSection {
     {
       notes.append(L10n.deletingOnlyWhenIdle)
     }
+    // The one row on the list with a size and no button. Without this it
+    // reads as a feature somebody forgot rather than a decision somebody made.
+    if let report = measurement?.report, report.bytes(of: .checkout) > 0 {
+      notes.append(L10n.checkoutNotOffered)
+    }
     if let notice { notes.append(notice) }
 
     return MaintenanceSection(

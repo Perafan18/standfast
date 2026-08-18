@@ -14,12 +14,45 @@ struct DiskMeasurement: Equatable {
 /// machine it runs on — including the one running the test suite, where nobody
 /// is there to dismiss it.
 @MainActor
+/// What came back from asking, and the reason this is not a `Bool`.
+///
+/// "The user said no" and "nobody could be asked" both stop a deletion, and
+/// only one of them is worth a sentence on screen. Collapsing them into false
+/// is how a locked screen turned a click into silence (D-R20).
+enum CleanupConfirmationResult: Equatable, Sendable {
+  case accepted
+  case cancelled
+  case unavailable
+}
+
+@MainActor
 protocol CleanupConfirming {
-  func confirm(_ prompt: CleanupPrompt) -> Bool
+  func confirm(_ prompt: CleanupPrompt) -> CleanupConfirmationResult
 }
 
 struct AlertConfirmation: CleanupConfirming {
-  func confirm(_ prompt: CleanupPrompt) -> Bool {
+  /// Whether this login session's screen is locked.
+  ///
+  /// Injected because `AlertConfirmation` otherwise has no seam a test can
+  /// reach — and the untestable half is exactly where the silent failure
+  /// lived. This is the only thing the type decides before AppKit takes over.
+  private let isScreenLocked: @MainActor () -> Bool
+
+  init(isScreenLocked: @escaping @MainActor () -> Bool = AlertConfirmation.screenIsLocked) {
+    self.isScreenLocked = isScreenLocked
+  }
+
+  /// A locked screen presents no modal and returns no answer, so the alert
+  /// below would be a dialogue nobody can see and a click that does nothing.
+  static func screenIsLocked() -> Bool {
+    guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+      return false
+    }
+    return session["CGSSessionScreenIsLocked"] as? Bool ?? false
+  }
+
+  func confirm(_ prompt: CleanupPrompt) -> CleanupConfirmationResult {
+    guard !isScreenLocked() else { return .unavailable }
     // A menu bar app is an accessory: without this the alert opens behind
     // whatever the user was looking at, with no Dock icon to click to find it.
     NSApp.activate(ignoringOtherApps: true)
@@ -31,7 +64,7 @@ struct AlertConfirmation: CleanupConfirming {
     alert.addButton(withTitle: prompt.cancel)
     alert.buttons.first?.keyEquivalent = CleanupKeys.destructive
     alert.buttons.last?.keyEquivalent = CleanupKeys.cancel
-    return alert.runModal() == .alertFirstButtonReturn
+    return alert.runModal() == .alertFirstButtonReturn ? .accepted : .cancelled
   }
 }
 
@@ -231,7 +264,16 @@ final class HousekeepingModel: ObservableObject {
     let prompt = CleanupPrompt.cleaning(
       target, in: runner, bytes: bytes,
       measuredAgo: clock().timeIntervalSince(measurement.readAt))
-    guard confirmation.confirm(prompt) else { return }
+    switch confirmation.confirm(prompt) {
+    case .accepted: break
+    case .cancelled: return
+    // Said where it was asked, in the same place a failed cleanup reports
+    // itself. Somebody who pressed Cancel already knows what they did; only
+    // the case where the app could not ask gets a sentence.
+    case .unavailable:
+      reports[runner.label] = L10n.cleanupConfirmationUnavailable
+      return
+    }
 
     let housekeeper = housekeeper
     let probe = probe
@@ -251,7 +293,13 @@ final class HousekeepingModel: ObservableObject {
     guard !plan.isEmpty, !working.contains(runner.label),
       snapshot.display.allowsHousekeeping
     else { return }
-    guard confirmation.confirm(.trimmingLogs(in: runner, plan: plan)) else { return }
+    switch confirmation.confirm(.trimmingLogs(in: runner, plan: plan)) {
+    case .accepted: break
+    case .cancelled: return
+    case .unavailable:
+      reports[runner.label] = L10n.cleanupConfirmationUnavailable
+      return
+    }
 
     let housekeeper = housekeeper
     let retention = retention
@@ -277,12 +325,17 @@ final class HousekeepingModel: ObservableObject {
     guard bytes > 0, !working.contains(runner.label),
       snapshot.display.allowsHousekeeping
     else { return }
-    guard
-      confirmation.confirm(
-        .cleaningStandfastTrash(
-          in: runner, bytes: bytes,
-          measuredAgo: clock().timeIntervalSince(measurement.readAt)))
-    else { return }
+    switch confirmation.confirm(
+      .cleaningStandfastTrash(
+        in: runner, bytes: bytes,
+        measuredAgo: clock().timeIntervalSince(measurement.readAt)))
+    {
+    case .accepted: break
+    case .cancelled: return
+    case .unavailable:
+      reports[runner.label] = L10n.cleanupConfirmationUnavailable
+      return
+    }
 
     let housekeeper = housekeeper
     let trash = runner.workDirectory.appendingPathComponent(Housekeeper.trashFolder)

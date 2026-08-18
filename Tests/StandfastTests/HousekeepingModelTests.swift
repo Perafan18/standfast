@@ -8,14 +8,14 @@ import Testing
 @MainActor
 private final class FakeConfirmation: CleanupConfirming {
   private(set) var prompts: [CleanupPrompt] = []
-  var answer = true
+  var answer = CleanupConfirmationResult.accepted
   var onAccept: (() -> Void)?
 
-  func confirm(_ prompt: CleanupPrompt) -> Bool {
+  func confirm(_ prompt: CleanupPrompt) -> CleanupConfirmationResult {
     prompts.append(prompt)
-    guard answer else { return false }
+    guard answer == .accepted else { return answer }
     onAccept?()
-    return true
+    return .accepted
   }
 }
 
@@ -226,7 +226,7 @@ private struct QueueNotingCommands: CommandRunning {
   let sandbox = try HousekeepingSandbox()
   defer { sandbox.cleanUp() }
   let confirmation = FakeConfirmation()
-  confirmation.answer = false
+  confirmation.answer = .cancelled
   let subject = model(sandbox, confirmation: confirmation)
   subject.measure(sandbox.runner)
   await subject.quiesce()
@@ -1152,4 +1152,68 @@ private func snapshot(
   display: DisplayState, of sandbox: HousekeepingSandbox
 ) -> RunnerSnapshot {
   RunnerSnapshot(runner: sandbox.runner, display: display)
+}
+
+// MARK: - D-R20: a confirmation that cannot be shown says so
+
+@MainActor
+@Test func aConfirmationThatCannotBeShownIsReportedWhereItWasAsked()
+  async throws
+{
+  // With the Mac's screen locked the delete dialogue cannot appear, so the
+  // click did nothing and nobody explained why. It failed in the safe
+  // direction — without confirmation nothing is deleted — and in silence,
+  // which is the part worth fixing: the operator cannot tell "it refused"
+  // from "I missed the button".
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let confirmation = FakeConfirmation()
+  confirmation.answer = .unavailable
+  let subject = model(sandbox, confirmation: confirmation)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  #expect(confirmation.prompts.count == 1)
+  #expect(subject.notice(for: sandbox.runner) == L10n.cleanupConfirmationUnavailable)
+  // And the reason this failure was safe stays true.
+  #expect(sandbox.names(in: "_work").contains("_tool"))
+}
+
+@MainActor
+@Test func cancellingStaysSilentBecauseTheUserAlreadyKnows() async throws {
+  // Somebody who pressed Cancel does not need to be told what they just did.
+  // Only the case where the app could not ask gets a sentence.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let confirmation = FakeConfirmation()
+  confirmation.answer = .cancelled
+  let subject = model(sandbox, confirmation: confirmation)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
+  #expect(confirmation.prompts.count == 1)
+  #expect(subject.notice(for: sandbox.runner) == nil)
+}
+
+@MainActor
+@Test func aLockedScreenIsWhatMakesTheDialogueUnavailable() {
+  // `AlertConfirmation` had no seam a test could reach, which is a large part
+  // of why this silent failure survived. It has exactly one now, and it is the
+  // only thing this type decides before AppKit takes over.
+  let locked = AlertConfirmation(isScreenLocked: { true })
+  let sandbox = try? HousekeepingSandbox()
+  defer { sandbox?.cleanUp() }
+  guard let runner = sandbox?.runner else { return }
+  let prompt = CleanupPrompt.cleaning(
+    .toolCache, in: runner, bytes: 1_000, measuredAgo: 0)
+
+  // No AppKit is reached at all: the lock is checked before the alert exists,
+  // which is what makes this the one branch a test can stand on.
+  #expect(locked.confirm(prompt) == .unavailable)
 }

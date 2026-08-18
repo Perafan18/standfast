@@ -6,20 +6,21 @@ import Testing
 
 // MARK: - Nothing from before the app was watching
 
-@Test func theFirstReadingOfARunnerAnnouncesNothingAtAll() {
+@Test func theFirstReadingOfARunnerAnnouncesNoneOfItsJobs() {
   // The rule the whole feature stands on. `_diag` reaches back about two days,
   // so a failed build from Tuesday is sitting in the log the moment the app
   // opens — and announcing it would be a banner about something the user
   // already dealt with, arriving at login every single morning.
+  //
+  // D-R19 carved one exception out of this, and only one: the *state* of a
+  // runner found already disconnected. The job history is untouched.
   var watcher = FleetWatcher()
   let broken = history([
     job("testflight", at: 1_785_960_000, result: .failed),
     job("testflight", at: 1_785_950_000, result: .failed),
   ])
 
-  let events = watcher.events(in: [
-    snapshot(display: .resolved(.disconnected), jobs: broken)
-  ])
+  let events = watcher.events(in: [snapshot(display: .resolved(.idle), jobs: broken)])
 
   #expect(events.isEmpty)
 }
@@ -727,4 +728,79 @@ import Testing
   #expect(
     FleetEvent.jobFailed(runner: "mac-mini-m4", job: "testflight").body
       .contains("testflight"))
+}
+
+// MARK: - D-R19: a runner already down when the app opens
+
+@Test func aRunnerAlreadyDisconnectedAtLaunchIsAnnouncedOnce() {
+  // D-001, resolved 2026-08-16. Treating it as a silent baseline was coherent
+  // with "only events while the app is watching", and it ignored the case that
+  // matters: you log in, walk away, and never learn the runner was down.
+  var watcher = FleetWatcher()
+
+  let events = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+
+  #expect(events == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func theSameRunnerStillDownIsNotAnnouncedAgain() {
+  // The half of the old rule that was right: a runner down for an hour is the
+  // same fact every fifteen seconds, and a fact repeated 240 times is how
+  // somebody ends up switching notifications off — including the one that
+  // mattered.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+
+  let again = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+
+  #expect(again.isEmpty)
+}
+
+@Test func aHealthyRunnerAtLaunchStillAnnouncesNothing() {
+  var watcher = FleetWatcher()
+
+  #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
+}
+
+@Test func aRunnerStoppedAtLaunchIsNotAnnounced() {
+  // Stopped at launch is most likely somebody's own decision — maintenance, a
+  // machine deliberately taken out of the pool. Only the silent failure gets
+  // to interrupt: the service is up and GitHub cannot see it.
+  var watcher = FleetWatcher()
+
+  #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
+}
+
+@Test func aRunnerThatAppearsLaterIsStillBaselinedInSilence() {
+  // One announcement per app launch, not per runner discovered. A runner
+  // installed mid-session is new to this app, not new to the machine, and
+  // whoever just installed it is looking at the screen.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [snapshot("first", display: .resolved(.idle))])
+
+  let events = watcher.events(in: [
+    snapshot("first", display: .resolved(.idle)),
+    snapshot("second", display: .resolved(.disconnected)),
+  ])
+
+  #expect(events.isEmpty)
+}
+
+@Test func theLaunchAnnouncementDoesNotDragTheJobHistoryWithIt() {
+  // The rule that has not changed, and the reason the old one existed:
+  // `_diag` reaches back about two days, so announcing what it found at launch
+  // would report a build that broke on Tuesday, every morning at login.
+  var watcher = FleetWatcher()
+  let broken = history([
+    job("testflight", at: 1_785_960_000, result: .failed),
+    job("testflight", at: 1_785_950_000, result: .failed),
+  ])
+
+  let events = watcher.events(in: [
+    snapshot(display: .resolved(.disconnected), jobs: broken)
+  ])
+
+  #expect(events == [.runnerDisconnected(runner: "build-mac")])
+  #expect(
+    !events.contains { if case .jobFailed = $0 { return true } else { return false } })
 }

@@ -323,3 +323,33 @@ private func section(
   #expect(prompt.message.contains(ByteText.short(8_000_000)))
   #expect(prompt.message.contains("19"))
 }
+
+// MARK: - D-R21: the checkout says why it is not on offer
+
+@Test func theCheckoutExplainsWhyItHasNoButton() {
+  // D-003, resolved 2026-08-16. `_work/<repo>` is listed with a size and no
+  // way to act on it, which reads as a missing button rather than a decision.
+  // It stays unoffered — a cache regenerates itself and a checkout can hold
+  // artefacts that exist nowhere else, and this app cannot tell them apart —
+  // but the row stops keeping the reason to itself.
+  let section = MaintenanceSection.building(
+    snapshot("build-mac", display: .resolved(.idle)),
+    measurement: measured(checkout: 2_100_000_000),
+    latest: nil, isWorking: false, notice: nil,
+    now: Date(timeIntervalSince1970: 1_785_962_174))
+
+  #expect(section.notes.contains(L10n.checkoutNotOffered))
+}
+
+@Test func aRunnerWithNoCheckoutIsNotToldAboutOne() {
+  // The rule the rest of this section already follows: only explain what is
+  // there. A runner that has never built anything gains nothing from a
+  // sentence about a directory it does not have.
+  let section = MaintenanceSection.building(
+    snapshot("build-mac", display: .resolved(.idle)),
+    measurement: measured(toolCache: 1_000_000),
+    latest: nil, isWorking: false, notice: nil,
+    now: Date(timeIntervalSince1970: 1_785_962_174))
+
+  #expect(!section.notes.contains(L10n.checkoutNotOffered))
+}

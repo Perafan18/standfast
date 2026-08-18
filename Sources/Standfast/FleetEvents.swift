@@ -47,11 +47,19 @@ struct ExpectedStopHandle: Hashable {
 /// Two rules do most of the work here, and both exist because the obvious
 /// implementation is wrong in a way that only shows up on a real machine:
 ///
-/// - **A runner is baselined the first time it is seen, and produces nothing.**
-///   The job history comes out of `_diag`, which reaches back about two days,
-///   so an app that notified on what it found at launch would announce a build
-///   that broke on Tuesday. The same goes for a runner that appears mid-session:
-///   it is new to this app, not new to the machine.
+/// - **A runner is baselined the first time it is seen, and produces nothing
+///   about its jobs.** The job history comes out of `_diag`, which reaches back
+///   about two days, so an app that notified on what it found at launch would
+///   announce a build that broke on Tuesday. The same goes for a runner that
+///   appears mid-session: it is new to this app, not new to the machine.
+///
+///   One exception, decided as D-R19: a runner that is *already disconnected*
+///   at the first scan of the session is announced once. Staying silent was
+///   coherent and ignored the case that matters — you log in, walk away, and
+///   never learn the runner was down. Only the first scan, and only
+///   disconnected: stopped at launch is most likely somebody's own decision,
+///   and a runner installed mid-session is being watched by whoever installed
+///   it.
 /// - **Only transitions.** A runner that has been disconnected for an hour is
 ///   the same fact every fifteen seconds, and a fact repeated 240 times is how
 ///   a user ends up switching notifications off — including the one that
@@ -76,6 +84,9 @@ struct FleetWatcher {
   }
 
   private var seen: [String: Seen] = [:]
+  /// Whether any scan has been read yet. Only the first one may announce a
+  /// runner that was already down before this app was watching (D-R19).
+  private var hasScanned = false
   private struct ExpectedStop {
     let id: UUID
     let action: ExpectedStopAction
@@ -162,6 +173,10 @@ struct FleetWatcher {
   /// Reads one scan and reports what changed since the last one.
   mutating func events(in snapshots: [RunnerSnapshot]) -> [FleetEvent] {
     var events: [FleetEvent] = []
+    // Read before the loop baselines anything, so every runner in this scan
+    // gets the same answer regardless of the order they arrive in.
+    let isFirstScan = !hasScanned
+    hasScanned = true
     for snapshot in snapshots {
       let label = snapshot.runner.label
       let newestFinish = snapshot.jobs.records.first { $0.finishedAt != nil }?
@@ -175,6 +190,11 @@ struct FleetWatcher {
           display: snapshot.display,
           hasJobBaseline: snapshot.isJobHistoryAvailable,
           newestFinish: snapshot.isJobHistoryAvailable ? newestFinish : nil)
+        // D-R19. The state is still baselined either way, so the next scan
+        // says nothing: one announcement per launch, not one per reading.
+        if isFirstScan, snapshot.display == .resolved(.disconnected) {
+          events.append(.runnerDisconnected(runner: snapshot.runner.displayName))
+        }
         continue
       }
       let hasJobBaseline: Bool
