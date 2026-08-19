@@ -104,6 +104,8 @@ menuBarState="$("$AX_CLICK_TOOL" menu-bar-state 2>/dev/null)" || menuBarState=""
 if [ "$menuBarState" = hidden ]; then
   MENU_BAR_NOTE=" (the frontmost app is in full screen, which hides the menu bar while the status item goes on reporting the position it would occupy, so the synthetic clicks this probe needs land in that app instead; leave full screen and run the gate again)"
 
+fi
+
 # A named cause beats a guess.
 #
 # The two notes above are appended to any failure they could plausibly explain,
@@ -121,7 +123,6 @@ diagnosis() {
     *) printf '%s%s' "$SESSION_LOCK_NOTE" "$MENU_BAR_NOTE" ;;
   esac
 }
-fi
 
 echo "==> Reading the menu (Accessibility coverage is required)"
 # Menu bar 2, not 1: an agent app still gets a main menu bar it never shows,

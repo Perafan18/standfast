@@ -1188,4 +1188,24 @@ assert_contains "$ambiguous_output" "another copy of Standfast is running"
 assert_not_contains "$ambiguous_output" "full screen"
 assert_not_contains "$ambiguous_output" "screen is locked"
 
+# And again with the menu bar visible, which is the ordinary case and the one
+# the check above does not cover. The diagnosis used to be defined inside the
+# `if` that builds the full-screen note, so on any Mac whose menu bar was
+# showing it did not exist at all — and the gate died with `diagnosis: command
+# not found` instead of reporting what it had found. The contract passed
+# throughout, because every case it exercised faked a hidden bar.
+rm -f "$SENTINEL" "$reveal_log"
+visible_output=""
+if visible_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_AX_CLICK_TOOL="$reveal_bin/ax-click" \
+    STANDFAST_REVEAL_LOG="$reveal_log" STANDFAST_FAKE_MENU_BAR=visible \
+    STANDFAST_OSASCRIPT_ERROR_MESSAGE="refusing ambiguous Accessibility process name: Standfast" \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "require mode passed without a readable menu"
+fi
+assert_contains "$visible_output" "another copy of Standfast is running"
+assert_not_contains "$visible_output" "command not found"
+
 echo "PASS: check-app AX mode contract"

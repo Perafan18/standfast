@@ -163,6 +163,12 @@ make check          # swift test, then the script below
 ./Scripts/check-app.sh
 ```
 
+**Run it on an idle Mac.** The probe drives the real menu bar with synthetic clicks and
+gives each one a bounded time to be answered. Anything competing for the machine — a CI
+job, now that CI runs here too — makes those clicks time out, and the failure it reports is
+whichever step happened to be in flight. Two consecutive runs failing at *different* steps
+is that, not a regression. Wait for the runner to go idle and run it again.
+
 It assembles the bundle, **deletes `.build`**, launches the app and confirms it is still
 alive. It then requires the status menu, singleton Control Center, Settings lifecycle,
 focus, and background-agent state to be readable through Accessibility. Run it in an
