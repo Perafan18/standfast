@@ -804,3 +804,58 @@ import Testing
   #expect(
     !events.contains { if case .jobFailed = $0 { return true } else { return false } })
 }
+
+// MARK: - INV-002: a timestamp is not an identity
+
+@Test func aSecondFailureInTheSameSecondIsStillReported() {
+  // The listener writes its timestamps to the second. Two jobs that both begin
+  // inside one second — a job that fails on a missing secret before it has
+  // done anything, followed straight away by the retry — share a `startedAt`,
+  // and the watermark treated that instant as an identity: the walk stopped at
+  // the first record "at or before the mark", which was the new failure
+  // itself. Nobody was told about it.
+  var watcher = FleetWatcher()
+  let first = job("testflight", at: 1_785_960_000, result: .failed, took: 0)
+  _ = watcher.events(in: [snapshot(jobs: history([first]))])
+
+  let second = job("testflight", at: 1_785_960_000, result: .failed, took: 0)
+  let events = watcher.events(
+    in: [snapshot(jobs: JobHistory(records: [second, first], running: nil))])
+
+  #expect(events == [.jobFailed(runner: "build-mac", job: "testflight")])
+}
+
+@Test func aFailureAlreadyAnnouncedIsNotAnnouncedAgainByItsTwin() {
+  // The other half, and the one the watermark got right by accident: two
+  // records sharing an instant must not make the older one new again on every
+  // later scan.
+  var watcher = FleetWatcher()
+  let first = job("testflight", at: 1_785_960_000, result: .failed, took: 0)
+  let second = job("testflight", at: 1_785_960_000, result: .failed, took: 0)
+  _ = watcher.events(in: [snapshot(jobs: history([first]))])
+  let both = JobHistory(records: [second, first], running: nil)
+  _ = watcher.events(in: [snapshot(jobs: both)])
+
+  #expect(watcher.events(in: [snapshot(jobs: both)]).isEmpty)
+}
+
+@Test func threeFailuresInOneSecondAreAnnouncedOnceEach() {
+  var watcher = FleetWatcher()
+  let a = job("a", at: 1_785_960_000, result: .failed, took: 0)
+  _ = watcher.events(in: [snapshot(jobs: history([a]))])
+
+  let b = job("b", at: 1_785_960_000, result: .failed, took: 0)
+  let c = job("c", at: 1_785_960_000, result: .failed, took: 0)
+  // Built in order rather than through `history()`: these records share a
+  // sort key, and Swift's sort does not promise to leave equal elements
+  // where it found them.
+  let events = watcher.events(
+    in: [snapshot(jobs: JobHistory(records: [c, b, a], running: nil))])
+
+  // Oldest first, the order the walk reverses into.
+  #expect(
+    events == [
+      .jobFailed(runner: "build-mac", job: "b"),
+      .jobFailed(runner: "build-mac", job: "c"),
+    ])
+}

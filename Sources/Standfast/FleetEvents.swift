@@ -74,13 +74,31 @@ struct FleetWatcher {
     /// False until `_diag` has answered at least once. A nil finish after that
     /// is a real empty-history watermark; before it, nil means no evidence.
     let hasJobBaseline: Bool
-    /// The start time of the newest *finished* job already accounted for, and
-    /// nil for an available history whose log held none.
+    /// Where the newest *finished* job already accounted for sits, and nil for
+    /// an available history whose log held none.
     ///
     /// A start time rather than a count or an index: `_diag` rotates, so the
     /// list shrinks and shifts underneath this, and one runner runs one job at
-    /// a time — which is exactly what makes its start instant an identity.
-    let newestFinish: Date?
+    /// a time.
+    ///
+    /// But a start time *alone* is not an identity, which is INV-002. The
+    /// listener writes timestamps to the second, and a job that fails before it
+    /// has done anything — a missing secret, a bad workflow file — takes less
+    /// than one. Two such jobs share a `startedAt`, and a walk that stopped at
+    /// the first record "at or before the mark" stopped at the new failure
+    /// itself. Nobody was told about it.
+    let newestFinish: JobMark?
+  }
+
+  /// An instant plus how many finished records were sitting on it.
+  ///
+  /// The count is what makes the pair an identity: at that instant the log may
+  /// hold several jobs, and the ones already accounted for are the *oldest* of
+  /// them — a log is appended to, so anything new at a known instant arrives
+  /// after what was there before.
+  private struct JobMark: Equatable {
+    let startedAt: Date
+    let sharing: Int
   }
 
   private var seen: [String: Seen] = [:]
@@ -179,8 +197,7 @@ struct FleetWatcher {
     hasScanned = true
     for snapshot in snapshots {
       let label = snapshot.runner.label
-      let newestFinish = snapshot.jobs.records.first { $0.finishedAt != nil }?
-        .startedAt
+      let newestFinish = Self.mark(of: snapshot)
       guard let before = seen[label] else {
         // First sight of this runner baselines its state immediately, but its
         // jobs only when `_diag` actually answered. An unavailable cold read
@@ -198,7 +215,7 @@ struct FleetWatcher {
         continue
       }
       let hasJobBaseline: Bool
-      let jobBaseline: Date?
+      let jobBaseline: JobMark?
       if snapshot.isJobHistoryAvailable {
         if before.hasJobBaseline {
           events += failures(in: snapshot, after: before.newestFinish)
@@ -226,17 +243,43 @@ struct FleetWatcher {
   /// neither. Waking somebody up over a word nobody has read the meaning of is
   /// the one mistake a notification cannot take back.
   private func failures(
-    in snapshot: RunnerSnapshot, after mark: Date?
+    in snapshot: RunnerSnapshot, after mark: JobMark?
   ) -> [FleetEvent] {
+    let finished = snapshot.jobs.records.filter { $0.finishedAt != nil }
+    // How many records sitting exactly on the mark are new since it was taken.
+    // `max(0,)` because rotation can take records away: fewer than were counted
+    // is not evidence that anything happened, only that the log moved on.
+    var unaccountedAtMark = 0
+    if let mark {
+      let sharing = finished.count { $0.startedAt == mark.startedAt }
+      unaccountedAtMark = max(0, sharing - mark.sharing)
+    }
+
     var failures: [FleetEvent] = []
-    for record in snapshot.jobs.records where record.finishedAt != nil {
-      // Newest first, so the first record at or before the mark ends the walk:
-      // everything past it has already been accounted for.
-      if let mark, record.startedAt <= mark { break }
+    for record in finished {
+      if let mark {
+        // Newest first, so anything older than the mark's instant is behind it
+        // and the walk is done.
+        if record.startedAt < mark.startedAt { break }
+        if record.startedAt == mark.startedAt {
+          // On the instant itself, position decides. The newest of the records
+          // there are the new ones; once they are used up, the rest are what
+          // the mark was taken on.
+          if unaccountedAtMark == 0 { break }
+          unaccountedAtMark -= 1
+        }
+      }
       guard record.result == .failed else { continue }
       failures.append(.jobFailed(runner: snapshot.name, job: record.name))
     }
     return failures.reversed()
+  }
+
+  private static func mark(of snapshot: RunnerSnapshot) -> JobMark? {
+    let finished = snapshot.jobs.records.filter { $0.finishedAt != nil }
+    guard let newest = finished.first?.startedAt else { return nil }
+    return JobMark(
+      startedAt: newest, sharing: finished.count { $0.startedAt == newest })
   }
 
   /// What this runner's state moving says, and the expected stop it may spend.
