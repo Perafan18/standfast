@@ -72,6 +72,7 @@
 "menu.maintenance.onlyWhenIdle" = "Deleting is offered while this runner is idle or stopped";
 
 "menu.runnerVersion" = "Runner %@";
+"menu.runnerVersion.unreadable" = "Runner version could not be read";
 "menu.runnerVersion.update" = "Runner %@ — %@ is available";
 
 "menu.runnerRow" = "%@ — %@";

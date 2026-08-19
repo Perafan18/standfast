@@ -59,7 +59,7 @@ public protocol RunnerVersionReading: Sendable {
   ///
   /// - Parameter log: a listener log, which the caller already has: see
   ///   `JobLogReader.activeLog`.
-  func blockingVersion(inLog log: URL) -> RunnerVersion?
+  func blockingVersion(inLog log: URL) -> InstalledRunnerVersion
 }
 
 public struct RunnerVersionReader: RunnerVersionReading {
@@ -88,18 +88,50 @@ public struct RunnerVersionReader: RunnerVersionReading {
   ///   than looked up, because the caller has just listed `_diag` to find this
   ///   very file and listing it again is the work `JobLogReader`'s cache exists
   ///   to avoid.
-  /// - Returns: nil for a log that says nothing this recognises. Not an error
-  ///   worth a row in a menu — the version is a nice-to-know beside a runner
-  ///   that is working.
-  public func blockingVersion(inLog log: URL) -> RunnerVersion? {
-    guard let handle = try? FileHandle(forReadingFrom: log) else { return nil }
+  /// - Returns: `.absent` for a log that says nothing this recognises, which is
+  ///   not an error worth a row in a menu — the version is a nice-to-know
+  ///   beside a runner that is working. `.unreadable` is a different answer:
+  ///   the file could not be opened or read, and that is a fact about this Mac
+  ///   rather than about the runner.
+  public func blockingVersion(inLog log: URL) -> InstalledRunnerVersion {
+    guard let handle = try? FileHandle(forReadingFrom: log) else { return .unreadable }
     defer { try? handle.close() }
-    guard let data = try? handle.read(upToCount: Self.headWindow) else { return nil }
+    guard let data = try? handle.read(upToCount: Self.headWindow) else {
+      return .unreadable
+    }
     for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
       guard let marker = line.range(of: Self.marker) else { continue }
-      if let version = RunnerVersion(String(line[marker.upperBound...])) { return version }
+      if let version = RunnerVersion(String(line[marker.upperBound...])) {
+        return .known(version)
+      }
     }
-    return nil
+    // Read fine, said nothing. A listener that has not got to its version line
+    // yet, which is a runner starting up rather than a Mac with a problem.
+    return .absent
+  }
+}
+
+/// Which runner is installed here, as far as its own log says.
+///
+/// Three cases, because a single optional was covering three different facts
+/// and only two of them are ordinary. A listener that has not written its
+/// version line yet is a runner starting up; a log that cannot be opened is a
+/// file this app is not allowed to read, or one that vanished between the
+/// directory listing and the read. Reporting both as "no version" left the
+/// second invisible — including to whoever would have to fix it.
+public enum InstalledRunnerVersion: Equatable, Sendable {
+  case known(RunnerVersion)
+  /// Read, and it says nothing this recognises. The normal state of a listener
+  /// that has only just started, and of one whose head this version's marker
+  /// does not match.
+  case absent
+  /// Could not be read at all.
+  case unreadable
+
+  /// The version when there is one, for the callers that only want that.
+  public var version: RunnerVersion? {
+    guard case .known(let version) = self else { return nil }
+    return version
   }
 }
 

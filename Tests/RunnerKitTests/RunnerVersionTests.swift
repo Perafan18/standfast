@@ -42,9 +42,17 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
 /// its decision and the two disagreeing is exactly what would leave last
 /// month's version in the menu after a self-update.
 private func installedVersion(in sandbox: RunnerDirectorySandbox) -> RunnerVersion? {
+  installedReading(in: sandbox).version
+}
+
+/// The whole answer, for the tests that care which kind of nothing they got.
+private func installedReading(
+  in sandbox: RunnerDirectorySandbox
+) -> InstalledRunnerVersion {
   var reader = JobLogReader()
   _ = reader.read(diagnosticsIn: sandbox.diagnostics)
-  return reader.activeLog.flatMap(RunnerVersionReader().blockingVersion)
+  guard let log = reader.activeLog else { return .absent }
+  return RunnerVersionReader().blockingVersion(inLog: log)
 }
 
 @Test func theVersionComesOutOfTheListenerLog() throws {
@@ -165,4 +173,43 @@ private func installedVersion(in sandbox: RunnerDirectorySandbox) -> RunnerVersi
   #expect(
     installedVersion(in: sandbox)
       == RunnerVersion(2, 336, 0))
+}
+
+// MARK: - INV-003: three answers, not one absence
+
+@Test func aLogThisMacCannotOpenIsNotTheSameAsOneThatSaysNothing() throws {
+  // The investigation this closes. One optional carried three facts — a
+  // version, a listener that has not written one yet, and a file this app is
+  // not allowed to read — and the third was indistinguishable from the second.
+  // A permissions problem inside the runner's own directory was therefore
+  // invisible, including to whoever would have had to fix it.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let name = "Runner_20260805-000000-utc.log"
+  try sandbox.makeLog(
+    name, lines: ["[2026-08-05 00:00:00Z INFO Listener] Version: 2.336.0"],
+    modified: now)
+  let log = sandbox.diagnostics.appendingPathComponent(name)
+  // Unreadable to this process, which is what a file owned by another user or
+  // left behind by `sudo` looks like from here. Restored before the sandbox is
+  // removed so a failed run cannot leave an undeletable directory behind.
+  try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: log.path)
+  defer {
+    try? FileManager.default.setAttributes(
+      [.posixPermissions: 0o644], ofItemAtPath: log.path)
+  }
+
+  #expect(RunnerVersionReader().blockingVersion(inLog: log) == .unreadable)
+}
+
+@Test func aLogWithNoVersionLineInItIsAbsentRatherThanUnreadable() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let name = "Runner_20260805-000000-utc.log"
+  try sandbox.makeLog(
+    name, lines: ["[2026-08-05 00:00:00Z INFO Listener] Starting"], modified: now)
+
+  #expect(
+    RunnerVersionReader().blockingVersion(
+      inLog: sandbox.diagnostics.appendingPathComponent(name)) == .absent)
 }

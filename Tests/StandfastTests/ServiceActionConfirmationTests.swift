@@ -63,7 +63,7 @@ private func promptSnapshot(
   runningJob: JobRecord? = JobRecord(name: "testflight", startedAt: promptMoment),
   readAt: Date = promptMoment,
   stateReadAt: Date? = nil,
-  version: RunnerVersion? = nil,
+  version: InstalledRunnerVersion = .absent,
   operation: ServiceOperation? = nil
 ) -> RunnerSnapshot {
   let runner =
@@ -158,7 +158,7 @@ private func promptSnapshot(
   let refreshed = promptSnapshot(
     readAt: promptMoment.addingTimeInterval(30),
     stateReadAt: promptMoment.addingTimeInterval(31),
-    version: RunnerVersion(9, 9, 9),
+    version: .known(RunnerVersion(9, 9, 9)),
     operation: ServiceOperation(
       action: .restart, phase: .requestAccepted,
       changedAt: promptMoment.addingTimeInterval(32)))

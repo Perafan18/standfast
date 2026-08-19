@@ -218,25 +218,26 @@ private func section(
 
 @Test func theVersionLineOffersAnUpdateOnlyWhenThereIsANewerOne() {
   let current = section(
-    snapshot(version: RunnerVersion(2, 336, 0)), latest: RunnerVersion(2, 336, 0))
+    snapshot(version: .known(RunnerVersion(2, 336, 0))), latest: RunnerVersion(2, 336, 0))
   #expect(current.version == L10n.runnerVersion("2.336.0"))
 
   let behind = section(
-    snapshot(version: RunnerVersion(2, 336, 0)), latest: RunnerVersion(2, 337, 0))
+    snapshot(version: .known(RunnerVersion(2, 336, 0))), latest: RunnerVersion(2, 337, 0))
   #expect(behind.version == L10n.runnerVersionOutdated("2.336.0", "2.337.0"))
 }
 
 @Test func aRunnerAheadOfTheLatestReleaseIsNotToldToGoBackwards() {
   // What a pre-release build looks like from here.
   let rows = section(
-    snapshot(version: RunnerVersion(2, 338, 0)), latest: RunnerVersion(2, 337, 0))
+    snapshot(version: .known(RunnerVersion(2, 338, 0))), latest: RunnerVersion(2, 337, 0))
   #expect(rows.version == L10n.runnerVersion("2.338.0"))
 }
 
 @Test func aRunnerWhoseVersionIsUnknownGetsNoLineAtAll() {
-  #expect(section(snapshot(version: nil), latest: RunnerVersion(2, 337, 0)).version == nil)
+  #expect(
+    section(snapshot(version: .absent), latest: RunnerVersion(2, 337, 0)).version == nil)
   // And one that has never been asked still shows what it is running.
-  #expect(section(snapshot(version: RunnerVersion(2, 336, 0))).version != nil)
+  #expect(section(snapshot(version: .known(RunnerVersion(2, 336, 0)))).version != nil)
 }
 
 // MARK: - The confirmation
@@ -352,4 +353,20 @@ private func section(
     now: Date(timeIntervalSince1970: 1_785_962_174))
 
   #expect(!section.notes.contains(L10n.checkoutNotOffered))
+}
+
+@Test func aVersionThatCouldNotBeReadIsSaidRatherThanLeftBlank() {
+  // INV-003. One optional was carrying three different facts: a version, a
+  // listener that has not written one yet, and a log this Mac could not open.
+  // The third looked exactly like the second, so a permissions problem in the
+  // runner's own directory was invisible — including to whoever would fix it.
+  #expect(
+    section(snapshot(version: .unreadable), latest: RunnerVersion(2, 337, 0)).version
+      == L10n.runnerVersionUnreadable)
+}
+
+@Test func aListenerThatHasNotWrittenItsVersionYetStaysQuiet() {
+  // The ordinary case, and the one that must not become a complaint: a runner
+  // that started thirty seconds ago has nothing to say about its version.
+  #expect(section(snapshot(version: .absent)).version == nil)
 }

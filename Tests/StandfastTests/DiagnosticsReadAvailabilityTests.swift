@@ -214,7 +214,7 @@ func firstAvailableDiagnosticsReadBaselinesHistoricalFailures() async throws {
   let sleep = SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults())
   let fleet = diagnosticsModel(box, notifications: notifications, sleep: sleep)
   await fleet.quiesce()
-  #expect(fleet.snapshots[0].version == RunnerVersion(2, 320, 0))
+  #expect(fleet.snapshots[0].version == .known(RunnerVersion(2, 320, 0)))
   #expect(box.versionQueuesUsed.count == 1)
 
   let suspended = try SuspendedDiagnostics(runnerDirectory: directory)
@@ -222,7 +222,7 @@ func firstAvailableDiagnosticsReadBaselinesHistoricalFailures() async throws {
   await fleet.quiesce()
 
   #expect(!fleet.snapshots[0].isJobHistoryAvailable)
-  #expect(fleet.snapshots[0].version == RunnerVersion(2, 320, 0))
+  #expect(fleet.snapshots[0].version == .known(RunnerVersion(2, 320, 0)))
   #expect(box.versionQueuesUsed.count == 1)
 
   try suspended.restore()

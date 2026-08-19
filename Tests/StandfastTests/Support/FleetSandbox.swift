@@ -88,7 +88,7 @@ final class FleetSandbox: @unchecked Sendable {
   private struct Versions: RunnerVersionReading {
     let sandbox: FleetSandbox
 
-    func blockingVersion(inLog log: URL) -> RunnerVersion? {
+    func blockingVersion(inLog log: URL) -> InstalledRunnerVersion {
       sandbox.withLock { sandbox.versionQueues.append(FleetSandbox.queueLabel()) }
       return RunnerVersionReader().blockingVersion(inLog: log)
     }

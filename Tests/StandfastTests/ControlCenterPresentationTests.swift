@@ -88,7 +88,7 @@ private func controlCenterSnapshot(
   _ display: DisplayState = .resolved(.idle),
   scope: RunnerScope = .repository(owner: "acme", name: "widget"),
   jobs: JobHistory = .empty, operation: ServiceOperation? = nil,
-  version: RunnerVersion? = nil, qualifier: String? = nil,
+  version: InstalledRunnerVersion = .absent, qualifier: String? = nil,
   isJobHistoryAvailable: Bool = true, isServiceActionReserved: Bool = false
 ) -> RunnerSnapshot {
   RunnerSnapshot(
@@ -793,7 +793,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
 @Test func installedAndAvailableVersionsReachTheCardMaintenanceSection() {
   let subject = card(
-    controlCenterSnapshot(version: RunnerVersion(2, 335, 0)),
+    controlCenterSnapshot(version: .known(RunnerVersion(2, 335, 0))),
     latestRelease: RunnerVersion(2, 336, 0))
 
   #expect(

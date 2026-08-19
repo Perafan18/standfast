@@ -482,6 +482,8 @@ enum L10n {
   }
 
   /// The runner's own version.
+  static let runnerVersionUnreadable = t("menu.runnerVersion.unreadable")
+
   static func runnerVersion(_ version: String) -> String {
     String(format: t("menu.runnerVersion"), version)
   }
@@ -645,6 +647,7 @@ enum L10n {
       "Repository checkouts are not offered: they can hold build output that exists nowhere else.",
     "menu.maintenance.onlyWhenIdle":
       "Deleting is offered while this runner is idle or stopped",
+    "menu.runnerVersion.unreadable": "Runner version could not be read",
     "menu.runnerVersion": "Runner %@",
     "menu.runnerVersion.update": "Runner %@ — %@ is available",
     "menu.runnerRow": "%@ — %@",

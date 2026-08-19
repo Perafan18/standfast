@@ -125,7 +125,7 @@ func snapshot(
   jobs: JobHistory = .empty, isJobHistoryAvailable: Bool = true,
   readAt: Date = Date(timeIntervalSince1970: 1_785_962_174),
   stateReadAt: Date? = nil,
-  version: RunnerVersion? = nil,
+  version: InstalledRunnerVersion = .absent,
   operation: ServiceOperation? = nil
 ) -> RunnerSnapshot {
   RunnerSnapshot(

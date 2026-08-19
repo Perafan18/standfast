@@ -2912,7 +2912,7 @@ func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
 
   let fleet = model(box)
   await fleet.quiesce()
-  #expect(fleet.snapshots.first?.version == RunnerVersion(2, 336, 0))
+  #expect(fleet.snapshots.first?.version == .known(RunnerVersion(2, 336, 0)))
 }
 
 @Test @MainActor func aRunnerThatSaysNothingAboutItsVersionIsGivenNoNumber() async throws {
@@ -2926,7 +2926,7 @@ func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
   await fleet.quiesce()
   // Nothing rather than a number this app made up, which would then sit in the
   // menu next to a real one and be indistinguishable from it.
-  #expect(fleet.snapshots.first?.version == nil)
+  #expect(fleet.snapshots.first?.version == .absent)
 }
 
 @Test @MainActor func theLatestReleaseIsAskedForOnceADayAndNotEveryFifteenSeconds()

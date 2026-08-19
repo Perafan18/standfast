@@ -239,9 +239,17 @@ extension MaintenanceSection {
   }
 
   private static func versionLine(
-    _ installed: RunnerVersion?, latest: RunnerVersion?
+    _ installed: InstalledRunnerVersion, latest: RunnerVersion?
   ) -> String? {
-    guard let installed else { return nil }
+    // Said out loud, and only here. A log that cannot be opened is a fact about
+    // this Mac rather than about the runner, and it used to be indistinguishable
+    // from a listener that simply had not written its version line yet. It
+    // reaches this line only when the job history *was* readable — when the
+    // whole directory is unreadable the card already says so, and the model
+    // carries the last version it did read rather than this.
+    guard case .known(let installed) = installed else {
+      return installed == .unreadable ? L10n.runnerVersionUnreadable : nil
+    }
     // Only when the published one is genuinely newer. A runner ahead of the
     // latest release is what a pre-release build looks like, and telling that
     // user to update is telling them to go backwards.

@@ -35,11 +35,15 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// a local stopped/unknown result and later when GitHub completed the state.
   /// Event ordering uses this without changing the local probe stamp above.
   let stateReadAt: Date
-  /// Which runner is installed here, and nil when nothing on disk says. Read
-  /// with the rest of the scan rather than on its own schedule: it comes out of
-  /// the head of the same log the job history is read from, and a runner that
-  /// updated itself an hour ago must not still be reported as the old one.
-  let version: RunnerVersion?
+  /// Which runner is installed here, as far as its own log says. Read with the
+  /// rest of the scan rather than on its own schedule: it comes out of the head
+  /// of the same log the job history is read from, and a runner that updated
+  /// itself an hour ago must not still be reported as the old one.
+  ///
+  /// Three cases rather than an optional, because "the log does not say" and
+  /// "the log could not be read" are different facts about this Mac and only
+  /// one of them is ordinary.
+  let version: InstalledRunnerVersion
   /// A service mutation owns this runner until a conclusive post-action probe
   /// is applied. The row uses this to reject clicks before they can become
   /// silent no-ops in the model.
@@ -55,7 +59,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
     isJobHistoryAvailable: Bool = true, stateReadAt: Date? = nil,
-    version: RunnerVersion? = nil,
+    version: InstalledRunnerVersion = .absent,
     isServiceActionReserved: Bool = false, operation: ServiceOperation? = nil
   ) {
     self.runner = runner
@@ -432,7 +436,7 @@ final class RunnerFleetModel: ObservableObject {
     var labels: [[String]] = []
     var queued: [QueuedWorkKnowledge] = []
     var jobs: [JobLogReader.Reading] = []
-    var installed: [RunnerVersion?] = []
+    var installed: [InstalledRunnerVersion] = []
     var readAt: [Date] = []
     var stateReadAt: [Date] = []
     var readers = readers
@@ -460,8 +464,11 @@ final class RunnerFleetModel: ObservableObject {
         let history = reader.reading(diagnosticsIn: diagnostics)
         return Reading(
           jobs: history, reader: reader,
+          // No active log is `.absent` rather than a failure: a runner whose
+          // `_diag` holds nothing yet has not written a version anywhere for
+          // this to fail to read.
           version: history.isAvailable
-            ? reader.activeLog.flatMap(versions.blockingVersion) : nil)
+            ? (reader.activeLog.map(versions.blockingVersion) ?? .absent) : .absent)
       }
       jobs.append(read.jobs)
       readers[runner.label] = read.reader
@@ -520,7 +527,7 @@ final class RunnerFleetModel: ObservableObject {
   private struct Reading: Sendable {
     let jobs: JobLogReader.Reading
     let reader: JobLogReader
-    let version: RunnerVersion?
+    let version: InstalledRunnerVersion
   }
 
   /// One scan's answer. A named type rather than a tuple because it crosses a
@@ -532,7 +539,7 @@ final class RunnerFleetModel: ObservableObject {
     let queued: [QueuedWorkKnowledge]
     let jobs: [JobLogReader.Reading]
     let readers: [String: JobLogReader]
-    let versions: [RunnerVersion?]
+    let versions: [InstalledRunnerVersion]
     /// The conservative instant just before discovery began. This dates
     /// absence; present runners use their exact stamps below.
     let discoveryStartedAt: Date
@@ -584,9 +591,14 @@ final class RunnerFleetModel: ObservableObject {
     housekeeping.keepOnly(retainedLabels)
     releaseServiceActionsObserved(in: scan, retainedLabels: retainedLabels)
     let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
+    // Only a version actually read is worth carrying forward. Remembering
+    // `.unreadable` would keep reporting a failure that may already be over,
+    // and remembering `.absent` says nothing the fresh reading does not.
     let previousVersions = snapshots.reduce(into: [String: RunnerVersion]()) {
       versions, snapshot in
-      if let version = snapshot.version { versions[snapshot.runner.label] = version }
+      if let version = snapshot.version.version {
+        versions[snapshot.runner.label] = version
+      }
     }
     snapshots = scan.found.runners.indices.map { index in
       let runner = scan.found.runners[index]
@@ -605,7 +617,8 @@ final class RunnerFleetModel: ObservableObject {
         isJobHistoryAvailable: jobReading.isAvailable,
         stateReadAt: scan.stateReadAt[index],
         version: jobReading.isAvailable
-          ? scan.versions[index] : previousVersions[runner.label],
+          ? scan.versions[index]
+          : previousVersions[runner.label].map(InstalledRunnerVersion.known) ?? .absent,
         isServiceActionReserved: serviceActionsInFlight.contains(runner.label),
         operation: operations[runner.label])
     }
