@@ -8,10 +8,16 @@ import Foundation
 public struct RemoteStatus: Equatable, Sendable {
   public let online: Bool
   public let busy: Bool
+  /// What this runner is registered as, which is what decides whose queued
+  /// work it is. Empty when whatever answered did not say — the `gh` path does
+  /// not, so a fleet on that path knows its runners' states and not their
+  /// queues. Empty is never "matches everything": see `QueuedJob.waits`.
+  public let labels: [String]
 
-  public init(online: Bool, busy: Bool) {
+  public init(online: Bool, busy: Bool, labels: [String] = []) {
     self.online = online
     self.busy = busy
+    self.labels = labels
   }
 }
 
@@ -36,6 +42,10 @@ public enum GitHubError: Error, Equatable {
   /// case because the fix is time, or fewer runners — and because an app that
   /// polls every fifteen seconds is exactly the shape that meets this.
   case rateLimited
+  /// GitHub has no endpoint that answers this question for this scope. Not a
+  /// failure and not an empty answer: an empty list would say "nothing is
+  /// waiting", which is a claim nobody checked.
+  case notAvailableForScope
 }
 
 public protocol GitHubClient: Sendable {
@@ -246,5 +256,19 @@ extension GHCommandLineClient: RunnerReleaseChecking {
       throw GitHubError.noAnswer
     }
     return version
+  }
+}
+
+extension GHCommandLineClient: QueuedWorkReading {
+  /// Never answered here, whatever `gh` could technically fetch.
+  ///
+  /// The question is "what is waiting for *this* runner", and answering it
+  /// needs the runner's labels. Those arrive with the runner status, and this
+  /// client's `--jq` filter does not carry them: it prints two space-separated
+  /// fields, and label names may contain spaces. Returning an unattributable
+  /// list of queued jobs would be answering a different question than the one
+  /// asked.
+  public func blockingQueuedWork(in scope: RunnerScope) throws -> QueuedWork {
+    throw GitHubError.noToken
   }
 }

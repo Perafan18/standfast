@@ -6,7 +6,9 @@ import Testing
 private let scope = RunnerScope.repository(owner: "acme", name: "widget")
 
 /// Records whether it was asked, and answers however the test says.
-private final class SpyClient: GitHubClient, RunnerReleaseChecking, @unchecked Sendable {
+private final class SpyClient:
+  GitHubClient, RunnerReleaseChecking, QueuedWorkReading, @unchecked Sendable
+{
   private let lock = NSLock()
   private var asked = 0
   private let answer: Result<RemoteStatus, GitHubError>
@@ -38,6 +40,15 @@ private final class SpyClient: GitHubClient, RunnerReleaseChecking, @unchecked S
     asked += 1
     lock.unlock()
     return try release.get()
+  }
+
+  /// The token client throws `noToken` here when nothing is stored; this stands
+  /// in for that, so a fallback that should not exist would be visible.
+  func blockingQueuedWork(in scope: RunnerScope) throws -> QueuedWork {
+    lock.lock()
+    asked += 1
+    lock.unlock()
+    throw GitHubError.noToken
   }
 }
 
@@ -99,4 +110,21 @@ private let stale = RemoteStatus(online: false, busy: false)
   #expect(
     try TokenFirstGitHubClient(token: token, cli: cli).blockingLatestRunnerRelease()
       == RunnerVersion(2, 330, 0))
+}
+
+// MARK: - Queued work has no second path
+
+@Test func theQueueIsOnlyEverAskedThroughTheToken() throws {
+  // `gh` cannot answer this. Not because it lacks the endpoint, but because
+  // the fleet on that path never learns a runner's labels, so there is nothing
+  // to match the queue against. Falling back would produce a list nobody could
+  // attribute to a runner.
+  let token = SpyClient(.success(working))
+  let cli = SpyClient(.success(working))
+  let subject = TokenFirstGitHubClient(token: token, cli: cli)
+
+  #expect(throws: GitHubError.noToken) {
+    try subject.blockingQueuedWork(in: .repository(owner: "acme", name: "widget"))
+  }
+  #expect(cli.timesAsked == 0)
 }

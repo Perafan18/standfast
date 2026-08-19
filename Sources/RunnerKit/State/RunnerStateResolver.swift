@@ -20,6 +20,22 @@ public struct RunnerStateResolver: Sendable {
     public let state: RunnerState
     public let readAt: Date
     public let stateReadAt: Date
+    /// What GitHub says this runner is registered as, and empty when GitHub was
+    /// not reached — or answered through a path that does not carry them.
+    ///
+    /// Carried here rather than fetched separately because it arrives with the
+    /// status this resolver already asks for. Empty never means "matches
+    /// everything": see `QueuedJob.waits(forRunnerLabelled:)`.
+    public let labels: [String]
+
+    public init(
+      state: RunnerState, readAt: Date, stateReadAt: Date, labels: [String] = []
+    ) {
+      self.state = state
+      self.readAt = readAt
+      self.stateReadAt = stateReadAt
+      self.labels = labels
+    }
   }
 
   /// Nil for "could not tell", which is not the same answer as false. See
@@ -73,7 +89,7 @@ public struct RunnerStateResolver: Sendable {
     blockingReading(for: runner, clock: Date.init).state
   }
 
-  private func blockingReading(
+  func blockingReading(
     for runner: DiscoveredRunner, clock: @escaping @Sendable () -> Date
   ) -> Reading {
     // Asked first, and allowed to settle it alone. A stopped service is the
@@ -109,12 +125,15 @@ public struct RunnerStateResolver: Sendable {
       // assigned to it. Calling that "busy" would suggest work is progressing
       // when nothing is; what needs fixing is the connection.
       if !remote.online {
+        // Labels still travel: a disconnected runner is exactly the one whose
+        // queued work is worth naming, because nothing is going to take it.
         return Reading(
-          state: .disconnected, readAt: readAt, stateReadAt: stateReadAt)
+          state: .disconnected, readAt: readAt, stateReadAt: stateReadAt,
+          labels: remote.labels)
       }
       return Reading(
         state: remote.busy ? .busy : .idle, readAt: readAt,
-        stateReadAt: stateReadAt)
+        stateReadAt: stateReadAt, labels: remote.labels)
     } catch let failure as GitHubError {
       return Reading(
         state: .unknown(UnknownReason(failure)), readAt: readAt,

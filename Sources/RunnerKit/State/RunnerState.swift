@@ -35,6 +35,11 @@ extension UnknownReason {
     case .noAnswer: self = .noAnswer
     case .noToken: self = .noToken
     case .rateLimited: self = .rateLimited
+    // Unreachable from a status call: no scope lacks an endpoint for reading
+    // one runner, only for listing queued work. Mapped rather than crashed,
+    // and mapped to the honest answer — if it ever did arrive here, this app
+    // would not know the state.
+    case .notAvailableForScope: self = .noAnswer
     }
   }
 }

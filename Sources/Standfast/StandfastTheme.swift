@@ -207,6 +207,7 @@ enum ControlCenterAccessibility {
     var fold: String { "\(card).fold" }
     var status: String { "\(root).status" }
     var focus: String { "\(root).focus" }
+    var queue: String { "\(root).queue" }
     var start: String { "\(root).action.start" }
     var stop: String { "\(root).action.stop" }
     var restart: String { "\(root).action.restart" }

@@ -13,13 +13,15 @@ import Foundation
 ///   drift back to depending on a tool it was built to stop depending on.
 /// - A rate limit is the same account and the same budget on both paths, so
 ///   asking twice spends a second request to be told the same thing.
-public struct TokenFirstGitHubClient: GitHubClient, RunnerReleaseChecking {
-  private let token: any GitHubClient & RunnerReleaseChecking
-  private let cli: any GitHubClient & RunnerReleaseChecking
+public struct TokenFirstGitHubClient:
+  GitHubClient, RunnerReleaseChecking, QueuedWorkReading
+{
+  private let token: any GitHubClient & RunnerReleaseChecking & QueuedWorkReading
+  private let cli: any GitHubClient & RunnerReleaseChecking & QueuedWorkReading
 
   public init(
-    token: any GitHubClient & RunnerReleaseChecking,
-    cli: any GitHubClient & RunnerReleaseChecking
+    token: any GitHubClient & RunnerReleaseChecking & QueuedWorkReading,
+    cli: any GitHubClient & RunnerReleaseChecking & QueuedWorkReading
   ) {
     self.token = token
     self.cli = cli
@@ -55,6 +57,14 @@ public struct TokenFirstGitHubClient: GitHubClient, RunnerReleaseChecking {
     } otherwise: {
       try cli.blockingLatestRunnerRelease()
     }
+  }
+
+  /// No fallback, deliberately. `gh` could reach the same endpoints, but a
+  /// fleet on that path never learns a runner's labels, so a queue read there
+  /// could not be attributed to any runner — a list of jobs nobody can say are
+  /// waiting for *this* machine is not an answer to the question being asked.
+  public func blockingQueuedWork(in scope: RunnerScope) throws -> QueuedWork {
+    try token.blockingQueuedWork(in: scope)
   }
 
   private func preferringToken<Answer>(

@@ -133,3 +133,17 @@ private let everyDisplayState: [DisplayState] = [
   #expect(!DisplayState.starting.canStart)
   #expect(DisplayState.starting.canStop)
 }
+
+@Test func onlyAConnectedRunnerIsGoingToBeHandedWork() {
+  // Not a synonym for `needsAttention`. A runner somebody stopped on purpose
+  // raises no alarm and still will not pick up what is queued for it, and that
+  // gap is the one the queued-work line exists to fill.
+  #expect(DisplayState.resolved(.idle).canReceiveWork)
+  #expect(DisplayState.resolved(.busy).canReceiveWork)
+  #expect(DisplayState.starting.canReceiveWork)
+  #expect(!DisplayState.resolved(.stopped).canReceiveWork)
+  #expect(!DisplayState.resolved(.disconnected).canReceiveWork)
+  #expect(!DisplayState.resolved(.unknown(.noAnswer)).canReceiveWork)
+  // The one that would otherwise look like the same predicate.
+  #expect(!DisplayState.resolved(.stopped).needsAttention)
+}

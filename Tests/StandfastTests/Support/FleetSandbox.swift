@@ -118,6 +118,26 @@ final class FleetSandbox: @unchecked Sendable {
     }
   }
 
+  /// What GitHub has queued, for the tests that care. Nothing by default, so a
+  /// sandbox that never mentions a queue behaves as it always did.
+  private var queuedAnswer: Result<QueuedWork, GitHubError> = .failure(.noToken)
+
+  func set(queued answer: Result<QueuedWork, GitHubError>) {
+    withLock { queuedAnswer = answer }
+  }
+
+  /// Not `queues`: that name already means the dispatch queues this sandbox
+  /// records, and the two would read as the same thing.
+  var queuedWork: any QueuedWorkReading { Queues(sandbox: self) }
+
+  private struct Queues: QueuedWorkReading {
+    let sandbox: FleetSandbox
+
+    func blockingQueuedWork(in scope: RunnerScope) throws -> QueuedWork {
+      try sandbox.withLock { sandbox.queuedAnswer }.get()
+    }
+  }
+
   func set(serviceRunning: Bool?) { withLock { running = serviceRunning } }
   func set(remote answer: Result<RemoteStatus, GitHubError>) {
     withLock { remote = answer }

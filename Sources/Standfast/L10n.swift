@@ -179,6 +179,15 @@ enum L10n {
   // and "unknown" on its own has none. This is the likeliest thing a new user
   // sees, so the line has to be the instruction.
   static let stateUnknownNoCLI = t("state.unknown.noCLI")
+  static let queueWaitingOne = t("queue.waiting.one")
+  static func queueWaiting(_ count: Int, in bundles: [Bundle]? = nil) -> String {
+    String(format: t("queue.waiting", in: bundles), count)
+  }
+  static func queueWaitingPartial(_ count: Int, in bundles: [Bundle]? = nil) -> String {
+    String(format: t("queue.waitingPartial", in: bundles), count)
+  }
+  static let queueEmpty = t("queue.empty")
+  static let queueUnknownScope = t("queue.unknownScope")
   static let stateUnknownNoToken = t("state.unknown.noToken")
   static let stateUnknownRateLimited = t("state.unknown.rateLimited")
   static let stateUnknownNotAuthenticated = t("state.unknown.notAuthenticated")
@@ -717,6 +726,16 @@ enum L10n {
     "state.short.stopped": "Stopped",
     "state.short.starting": "Starting",
     "state.short.unknown": "Unknown",
+    "queue.waiting.one":
+      "1 job is waiting for this machine",
+    "queue.waiting":
+      "%d jobs are waiting for this machine",
+    "queue.waitingPartial":
+      "%d or more jobs are waiting for this machine",
+    "queue.empty":
+      "No queued work is waiting for this machine",
+    "queue.unknownScope":
+      "GitHub cannot say what is queued for an organisation runner",
     "state.unknown.noToken":
       "Running locally, GitHub not asked — add a GitHub token in Settings",
     "state.unknown.rateLimited":

@@ -135,6 +135,11 @@
 "state.short.starting" = "Starting";
 "state.short.unknown" = "Unknown";
 
+"queue.waiting.one" = "1 job is waiting for this machine";
+"queue.waiting" = "%d jobs are waiting for this machine";
+"queue.waitingPartial" = "%d or more jobs are waiting for this machine";
+"queue.empty" = "No queued work is waiting for this machine";
+"queue.unknownScope" = "GitHub cannot say what is queued for an organisation runner";
 "state.unknown.noCLI" = "Running locally, GitHub not answering — install the GitHub CLI (gh)";
 "state.unknown.noToken" = "Running locally, GitHub not asked — add a GitHub token in Settings";
 "state.unknown.rateLimited" = "Running locally, GitHub rate limit reached — it answers again shortly";

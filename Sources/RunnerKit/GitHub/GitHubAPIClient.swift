@@ -25,6 +25,7 @@ public struct GitHubAPIClient: GitHubClient {
   private let http: any HTTPPerforming
   private let baseURL: URL
   private let cache = StatusCache()
+  private let queues = QueueCache()
 
   /// The last answer GitHub gave about each runner, and the tag it came with.
   ///
@@ -36,6 +37,35 @@ public struct GitHubAPIClient: GitHubClient {
     struct Entry {
       let etag: String
       let status: RemoteStatus
+    }
+
+    private let lock = NSLock()
+    private var entries: [URL: Entry] = [:]
+
+    func entry(for url: URL) -> Entry? {
+      lock.lock()
+      defer { lock.unlock() }
+      return entries[url]
+    }
+
+    func remember(_ url: URL, _ entry: Entry) {
+      lock.lock()
+      defer { lock.unlock() }
+      entries[url] = entry
+    }
+  }
+
+  /// The last queue this client read, and the tag the *listing* came with.
+  ///
+  /// Keyed on the listing alone, not on the per-run job reads, because the
+  /// listing is what changes: a run leaves `status=queued` the moment any of
+  /// its jobs is handed out, so a byte-identical listing is strong evidence
+  /// that no job under it has moved either. The failure this trades against is
+  /// brief and self-correcting — the next change to any run rewrites the tag.
+  private final class QueueCache: @unchecked Sendable {
+    struct Entry {
+      let etag: String
+      let work: QueuedWork
     }
 
     private let lock = NSLock()
@@ -110,8 +140,14 @@ public struct GitHubAPIClient: GitHubClient {
   }
 
   private struct RunnerPayload: Decodable {
+    struct Label: Decodable { let name: String }
+
     let status: String
     let busy: Bool
+    /// Optional, so a payload without them still yields a status. Labels feed a
+    /// feature; status is the fact the menu leads with, and losing the second
+    /// because the first is absent would be a bad trade.
+    let labels: [Label]?
   }
 
   /// Both questions go through the same token and the same hourly budget, so
@@ -145,9 +181,10 @@ public struct GitHubAPIClient: GitHubClient {
     // offline". Treating an unrecognised status as online hides a runner that
     // will never be sent work; treating it as offline raises the alarm about a
     // healthy one. "Could not tell" is the only honest third answer.
+    let labels = (payload.labels ?? []).map(\.name)
     switch payload.status {
-    case "online": return RemoteStatus(online: true, busy: payload.busy)
-    case "offline": return RemoteStatus(online: false, busy: payload.busy)
+    case "online": return RemoteStatus(online: true, busy: payload.busy, labels: labels)
+    case "offline": return RemoteStatus(online: false, busy: payload.busy, labels: labels)
     default: throw GitHubError.noAnswer
     }
   }
@@ -178,5 +215,111 @@ extension GitHubAPIClient: RunnerReleaseChecking {
       let version = RunnerVersion(payload.tagName)
     else { throw GitHubError.noAnswer }
     return version
+  }
+}
+
+extension GitHubAPIClient: QueuedWorkReading {
+  /// How many queued runs one reading will look at.
+  ///
+  /// Each one costs a second request to read its jobs, so this number is what
+  /// the feature costs: ten runs is eleven requests. When GitHub has more, the
+  /// answer says so rather than presenting a capped count as a total.
+  public static let queuedRunsInspected = 10
+  static let jobsPerRun = 50
+
+  private struct RunsPayload: Decodable {
+    struct Run: Decodable { let id: Int }
+
+    let totalCount: Int
+    let workflowRuns: [Run]
+  }
+
+  private struct JobsPayload: Decodable {
+    struct Job: Decodable {
+      let id: Int
+      let name: String
+      let status: String
+      let workflowName: String?
+      let labels: [String]?
+      let createdAt: Date?
+      let htmlUrl: URL?
+    }
+
+    let jobs: [Job]
+  }
+
+  public func blockingQueuedWork(in scope: RunnerScope) throws -> QueuedWork {
+    guard let runsPath = scope.queuedRunsAPIPath else {
+      throw GitHubError.notAvailableForScope
+    }
+
+    let listingURL = url(
+      runsPath,
+      query: [
+        // Runs GitHub accepted and has not started. A run already in
+        // progress can still hold queued jobs — a matrix that handed some
+        // out and is holding the rest — and those are not counted. That is
+        // the bound this filter buys, and it is the difference between
+        // eleven requests a reading and one per run in the repository.
+        ("status", "queued"), ("per_page", "\(Self.queuedRunsInspected)"),
+      ])
+    let remembered = queues.entry(for: listingURL)
+    let response = try get(listingURL, ifNoneMatch: remembered?.etag)
+    if response.statusCode == Self.notModified {
+      guard let remembered else { throw GitHubError.noAnswer }
+      return remembered.work
+    }
+    let listing: RunsPayload = try decoded(from: response)
+
+    var waiting: [QueuedJob] = []
+    for run in listing.workflowRuns {
+      let payload: JobsPayload = try decoded(
+        from: get(
+          url("\(runsPath)/\(run.id)/jobs", query: [("per_page", "\(Self.jobsPerRun)")]),
+          ifNoneMatch: nil))
+      waiting += payload.jobs.filter { $0.status == "queued" }.map(Self.queued)
+    }
+
+    let work = QueuedWork(
+      jobs: waiting, isPartial: listing.totalCount > listing.workflowRuns.count)
+    if let etag = response.header("Etag") {
+      queues.remember(listingURL, QueueCache.Entry(etag: etag, work: work))
+    }
+    return work
+  }
+
+  private static func queued(_ job: JobsPayload.Job) -> QueuedJob {
+    QueuedJob(
+      id: job.id, name: job.name, workflowName: job.workflowName ?? "",
+      labels: job.labels ?? [], queuedAt: job.createdAt, url: job.htmlUrl)
+  }
+
+  private func url(_ path: String, query: [(String, String)]) -> URL {
+    var components = URLComponents(
+      url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+    components.queryItems = query.map(URLQueryItem.init)
+    return components.url!
+  }
+
+  /// Reads a body, or refuses. Every failure GitHub can name — a rejected
+  /// token, an exhausted budget — is named before the body is looked at.
+  ///
+  /// Deliberately never "zero jobs waiting": a run whose jobs could not be read
+  /// makes every count below it an undercount, and "nothing is waiting" over a
+  /// queue nobody could read is this app sounding most confident where it knows
+  /// least.
+  private func decoded<Payload: Decodable>(
+    from response: HTTPResponse
+  ) throws
+    -> Payload
+  {
+    try rejecting(response)
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    decoder.dateDecodingStrategy = .iso8601
+    guard response.statusCode == 200,
+      let payload = try? decoder.decode(Payload.self, from: response.body)
+    else { throw GitHubError.noAnswer }
+    return payload
   }
 }

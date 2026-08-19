@@ -86,6 +86,12 @@ struct RunnerCardView: View {
     VStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
       identity
       focus
+      // What is waiting for this runner, above the fold and beside the state
+      // it explains. "Disconnected" says what broke; the line under it says
+      // what that is costing, and that is the half somebody came for.
+      if let queued = card.queued {
+        queueLine(queued)
+      }
       // The receipt for the last Start or Stop stays with the situation on
       // purpose: hiding the outcome of an action the operator just took would
       // make folding feel like the app forgot.
@@ -225,6 +231,33 @@ struct RunnerCardView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier(identifiers.focus)
+  }
+
+  private func queueLine(_ queued: QueuedWorkPresentation) -> some View {
+    HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
+      // The same two tokens the Settings notices use, and for the same reason:
+      // they are the pair already measured against this surface. Reaching for
+      // a badge's foreground here would borrow a colour chosen against a badge
+      // background that is not behind this text.
+      let colour =
+        queued.tone == .attention
+        ? palette.attentionForeground.color : palette.textSecondary.color
+      // Weight rather than colour carries the difference between "work is
+      // waiting" and "work is waiting and nothing here is going to take it".
+      // The attention token is nearly white in dark mode, so on this surface
+      // the two tones were all but identical — and weight survives a
+      // colour-blind reader and a monochrome screenshot, which colour does not.
+      Image(systemName: queued.tone == .attention ? "tray.full.fill" : "tray.full")
+        .frame(width: 20)
+        .foregroundStyle(colour)
+        .accessibilityHidden(true)
+      Text(queued.line)
+        .font(queued.tone == .attention ? .subheadline.weight(.semibold) : .subheadline)
+        .foregroundStyle(colour)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier(identifiers.queue)
   }
 
   private func operationFeedback(

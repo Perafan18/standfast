@@ -35,6 +35,21 @@ extension RunnerScope {
     }
   }
 
+  /// Where queued work for this scope can be listed, and **nil where GitHub
+  /// has no such endpoint**.
+  ///
+  /// The question only exists per repository. There is no org-wide or
+  /// enterprise-wide listing of queued work, so a runner registered at those
+  /// levels cannot be told what is waiting for it — and this returns nil so
+  /// that fact travels, rather than an empty list that would read as "nothing
+  /// is waiting".
+  public var queuedRunsAPIPath: String? {
+    switch self {
+    case .repository(let owner, let name): "repos/\(owner)/\(name)/actions/runs"
+    case .organization, .enterprise: nil
+    }
+  }
+
   public var settingsURL: URL {
     switch self {
     case .repository(let owner, let name):

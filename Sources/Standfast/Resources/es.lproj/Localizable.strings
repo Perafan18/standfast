@@ -135,6 +135,11 @@
 "state.short.starting" = "Arrancando";
 "state.short.unknown" = "Desconocido";
 
+"queue.waiting.one" = "1 trabajo esperando a esta máquina";
+"queue.waiting" = "%d trabajos esperando a esta máquina";
+"queue.waitingPartial" = "%d trabajos o más esperando a esta máquina";
+"queue.empty" = "No hay trabajo en cola esperando a esta máquina";
+"queue.unknownScope" = "GitHub no puede decir qué hay en cola para un runner de organización";
 "state.unknown.noCLI" = "Corriendo en local, GitHub sin respuesta — instala la CLI de GitHub (gh)";
 "state.unknown.noToken" = "Corriendo en local, GitHub sin consultar — añade un token de GitHub en Ajustes";
 "state.unknown.rateLimited" = "Corriendo en local, límite de GitHub alcanzado — responde de nuevo en un rato";

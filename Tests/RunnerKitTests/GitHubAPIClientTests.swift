@@ -268,3 +268,31 @@ private let releaseURL = URL(
     try client(http).blockingLatestRunnerRelease()
   }
 }
+
+// MARK: - The labels that decide which work is this runner's
+
+@Test func readsTheRunnersLabelsFromTheSameAnswerAsItsStatus() throws {
+  // Free: they arrive in the runner payload this client already fetches every
+  // fifteen seconds. Asking a second endpoint for them would double the cost
+  // of the refresh loop to learn something already on the wire.
+  let http = FakeHTTPClient([
+    runnerURL: [
+      .ok(
+        #"{"id":21,"status":"online","busy":false,"#
+          + #""labels":[{"name":"self-hosted"},{"name":"macOS"}]}"#)
+    ]
+  ])
+
+  #expect(try ask(http).labels == ["self-hosted", "macOS"])
+}
+
+@Test func aRunnerPayloadWithoutLabelsStillResolvesItsStatus() throws {
+  // Labels are what queued work is matched on, and status is what the menu
+  // leads with. Losing the second because the first is missing would trade a
+  // fact for a feature.
+  let http = FakeHTTPClient([runnerURL: [.ok(idleRunner())]])
+
+  let status = try ask(http)
+  #expect(status == RemoteStatus(online: true, busy: false))
+  #expect(status.labels.isEmpty)
+}

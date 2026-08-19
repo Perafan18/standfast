@@ -86,6 +86,20 @@ extension DisplayState {
     }
   }
 
+  /// Whether GitHub can hand this runner work right now.
+  ///
+  /// Not the same question as `needsAttention`, and the difference is the whole
+  /// point: a runner somebody stopped on purpose is not an alarm, but it is
+  /// still a runner that will not take the job waiting for it. Busy counts as
+  /// yes — it is connected and will take the next one. `.starting` counts as
+  /// yes so a restart does not raise an alarm about work it is about to claim.
+  var canReceiveWork: Bool {
+    switch self {
+    case .resolved(.idle), .resolved(.busy), .starting: true
+    case .resolved(.disconnected), .resolved(.stopped), .resolved(.unknown): false
+    }
+  }
+
   /// Whether this runner's LaunchAgent is loaded, which is the only fact the
   /// buttons need.
   ///

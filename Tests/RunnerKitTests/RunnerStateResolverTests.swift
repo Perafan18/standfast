@@ -405,3 +405,34 @@ private func confirm(
   // impatience that GitHub is unreachable.
   #expect(UnknownReason(GitHubError.rateLimited) == .rateLimited)
 }
+
+// MARK: - Carrying the labels forward
+
+@Test func aReadingCarriesTheLabelsGitHubAnswered() {
+  // The state alone cannot say whose queued work this runner is entitled to.
+  // Asking a second endpoint for the labels would double the refresh cost to
+  // learn something that arrived with the status.
+  let reading = RunnerStateResolver(
+    isServiceRunning: { _ in true },
+    github: StubGitHub(
+      result: .success(
+        RemoteStatus(online: true, busy: false, labels: ["self-hosted", "macOS"])),
+      asked: StubGitHub.Recorder())
+  ).blockingReading(for: runner, clock: Date.init)
+
+  #expect(reading.state == .idle)
+  #expect(reading.labels == ["self-hosted", "macOS"])
+}
+
+@Test func aReadingThatNeverReachedGitHubCarriesNoLabels() {
+  // Not an empty label set standing in for "matches nothing" by accident: a
+  // runner GitHub was never asked about has no labels this app knows, and
+  // `QueuedJob.waits` refuses to hand work to one.
+  let reading = RunnerStateResolver(
+    isServiceRunning: { _ in false },
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
+  ).blockingReading(for: runner, clock: Date.init)
+
+  #expect(reading.state == .stopped)
+  #expect(reading.labels.isEmpty)
+}

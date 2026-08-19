@@ -62,7 +62,8 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     notifications: NotificationSettings(
       delivery: FakeNotificationDelivery(), defaults: scratchDefaults()),
     sleep: SleepGuard(activity: FakeSleepPreventer(), defaults: scratchDefaults()),
-    versions: sandbox.versions, releases: sandbox.releases, opener: FakeURLOpener(),
+    versions: sandbox.versions, releases: sandbox.releases,
+    queues: sandbox.queuedWork, opener: FakeURLOpener(),
     serviceConfirmation: RenderConfirmation(), refreshInterval: nil)
 }
 
@@ -108,11 +109,24 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     width: StandfastTheme.settingsIdealWidth,
     height: StandfastTheme.settingsDefaultHeight)
 
-  // 1. A runner GitHub cannot see. The reason somebody opens this window.
+  // 1. A runner GitHub cannot see, with work piling up behind it. The reason
+  // somebody opens this window, and the sentence the queue line exists to make
+  // possible: "disconnected" says what broke, "3 jobs are waiting for it" says
+  // what that is costing. No screenshot of a healthy Mac contains this.
   let disconnected = try FleetSandbox(serviceRunning: true)
   defer { disconnected.cleanUp() }
   _ = try disconnected.addRunner(name: "mac-mini-m4", scope: "acme-widget")
-  disconnected.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  disconnected.set(
+    remote: .success(
+      RemoteStatus(online: false, busy: false, labels: ["self-hosted", "macOS"])))
+  disconnected.set(
+    queued: .success(
+      QueuedWork(
+        jobs: (1...3).map {
+          QueuedJob(
+            id: $0, name: "build", workflowName: "CI", labels: ["self-hosted"],
+            queuedAt: nil, url: nil)
+        }, isPartial: false)))
   let disconnectedFleet = fleet(disconnected)
   await disconnectedFleet.quiesce()
   try render(

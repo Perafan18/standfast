@@ -172,6 +172,10 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   let scope: String
   let tone: StateTone
   let focus: RunnerFocusPresentation
+  /// What is waiting for this runner, and nil when there is nothing worth
+  /// saying. Sits with identity and state rather than behind the fold: it is
+  /// the reason somebody would open the card, not something found inside it.
+  let queued: QueuedWorkPresentation?
   let operationFeedback: ServiceOperationPresentation?
   let history: RunnerHistoryPresentation
   let progress: String?
@@ -240,6 +244,8 @@ extension RunnerCardPresentation {
       scope: snapshot.runner.scope.displayName,
       tone: snapshot.display.tone,
       focus: focus,
+      queued: QueuedWorkPresentation.building(
+        snapshot.queued, runnerLabelled: snapshot.labels, display: snapshot.display),
       operationFeedback: operation?.isInFlight == false ? operation : nil,
       history: snapshot.isJobHistoryAvailable
         ? .available(rows: historyRows, isTruncated: isHistoryTruncated)

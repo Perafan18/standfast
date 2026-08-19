@@ -6,6 +6,13 @@ import SwiftUI
 struct RunnerSnapshot: Identifiable, Equatable {
   let runner: DiscoveredRunner
   let display: DisplayState
+  /// What GitHub says this runner is registered as, and empty when GitHub was
+  /// not reached. What decides whose queued work this is.
+  let labels: [String]
+  /// What is queued and unclaimed in this runner's scope, as far as this app
+  /// asked. `.notAsked` is the honest default: it is what a busy runner, a
+  /// fleet on the `gh` path, and a runner with no known labels all get.
+  let queued: QueuedWorkKnowledge
   /// Where this runner is registered, and nil when its name already says which
   /// runner it is. Decided for the fleet rather than for the runner, because
   /// whether a name identifies anything is a question about the other runners;
@@ -43,7 +50,9 @@ struct RunnerSnapshot: Identifiable, Equatable {
   var id: String { runner.label }
 
   init(
-    runner: DiscoveredRunner, display: DisplayState, qualifier: String? = nil,
+    runner: DiscoveredRunner, display: DisplayState,
+    labels: [String] = [], queued: QueuedWorkKnowledge = .notAsked,
+    qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
     isJobHistoryAvailable: Bool = true, stateReadAt: Date? = nil,
     version: RunnerVersion? = nil,
@@ -51,6 +60,8 @@ struct RunnerSnapshot: Identifiable, Equatable {
   ) {
     self.runner = runner
     self.display = display
+    self.labels = labels
+    self.queued = queued
     self.qualifier = qualifier
     self.jobs = jobs
     self.isJobHistoryAvailable = isJobHistoryAvailable
@@ -143,6 +154,11 @@ final class RunnerFleetModel: ObservableObject {
   private let probeDelay: TimeInterval
   private let refreshInterval: TimeInterval?
   private let versions: any RunnerVersionReading
+  /// Asks what work is queued and unclaimed. Its own dependency rather than
+  /// another requirement on the resolver: it is a different question, asked
+  /// under different conditions, and a fleet may be able to answer one and
+  /// not the other.
+  private let queues: any QueuedWorkReading
   private let releases: any RunnerReleaseChecking
   private let opener: any URLOpening
   private let serviceConfirmation: any ServiceActionConfirming
@@ -221,6 +237,7 @@ final class RunnerFleetModel: ObservableObject {
     folding: RunnerCardFolding = RunnerCardFolding(),
     versions: any RunnerVersionReading = RunnerVersionReader(),
     releases: any RunnerReleaseChecking = TokenFirstGitHubClient.standard,
+    queues: any QueuedWorkReading = TokenFirstGitHubClient.standard,
     opener: any URLOpening = WorkspaceURLOpener(),
     serviceConfirmation: any ServiceActionConfirming,
     clock: @escaping @Sendable () -> Date = Date.init,
@@ -244,6 +261,7 @@ final class RunnerFleetModel: ObservableObject {
     self.folding = folding
     self.versions = versions
     self.releases = releases
+    self.queues = queues
     self.opener = opener
     self.serviceConfirmation = serviceConfirmation
     self.clock = clock
@@ -294,10 +312,10 @@ final class RunnerFleetModel: ObservableObject {
       checkForNewRelease(at: startedAt)
     }
     isScanning = true
-    inFlight = Task { [discover, resolver, jobLogs, versions, clock] in
+    inFlight = Task { [discover, resolver, jobLogs, versions, queues, clock] in
       let scan = await Self.scan(
         discover: discover, resolver: resolver, readers: jobLogs, versions: versions,
-        clock: clock)
+        queues: queues, clock: clock)
       apply(scan, startedAt: startedAt)
       inFlight = nil
       isScanning = false
@@ -401,6 +419,7 @@ final class RunnerFleetModel: ObservableObject {
   private nonisolated static func scan(
     discover: @escaping @Sendable () -> DiscoveryResult, resolver: RunnerStateResolver,
     readers: [String: JobLogReader], versions: any RunnerVersionReading,
+    queues: any QueuedWorkReading,
     clock: @escaping @Sendable () -> Date
   ) async -> Scan {
     // Conservative by design: discovery may enumerate the directory first and
@@ -410,6 +429,8 @@ final class RunnerFleetModel: ObservableObject {
     let discoveryStartedAt = clock()
     let found = await offCooperativePool { discover() }
     var states: [RunnerState] = []
+    var labels: [[String]] = []
+    var queued: [QueuedWorkKnowledge] = []
     var jobs: [JobLogReader.Reading] = []
     var installed: [RunnerVersion?] = []
     var readAt: [Date] = []
@@ -418,6 +439,9 @@ final class RunnerFleetModel: ObservableObject {
     for runner in found.runners {
       let state = await resolver.reading(for: runner, clock: clock)
       states.append(state.state)
+      labels.append(state.labels)
+      queued.append(
+        await queuedWork(for: runner, reading: state, through: queues))
       readAt.append(state.readAt)
       stateReadAt.append(state.stateReadAt)
       // The same rule as discovery, for the same reason: this is file I/O, and
@@ -444,9 +468,48 @@ final class RunnerFleetModel: ObservableObject {
       installed.append(read.version)
     }
     return Scan(
-      found: found, states: states, jobs: jobs, readers: readers, versions: installed,
+      found: found, states: states, labels: labels, queued: queued, jobs: jobs,
+      readers: readers, versions: installed,
       discoveryStartedAt: discoveryStartedAt, readAt: readAt,
       stateReadAt: stateReadAt)
+  }
+
+  /// What is waiting for one runner, or why this app is not going to say.
+  ///
+  /// Two conditions before spending a request, and each rules out a case where
+  /// the answer could not be used anyway:
+  ///
+  ///   * **No labels.** Nothing to attribute the queue to. A stopped runner
+  ///     never reaches GitHub, and a fleet on the `gh` path never learns them.
+  ///   * **Busy.** The machine is working. Queue depth behind a runner that is
+  ///     already earning its keep is the least urgent thing this app could
+  ///     spend a request on, and a busy fleet is when requests are scarcest.
+  ///
+  /// The reading itself costs one request plus one per queued run, so what
+  /// makes it affordable at a fifteen-second interval is the conditional
+  /// request inside `GitHubAPIClient`: an unchanged queue answers 304 and
+  /// GitHub charges nothing for it.
+  private nonisolated static func queuedWork(
+    for runner: DiscoveredRunner, reading: RunnerStateResolver.Reading,
+    through queues: any QueuedWorkReading
+  ) async -> QueuedWorkKnowledge {
+    guard !reading.labels.isEmpty, reading.state != .busy else { return .notAsked }
+    return await offCooperativePool {
+      do {
+        return .work(try queues.blockingQueuedWork(in: runner.scope))
+      } catch GitHubError.notAvailableForScope {
+        // GitHub has no endpoint for organisation or enterprise scope. Kept
+        // distinct from every other failure because it will never succeed, and
+        // because it is worth saying out loud rather than leaving the operator
+        // to read silence as an empty queue.
+        return .notAvailableHere
+      } catch {
+        // Everything else — no token, no network, a spent budget — is a
+        // question that went unanswered. The state line already says why
+        // GitHub is quiet; repeating it here would be the same complaint twice.
+        return .notAsked
+      }
+    }
   }
 
   /// Everything one hop off the pool reads about one runner's `_diag`.
@@ -465,6 +528,8 @@ final class RunnerFleetModel: ObservableObject {
   private struct Scan: Sendable {
     let found: DiscoveryResult
     let states: [RunnerState]
+    let labels: [[String]]
+    let queued: [QueuedWorkKnowledge]
     let jobs: [JobLogReader.Reading]
     let readers: [String: JobLogReader]
     let versions: [RunnerVersion?]
@@ -530,6 +595,8 @@ final class RunnerFleetModel: ObservableObject {
       return RunnerSnapshot(
         runner: runner,
         display: settling.display(scan.states[index], for: runner.label, readAt: readAt),
+        labels: scan.labels[index],
+        queued: scan.queued[index],
         // Only where the name alone would not say which runner this is.
         qualifier: repeated.contains(runner.displayName)
           ? runner.scope.displayName : nil,
@@ -658,6 +725,7 @@ final class RunnerFleetModel: ObservableObject {
       guard snapshot.runner.label == label else { return snapshot }
       return RunnerSnapshot(
         runner: snapshot.runner, display: snapshot.display,
+        labels: snapshot.labels, queued: snapshot.queued,
         qualifier: snapshot.qualifier, jobs: snapshot.jobs,
         readAt: snapshot.readAt,
         isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
