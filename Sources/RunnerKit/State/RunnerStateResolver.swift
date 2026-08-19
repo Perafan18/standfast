@@ -18,7 +18,12 @@ public struct RunnerStateResolver: Sendable {
   /// a local unknown/stopped result, and immediately after GitHub otherwise.
   public struct Reading: Sendable {
     public let state: RunnerState
+    /// No later than this, the machine had been read. An upper bound.
     public let readAt: Date
+    /// No part of this reading happened before this. A lower bound, and the
+    /// only one of the two that can prove a reading is *about* something that
+    /// happened at a known instant. See INV-007.
+    public let beganAt: Date
     public let stateReadAt: Date
     /// What GitHub says this runner is registered as, and empty when GitHub was
     /// not reached — or answered through a path that does not carry them.
@@ -29,10 +34,12 @@ public struct RunnerStateResolver: Sendable {
     public let labels: [String]
 
     public init(
-      state: RunnerState, readAt: Date, stateReadAt: Date, labels: [String] = []
+      state: RunnerState, readAt: Date, beganAt: Date? = nil, stateReadAt: Date,
+      labels: [String] = []
     ) {
       self.state = state
       self.readAt = readAt
+      self.beganAt = beganAt ?? readAt
       self.stateReadAt = stateReadAt
       self.labels = labels
     }
@@ -105,15 +112,30 @@ public struct RunnerStateResolver: Sendable {
     // the whole verdict on the source that cannot separate "stopped" from
     // "disconnected" — that separation is the only thing the local probe is
     // here for. Saying so is the honest report, and the menu has a line for it.
+    // Both ends of the interval this reading covers, because two callers need
+    // opposite bounds and one stamp cannot be both (INV-007).
+    //
+    //   * `beganAt` is a lower bound: no part of this reading happened before
+    //     it. `SettlingWindow` needs that to refuse a reading which may predate
+    //     the click that opened the window — a `launchctl` that started before
+    //     the user pressed Restart and took seconds would otherwise come back
+    //     looking newer than the click, be believed, and raise a warning
+    //     triangle over a restart going perfectly well.
+    //   * `readAt` is an upper bound: by then the machine had been read.
+    //     Reconciling an expected stop needs that, because a probe deliberately
+    //     held until after Stop completed is genuinely post-click evidence, and
+    //     dating it from before the scan would misfile it as stale and announce
+    //     a runner that stopped "by itself".
+    let beganAt = clock()
     let running = isServiceRunning(runner)
     let readAt = clock()
     guard let running else {
       return Reading(
-        state: .unknown(.serviceStateUnreadable), readAt: readAt,
+        state: .unknown(.serviceStateUnreadable), readAt: readAt, beganAt: beganAt,
         stateReadAt: readAt)
     }
     guard running else {
-      return Reading(state: .stopped, readAt: readAt, stateReadAt: readAt)
+      return Reading(state: .stopped, readAt: readAt, beganAt: beganAt, stateReadAt: readAt)
     }
 
     do {
@@ -128,21 +150,22 @@ public struct RunnerStateResolver: Sendable {
         // Labels still travel: a disconnected runner is exactly the one whose
         // queued work is worth naming, because nothing is going to take it.
         return Reading(
-          state: .disconnected, readAt: readAt, stateReadAt: stateReadAt,
-          labels: remote.labels)
+          state: .disconnected, readAt: readAt, beganAt: beganAt,
+          stateReadAt: stateReadAt, labels: remote.labels)
       }
       return Reading(
-        state: remote.busy ? .busy : .idle, readAt: readAt,
+        state: remote.busy ? .busy : .idle, readAt: readAt, beganAt: beganAt,
         stateReadAt: stateReadAt, labels: remote.labels)
     } catch let failure as GitHubError {
       return Reading(
-        state: .unknown(UnknownReason(failure)), readAt: readAt,
+        state: .unknown(UnknownReason(failure)), readAt: readAt, beganAt: beganAt,
         stateReadAt: clock())
     } catch {
       // Another client behind the same protocol may throw something else; it
       // still has not answered.
       return Reading(
-        state: .unknown(.noAnswer), readAt: readAt, stateReadAt: clock())
+        state: .unknown(.noAnswer), readAt: readAt, beganAt: beganAt,
+        stateReadAt: clock())
     }
   }
 

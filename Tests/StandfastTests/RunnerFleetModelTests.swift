@@ -397,14 +397,17 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
     in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z", finished: nil)
   // Eighty seconds after the job began at global scan start, and moving on
   // every reading. Discovery is dated thirty seconds later for absence, then
-  // this runner's own launchd probe another thirty seconds after that. The
-  // latter is still the instant a present runner's snapshot represents.
+  // this runner's reading brackets its own launchd probe with two stamps — the
+  // lower bound the settling window needs and the upper bound everything else
+  // does (INV-007). The row is dated from the upper one, which is the instant
+  // by which the machine had actually been read.
   let clock = TestClock(Date(timeIntervalSince1970: 1_785_962_174 + 80), step: 30)
   let fleet = model(box, clock: clock.read)
 
   await fleet.quiesce()
 
-  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(140)) == true)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(170)) == true)
+  #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(140)) == false)
   #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(110)) == false)
   #expect(fleet.snapshots[0].row.progress?.contains(DurationText.precise(80)) == false)
 }

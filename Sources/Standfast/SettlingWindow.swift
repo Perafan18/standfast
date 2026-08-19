@@ -68,8 +68,9 @@ struct SettlingWindow: Sendable {
   /// produce, and swallowing it would leave the user watching "Starting…"
   /// until the window ran out.
   ///
-  /// - Parameter readAt: when the machine was read, which is not when the
-  ///   answer arrived. A scan takes up to thirty seconds per runner, so one
+  /// - Parameter readBeganAt: the earliest instant this reading could have
+  ///   seen the machine — a lower bound, and the only kind of stamp that can
+  ///   prove a reading is *about* something that happened at a known time. A scan takes up to thirty seconds per runner, so one
   ///   started before the user pressed Restart routinely lands after the
   ///   restart has finished and opened a window. That scan saw the machine as
   ///   it was before the click; anything but `.disconnected` in it would close
@@ -79,11 +80,11 @@ struct SettlingWindow: Sendable {
   ///   window is not evidence about it, and is neither believed nor allowed to
   ///   spend it.
   mutating func display(
-    _ state: RunnerState, for label: String, readAt: Date
+    _ state: RunnerState, for label: String, readBeganAt: Date
   ) -> DisplayState {
     guard let window = windows[label] else { return .resolved(state) }
-    guard readAt >= window.openedAt else { return .starting }
-    guard state == .disconnected, readAt < window.deadline else {
+    guard readBeganAt >= window.openedAt else { return .starting }
+    guard state == .disconnected, readBeganAt < window.deadline else {
       // Either the handshake finished, or it failed, or it has had long
       // enough. All three end the benefit of the doubt.
       windows[label] = nil

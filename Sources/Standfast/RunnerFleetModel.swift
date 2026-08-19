@@ -31,6 +31,15 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// half a minute ago, and the row would be quietly describing two different
   /// machines.
   let readAt: Date
+  /// The other end of the same interval: no part of the reading behind this
+  /// snapshot happened before it.
+  ///
+  /// Its own field because `readAt` cannot serve both callers (INV-007).
+  /// `SettlingWindow` has to refuse a reading that may predate the click that
+  /// opened its window, which needs a lower bound; reconciling an expected stop
+  /// has to credit a probe deliberately held until after the click, which needs
+  /// an upper one.
+  let readBeganAt: Date
   /// When the source that completed `display` answered. Equal to `readAt` for
   /// a local stopped/unknown result and later when GitHub completed the state.
   /// Event ordering uses this without changing the local probe stamp above.
@@ -58,7 +67,8 @@ struct RunnerSnapshot: Identifiable, Equatable {
     labels: [String] = [], queued: QueuedWorkKnowledge = .notAsked,
     qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
-    isJobHistoryAvailable: Bool = true, stateReadAt: Date? = nil,
+    isJobHistoryAvailable: Bool = true, readBeganAt: Date? = nil,
+    stateReadAt: Date? = nil,
     version: InstalledRunnerVersion = .absent,
     isServiceActionReserved: Bool = false, operation: ServiceOperation? = nil
   ) {
@@ -70,6 +80,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     self.jobs = jobs
     self.isJobHistoryAvailable = isJobHistoryAvailable
     self.readAt = readAt
+    self.readBeganAt = readBeganAt ?? readAt
     self.stateReadAt = stateReadAt ?? readAt
     self.version = version
     self.isServiceActionReserved = isServiceActionReserved
@@ -438,6 +449,7 @@ final class RunnerFleetModel: ObservableObject {
     var jobs: [JobLogReader.Reading] = []
     var installed: [InstalledRunnerVersion] = []
     var readAt: [Date] = []
+    var readBeganAt: [Date] = []
     var stateReadAt: [Date] = []
     var readers = readers
     for runner in found.runners {
@@ -447,6 +459,7 @@ final class RunnerFleetModel: ObservableObject {
       queued.append(
         await queuedWork(for: runner, reading: state, through: queues))
       readAt.append(state.readAt)
+      readBeganAt.append(state.beganAt)
       stateReadAt.append(state.stateReadAt)
       // The same rule as discovery, for the same reason: this is file I/O, and
       // the cheap path — a directory listing and a `stat` — is only the usual
@@ -478,7 +491,7 @@ final class RunnerFleetModel: ObservableObject {
       found: found, states: states, labels: labels, queued: queued, jobs: jobs,
       readers: readers, versions: installed,
       discoveryStartedAt: discoveryStartedAt, readAt: readAt,
-      stateReadAt: stateReadAt)
+      readBeganAt: readBeganAt, stateReadAt: stateReadAt)
   }
 
   /// What is waiting for one runner, or why this app is not going to say.
@@ -545,6 +558,8 @@ final class RunnerFleetModel: ObservableObject {
     let discoveryStartedAt: Date
     /// When launchd answered for each corresponding runner.
     let readAt: [Date]
+    /// The lower bound of each corresponding reading. See `readBeganAt`.
+    let readBeganAt: [Date]
     /// When the source completing each corresponding state answered.
     let stateReadAt: [Date]
   }
@@ -606,7 +621,11 @@ final class RunnerFleetModel: ObservableObject {
       let jobReading = scan.jobs[index]
       return RunnerSnapshot(
         runner: runner,
-        display: settling.display(scan.states[index], for: runner.label, readAt: readAt),
+        display: settling.display(
+          scan.states[index], for: runner.label,
+          // The lower bound, deliberately: a reading that *may* have begun
+          // before the window opened is not evidence about it.
+          readBeganAt: scan.readBeganAt[index]),
         labels: scan.labels[index],
         queued: scan.queued[index],
         // Only where the name alone would not say which runner this is.
@@ -615,6 +634,7 @@ final class RunnerFleetModel: ObservableObject {
         jobs: jobReading.history,
         readAt: readAt,
         isJobHistoryAvailable: jobReading.isAvailable,
+        readBeganAt: scan.readBeganAt[index],
         stateReadAt: scan.stateReadAt[index],
         version: jobReading.isAvailable
           ? scan.versions[index]
@@ -742,7 +762,7 @@ final class RunnerFleetModel: ObservableObject {
         qualifier: snapshot.qualifier, jobs: snapshot.jobs,
         readAt: snapshot.readAt,
         isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
-        stateReadAt: snapshot.stateReadAt,
+        readBeganAt: snapshot.readBeganAt, stateReadAt: snapshot.stateReadAt,
         version: snapshot.version,
         isServiceActionReserved: true, operation: operations[label])
     }

@@ -10,7 +10,7 @@ private let label = "actions.runner.acme-widget.build-mac"
 @Test func aRunnerNobodyStartedIsShownExactlyAsResolved() {
   var window = SettlingWindow(duration: 30)
   for state: RunnerState in [.idle, .busy, .disconnected, .stopped, .unknown(.noAnswer)] {
-    #expect(window.display(state, for: label, readAt: epoch) == .resolved(state))
+    #expect(window.display(state, for: label, readBeganAt: epoch) == .resolved(state))
   }
 }
 
@@ -21,8 +21,8 @@ private let label = "actions.runner.acme-widget.build-mac"
   var window = SettlingWindow(duration: 30)
   window.open(for: label, at: epoch)
 
-  #expect(window.display(.disconnected, for: label, readAt: epoch + 1) == .starting)
-  #expect(window.display(.disconnected, for: label, readAt: epoch + 29) == .starting)
+  #expect(window.display(.disconnected, for: label, readBeganAt: epoch + 1) == .starting)
+  #expect(window.display(.disconnected, for: label, readBeganAt: epoch + 29) == .starting)
 }
 
 @Test func aRunnerStillDisconnectedWhenTheWindowRunsOutIsReported() {
@@ -32,7 +32,7 @@ private let label = "actions.runner.acme-widget.build-mac"
   window.open(for: label, at: epoch)
 
   #expect(
-    window.display(.disconnected, for: label, readAt: epoch + 30)
+    window.display(.disconnected, for: label, readBeganAt: epoch + 30)
       == .resolved(.disconnected))
 }
 
@@ -44,18 +44,19 @@ private let label = "actions.runner.acme-widget.build-mac"
   var window = SettlingWindow(duration: 30)
   window.open(for: label, at: epoch)
 
-  #expect(window.display(.stopped, for: label, readAt: epoch + 1) == .resolved(.stopped))
+  #expect(
+    window.display(.stopped, for: label, readBeganAt: epoch + 1) == .resolved(.stopped))
 }
 
 @Test func theWindowClosesAsSoonAsTheRunnerRegisters() {
   var window = SettlingWindow(duration: 30)
   window.open(for: label, at: epoch)
 
-  #expect(window.display(.idle, for: label, readAt: epoch + 2) == .resolved(.idle))
+  #expect(window.display(.idle, for: label, readBeganAt: epoch + 2) == .resolved(.idle))
   // A later disconnect is a real one: this runner already proved it can
   // register, so the handshake is not what is failing now.
   #expect(
-    window.display(.disconnected, for: label, readAt: epoch + 3)
+    window.display(.disconnected, for: label, readBeganAt: epoch + 3)
       == .resolved(.disconnected))
 }
 
@@ -66,7 +67,7 @@ private let label = "actions.runner.acme-widget.build-mac"
   window.close(for: label)
 
   #expect(
-    window.display(.disconnected, for: label, readAt: epoch + 1)
+    window.display(.disconnected, for: label, readBeganAt: epoch + 1)
       == .resolved(.disconnected))
 }
 
@@ -75,9 +76,9 @@ private let label = "actions.runner.acme-widget.build-mac"
   window.open(for: label, at: epoch)
 
   #expect(
-    window.display(.disconnected, for: "another.runner", readAt: epoch + 1)
+    window.display(.disconnected, for: "another.runner", readBeganAt: epoch + 1)
       == .resolved(.disconnected))
-  #expect(window.display(.disconnected, for: label, readAt: epoch + 1) == .starting)
+  #expect(window.display(.disconnected, for: label, readBeganAt: epoch + 1) == .starting)
 }
 
 @Test func pruningForgetsRunnersThatAreGoneAndKeepsTheRest() {
@@ -88,9 +89,9 @@ private let label = "actions.runner.acme-widget.build-mac"
   window.keepOnly([label])
 
   #expect(window.settlingLabels == [label])
-  #expect(window.display(.disconnected, for: label, readAt: epoch + 1) == .starting)
+  #expect(window.display(.disconnected, for: label, readBeganAt: epoch + 1) == .starting)
   #expect(
-    window.display(.disconnected, for: "another.runner", readAt: epoch + 1)
+    window.display(.disconnected, for: "another.runner", readBeganAt: epoch + 1)
       == .resolved(.disconnected))
 }
 
@@ -104,9 +105,9 @@ private let label = "actions.runner.acme-widget.build-mac"
   var window = SettlingWindow(duration: 30)
   window.open(for: label, at: epoch + 10)
 
-  #expect(window.display(.idle, for: label, readAt: epoch) == .starting)
+  #expect(window.display(.idle, for: label, readBeganAt: epoch) == .starting)
   // And the window is still there for the reading that comes after it.
-  #expect(window.display(.disconnected, for: label, readAt: epoch + 11) == .starting)
+  #expect(window.display(.disconnected, for: label, readBeganAt: epoch + 11) == .starting)
 }
 
 @Test func aStaleReadingIsNotBelievedWhateverItSays() {
@@ -115,7 +116,7 @@ private let label = "actions.runner.acme-widget.build-mac"
   for state: RunnerState in [.idle, .busy, .disconnected, .stopped, .unknown(.noAnswer)] {
     var window = SettlingWindow(duration: 30)
     window.open(for: label, at: epoch + 10)
-    #expect(window.display(state, for: label, readAt: epoch + 9) == .starting)
+    #expect(window.display(state, for: label, readBeganAt: epoch + 9) == .starting)
     #expect(window.settlingLabels == [label])
   }
 }
@@ -126,7 +127,7 @@ private let label = "actions.runner.acme-widget.build-mac"
   var window = SettlingWindow(duration: 30)
   window.open(for: label, at: epoch)
 
-  #expect(window.display(.idle, for: label, readAt: epoch) == .resolved(.idle))
+  #expect(window.display(.idle, for: label, readBeganAt: epoch) == .resolved(.idle))
   #expect(window.settlingLabels.isEmpty)
 }
 
@@ -137,5 +138,5 @@ private let label = "actions.runner.acme-widget.build-mac"
   window.open(for: label, at: epoch)
   window.open(for: label, at: epoch + 20)
 
-  #expect(window.display(.disconnected, for: label, readAt: epoch + 40) == .starting)
+  #expect(window.display(.disconnected, for: label, readBeganAt: epoch + 40) == .starting)
 }

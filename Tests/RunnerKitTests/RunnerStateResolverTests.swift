@@ -436,3 +436,49 @@ private func confirm(
   #expect(reading.state == .stopped)
   #expect(reading.labels.isEmpty)
 }
+
+// MARK: - INV-007: when a reading is stamped decides what it can prove
+
+@Test func aReadingCarriesBothEndsOfWhenItSawTheMachine() {
+  // The stamp is a claim about when this snapshot saw the machine, and the
+  // settling window uses it to decide whether a reading is evidence about a
+  // click that came before it: a reading older than the window is refused.
+  //
+  // That argument only holds if the stamp is a *lower* bound. Stamped on the
+  // way out it is an upper bound, and then a probe that began before the user
+  // pressed Restart — `launchctl` can take seconds — comes back stamped after
+  // the window opened, is believed, and puts a warning triangle over a restart
+  // that is going perfectly well. Which is the exact failure the window exists
+  // to prevent.
+  let ticks = Ticker([
+    Date(timeIntervalSince1970: 100),
+    Date(timeIntervalSince1970: 130),
+    Date(timeIntervalSince1970: 160),
+  ])
+  let reading = RunnerStateResolver(
+    isServiceRunning: { _ in false },
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
+  ).blockingReading(for: runner, clock: ticks.next)
+
+  #expect(reading.state == .stopped)
+  // The lower bound is taken before the probe runs...
+  #expect(reading.beganAt == Date(timeIntervalSince1970: 100))
+  // ...and the upper bound after it, so the pair brackets the reading instead
+  // of pretending it happened at an instant. Two callers need opposite ends.
+  #expect(reading.readAt == Date(timeIntervalSince1970: 130))
+}
+
+/// Hands out prepared instants in order, so a test can watch the clock move
+/// across a probe it controls.
+private final class Ticker: @unchecked Sendable {
+  private let lock = NSLock()
+  private var remaining: [Date]
+
+  init(_ instants: [Date]) { remaining = instants }
+
+  func next() -> Date {
+    lock.lock()
+    defer { lock.unlock() }
+    return remaining.isEmpty ? .distantFuture : remaining.removeFirst()
+  }
+}
