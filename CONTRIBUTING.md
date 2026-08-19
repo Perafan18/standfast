@@ -182,6 +182,27 @@ continues the packaging, launch, process-survival, and background-agent checks w
 that menu, windows, and Accessibility are not covered. A green CI package job is therefore
 not evidence that Control Center or Settings opens, focuses, or closes correctly.
 
+## The oldest macOS this runs on
+
+Four files say it, and nothing in the build links them: the deployment target in
+`Package.swift`, `LSMinimumSystemVersion` in `Resources/Info.plist`, a sentence in
+`README.md`, and one on the landing page. `Tests/Scripts/MinimumOSContractTests.sh` fails
+when they disagree — bump one and the rest keep promising the old number, which is an app
+macOS will happily install onto a system it can no longer run on.
+
+**What that number is backed by, and what it is not.** The deployment target is real: the
+compiler refuses an API newer than it, on every machine, for free. Nothing else is checked.
+Until 2026-08-19 a CI job compiled the package under an older Xcode on an actual macOS 14;
+it was retired with the rest of the rented runners, so there is no longer any evidence about
+how this behaves *running* there, or about whether it still builds under the Swift that
+shipped with it. That distinction has bitten this project before — the Swift 6
+interoperability failures with `UserNotifications` were a toolchain difference, not an API
+one.
+
+Restoring it means a machine that is not the release manager's Mac: an old Mac registered as
+a second self-hosted runner, or a macOS 14 VM. Until then the number is a claim about what
+should work, not a report of what was tried.
+
 ## Talking to GitHub
 
 Two clients behind one protocol, chosen by `TokenFirstGitHubClient`:

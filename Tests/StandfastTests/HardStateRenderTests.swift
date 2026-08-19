@@ -25,11 +25,20 @@ private var renderDirectory: URL? {
 
 @MainActor
 private func render(
-  _ view: some View, to url: URL, width: CGFloat = 640, height: CGFloat = 720
+  _ view: some View, to url: URL,
+  width: CGFloat = StandfastTheme.controlCenterDefaultWidth,
+  height: CGFloat = 720
 ) throws {
-  // 640, not the 540 token: macOS restores the Control Center at 640 and that
-  // is the width a person actually looks at. At 540 the header stacks
-  // vertically, which would put a layout on screen that no user sees.
+  // The token, and it is the token because that is what was measured. This
+  // used to say 640 with a note that macOS restores the Control Center wider
+  // than the token asks. It does not. What was actually on that Mac was a
+  // saved `NSWindow Frame control-center` of 640×720 from an earlier session;
+  // delete it and the window opens at exactly the token, which is what anybody
+  // installing this app for the first time sees.
+  //
+  // The other half of that note — that the header stacks vertically at 540 —
+  // was true and is not any more. UI-041 made the header the short form, and
+  // it now sits on one line beside Refresh at this width.
   let size = NSSize(width: width, height: height)
   let hosting = NSHostingView(
     rootView:

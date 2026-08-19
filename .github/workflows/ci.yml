@@ -148,6 +148,9 @@ jobs:
       - name: The release rail cannot go green without releasing
         run: Tests/Scripts/ReleaseContractTests.sh
 
+      - name: Every place that names a minimum macOS names the same one
+        run: Tests/Scripts/MinimumOSContractTests.sh
+
       - name: No private workspace references in the PR diff
         if: github.event_name == 'pull_request'
         run: ./Scripts/check-public-diff.sh "origin/${GITHUB_BASE_REF}...HEAD"
