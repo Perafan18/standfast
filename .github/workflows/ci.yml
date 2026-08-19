@@ -134,6 +134,9 @@ jobs:
       - name: Public-diff checker handles content, refs, renames, and binaries
         run: Tests/Scripts/PublicDiffContractTests.sh
 
+      - name: Installing over a copy prunes the backups it makes
+        run: Tests/Scripts/InstallAppContractTests.sh
+
       - name: No private workspace references in the PR diff
         if: github.event_name == 'pull_request'
         run: ./Scripts/check-public-diff.sh "origin/${GITHUB_BASE_REF}...HEAD"

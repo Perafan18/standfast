@@ -176,6 +176,24 @@ continues the packaging, launch, process-survival, and background-agent checks w
 that menu, windows, and Accessibility are not covered. A green CI package job is therefore
 not evidence that Control Center or Settings opens, focuses, or closes correctly.
 
+## Running your build for real
+
+```sh
+./Scripts/install-app.sh
+```
+
+Builds, keeps the copy it replaces, installs into `~/Applications`, and relaunches. Set
+`RESTART=0` to stage a version without touching the one running, `APP=<bundle>` to install
+something already built, and `BACKUPS_KEPT=<n>` to change how many previous versions
+survive.
+
+Two survive by default, in `~/Applications/Standfast Backups`. **The bound is the reason
+this is a script.** The hand-typed command it replaces backed up unconditionally and pruned
+nothing, so six copies accumulated where nobody looks at a folder listing — and surfaced in
+Spotlight, where searching "Stan" returned seven identical icons whose names were truncated
+before the timestamp that told them apart. Anything older than a rollback needs is what git
+is for: every release is a tag.
+
 ## Signing and notarisation
 
 `build-app.sh` picks its identity itself and says which one it used:
