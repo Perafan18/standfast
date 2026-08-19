@@ -9,13 +9,33 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Main jobs use macos-15 because its default Xcode provides the Swift 6 tools
-# the manifest and formatter require. The minimum-OS watchdog job below pins a
-# compatible Swift 6 Xcode explicitly instead of relying on the older default.
+# Every job runs on the release manager's own Mac. Nothing here is rented.
+#
+# It is the premise of the product applied to the product: these are Pedro's
+# Macs, and a build of Standfast has no business renting one from GitHub. It
+# also stopped being affordable — GitHub-hosted macOS jobs spent 304 billed
+# minutes in August and exhausted the account's Actions budget, which took CI
+# down entirely for a day.
+#
+# What this costs, and it is not only wall-clock:
+#
+# One runner runs one job at a time, so these three queue behind each other
+# instead of starting together. A pass takes longer and costs nothing. On this
+# machine each job is also faster than the rented one it replaced, which pays
+# some of that back.
+#
+# And the minimum-OS watchdog is gone. It compiled the package under Xcode 16.2
+# on an actual macOS 14, which is the only thing here that ever ran on anything
+# but this Mac. **That coverage no longer exists.** It has caught real
+# problems — the Swift 6 interoperability failures with `UserNotifications`
+# were exactly that class. What survives is compile-time availability:
+# `Package.swift` targets `.macOS(.v14)`, so an API newer than the deployment
+# target still fails the build. That is not the same as running there, and
+# `Resources/Info.plist` still promises macOS 14 to whoever downloads this.
 jobs:
   test:
     name: Build and test
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
 
@@ -41,42 +61,25 @@ jobs:
       - name: Build (release, warnings are errors)
         run: swift build -c release -Xswiftc -warnings-as-errors
 
-  watchdog-macos-14:
-    name: Watchdog regression (macOS 14)
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-
-      # GitHub began deprecating macos-14 on 2026-07-06 and will retire it on
-      # 2026-11-02. Move this coverage to a self-hosted macOS 14 runner or an
-      # equivalent minimum-OS strategy before that date.
-      - name: Select Swift 6 toolchain
-        run: sudo xcode-select --switch /Applications/Xcode_16.2.app/Contents/Developer
-
-      - name: Swift version
-        run: swift --version
-
-      # Keep compilation outside the regression's timeout so a cold 3-vCPU
-      # runner reports toolchain/build failures separately from harness hangs.
-      - name: Build watchdog test bundle
-        timeout-minutes: 30
-        run: swift build --build-tests
-
-      - name: Watchdog remains independent of the global dispatch pool
-        timeout-minutes: 10
-        run: bash Tests/Scripts/RunWatchdogRegression.sh
-
   package:
     name: Package the app
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64]
+    env:
+      # Ad-hoc on purpose, even though this Mac has a Developer ID. The
+      # subject of this job is the *fallback* branch — that a build with no
+      # certificate still produces a bundle with a real identity, and that
+      # `notarize.sh` refuses to send it to Apple. Signing throwaway CI builds
+      # with the release certificate would both misuse it and make the next
+      # step fail for the reason that the bundle was not ad-hoc after all.
+      SIGN_IDENTITY: "-"
     steps:
       - uses: actions/checkout@v4
 
-      # No Developer ID Application certificate exists on a GitHub runner and
-      # none is installed here on purpose: a release is signed on the release
-      # manager's machine, so the certificate never leaves it. What CI covers
-      # is the other branch — that the fallback still produces a bundle with a
-      # real identity, which is the one the app needs to be able to notify.
+      # A release is signed by the release workflow, on this same Mac, with the
+      # certificate that never leaves it. What CI covers is the other branch —
+      # that the fallback still produces a bundle with a real identity, which is
+      # the one the app needs before it can notify at all. See `SIGN_IDENTITY`
+      # above for why that branch has to be asked for now.
       - name: Assemble Standfast.app
         run: ./Scripts/build-app.sh
 
@@ -103,9 +106,14 @@ jobs:
 
       # The only check that catches a bundle which resolves on the machine that
       # built it and traps everywhere else. It reassembles the app, deletes
-      # .build on purpose, and launches what is left. GitHub-hosted runners
-      # cannot grant Accessibility access, so CI opts into the packaging-only
-      # mode explicitly; this green step is not window-lifecycle evidence.
+      # .build on purpose, and launches what is left.
+      #
+      # Still packaging-only, now for a different reason. It used to be that a
+      # GitHub runner cannot grant Accessibility access. This Mac can — but the
+      # runner is a launchd agent with no window of its own, and a probe that
+      # drove the real menu bar here would fight the copy of Standfast the
+      # operator is actually using. Window and menu evidence comes from
+      # `./Scripts/check-app.sh` run by hand, and this green step is not it.
       #
       # This is what `make check` runs. The target itself is not used here only
       # because it would repeat the whole test suite the job above just ran.
@@ -116,7 +124,7 @@ jobs:
 
   hygiene:
     name: Hygiene
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
         with:

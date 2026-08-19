@@ -85,7 +85,21 @@ cp -R "$RESOURCES"/*.lproj "$DEST/Contents/Resources/"
 identities="$(security find-identity -v -p codesigning 2>/dev/null \
   | sed -n 's/^ *[0-9]*) \([0-9A-F]*\) "\(Developer ID Application:.*\)"$/\1 \2/p')"
 
-if [ -n "${SIGN_IDENTITY:-}" ]; then
+# `-` is codesign's own spelling for an ad-hoc signature, and here it means
+# "sign ad-hoc even though this Mac has a real certificate".
+#
+# It exists because CI moved onto the release manager's own machine. The
+# packaging job's whole subject is the *fallback* branch — that a build with no
+# Developer ID still produces a bundle with a real identity, and that
+# `notarize.sh` refuses to send it to Apple. On a GitHub runner that came free,
+# because there was no certificate to find. On this Mac there is one, and
+# without a way to say no, CI would sign every throwaway build with the
+# release certificate and then fail the step that checks it refuses to
+# notarise an ad-hoc bundle — for the reason that it was not one.
+if [ "${SIGN_IDENTITY:-}" = "-" ]; then
+  chosen=""
+  adhoc_reason="asked for"
+elif [ -n "${SIGN_IDENTITY:-}" ]; then
   # A caller who named an identity is releasing. Falling back to ad-hoc here
   # would hand them a bundle that cannot be notarised, after the point where
   # anyone would think to check.
@@ -149,7 +163,15 @@ else
   # ignores --timestamp for an ad-hoc signature anyway, and saying so
   # explicitly keeps a build with no network from reaching for one.
   codesign --force --options runtime --timestamp=none --sign - "$DEST"
-  echo "Signed ad-hoc: no Developer ID Application certificate in the keychain."
+  # Which of the two reasons, because they are not the same news. One is a
+  # machine that has no certificate; the other is a caller who said not to use
+  # the one it has, and reporting that as an empty keychain would send whoever
+  # reads the log looking for a certificate that is right there.
+  if [ "${adhoc_reason:-}" = "asked for" ]; then
+    echo "Signed ad-hoc: SIGN_IDENTITY=- asked for it."
+  else
+    echo "Signed ad-hoc: no Developer ID Application certificate in the keychain."
+  fi
   echo "  The app will work on this Mac. Gatekeeper will refuse it on any other."
   echo "  Releases must be signed and notarised — see CONTRIBUTING.md."
 fi
