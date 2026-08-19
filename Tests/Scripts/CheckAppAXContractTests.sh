@@ -1164,4 +1164,28 @@ fi
 # failure it had no part in.
 assert_not_contains "$uncovered_output" "full screen"
 
+# A named cause beats a guess.
+#
+# The two environmental notes are appended to any failure they could plausibly
+# explain, which is right while the cause is unknown and wrong the moment it is
+# not. This failure names itself: two processes called Standfast, because the
+# gate launches its own copy beside whatever the operator already has running.
+# Sending them to unlock a Mac that is not locked, and to leave a full screen
+# they are not in, costs the one thing a diagnostic exists to save.
+rm -f "$SENTINEL" "$reveal_log"
+ambiguous_output=""
+if ambiguous_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_AX_CLICK_TOOL="$reveal_bin/ax-click" \
+    STANDFAST_REVEAL_LOG="$reveal_log" STANDFAST_FAKE_MENU_BAR=hidden \
+    STANDFAST_OSASCRIPT_ERROR_MESSAGE="refusing ambiguous Accessibility process name: Standfast" \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "require mode passed without a readable menu"
+fi
+assert_contains "$ambiguous_output" "another copy of Standfast is running"
+# Covered menu bar and all: the guess is suppressed because the cause is known.
+assert_not_contains "$ambiguous_output" "full screen"
+assert_not_contains "$ambiguous_output" "screen is locked"
+
 echo "PASS: check-app AX mode contract"
