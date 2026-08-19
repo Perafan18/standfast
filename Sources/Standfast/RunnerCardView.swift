@@ -92,6 +92,22 @@ struct RunnerCardView: View {
       if let queued = card.queued {
         queueLine(queued)
       }
+      // Why the controls below do nothing, above the fold with the controls
+      // themselves. Greyed-out buttons and no explanation is the app knowing
+      // something and not saying it.
+      if let note = card.serviceNote {
+        HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
+          Image(systemName: "hand.raised")
+            .frame(width: 20)
+            .foregroundStyle(palette.textSecondary.color)
+            .accessibilityHidden(true)
+          Text(note)
+            .font(.subheadline)
+            .foregroundStyle(palette.textSecondary.color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+      }
       // The receipt for the last Start or Stop stays with the situation on
       // purpose: hiding the outcome of an action the operator just took would
       // make folding feel like the app forgot.

@@ -61,6 +61,25 @@ private struct Sandbox {
     try encoded.write(to: launchAgents.appendingPathComponent(name))
   }
 
+  /// A runner directory with no LaunchAgent beside it — what `./run.sh` leaves
+  /// behind, and what this app used to be blind to.
+  @discardableResult
+  func addManualRunner(
+    named name: String, agentId: Int, gitHubUrl: String,
+    runnerFile: RunnerFile = .complete
+  ) throws -> URL {
+    let dir = root.appendingPathComponent(name)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    guard runnerFile != .missing else { return dir }
+    var fields: [String: Any] = ["agentId": agentId, "gitHubUrl": gitHubUrl]
+    if runnerFile == .complete { fields["agentName"] = name }
+    fields["workFolder"] = "_work"
+    var data = Data([0xEF, 0xBB, 0xBF])
+    data.append(try JSONSerialization.data(withJSONObject: fields))
+    try data.write(to: dir.appendingPathComponent(".runner"))
+    return dir
+  }
+
   func cleanUp() { try? FileManager.default.removeItem(at: root) }
 }
 
@@ -416,4 +435,97 @@ private struct DirectoryListingFailure: Error {}
   #expect(found.unreadable.isEmpty)
   #expect(found.failure == .launchAgentsUnreadable(box.launchAgents))
   #expect(found.possiblyInstalledLabels == nil)
+}
+
+// MARK: - Runners nobody registered with launchd
+
+@Test func aRunnerStartedByHandIsFoundWhereTheOperatorSaidItIs() throws {
+  // The promise this app makes is that it finds your runners. `./run.sh`
+  // leaves no LaunchAgent, so half a fleet could be invisible from the first
+  // minute of use — and nothing on screen said so.
+  //
+  // Pointed at, never guessed at. Walking the disk looking for `.runner` files
+  // would read directories nobody asked this app to read.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addManualRunner(
+    named: "hand-started", agentId: 91, gitHubUrl: "https://github.com/acme/widget")
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, manualDirectories: [directory]
+  ).discover()
+
+  #expect(result.runners.map(\.agentId) == [91])
+  #expect(result.runners.map(\.installation) == [.manual])
+  #expect(result.runners[0].directory.path == directory.path)
+}
+
+@Test func bothKindsOfRunnerComeBackFromOneScan() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.serviced", agentId: 7,
+    gitHubUrl: "https://github.com/acme/widget")
+  let manual = try box.addManualRunner(
+    named: "hand-started", agentId: 91, gitHubUrl: "https://github.com/acme/widget")
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, manualDirectories: [manual]
+  ).discover()
+
+  #expect(Set(result.runners.map(\.agentId)) == [7, 91])
+  #expect(
+    Set(result.runners.map(\.installation)) == [.launchAgent, .manual])
+}
+
+@Test func aDirectoryAlreadyRunningAsAServiceIsNotListedTwice() throws {
+  // Somebody who adds the directory of a runner that *is* a LaunchAgent gets
+  // one row, not two. The serviced identity wins: it is the one that can be
+  // started and stopped from here.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(
+    label: "actions.runner.acme-widget.serviced", agentId: 7,
+    gitHubUrl: "https://github.com/acme/widget")
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, manualDirectories: [directory]
+  ).discover()
+
+  #expect(result.runners.map(\.installation) == [.launchAgent])
+}
+
+@Test func aConfiguredDirectoryThatIsNotARunnerIsReportedRatherThanDropped() throws {
+  // Somebody pointed this app at the wrong folder. Silently showing nothing
+  // would leave them waiting for a row that is never coming.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addManualRunner(
+    named: "not-a-runner", agentId: 0, gitHubUrl: "x", runnerFile: .missing)
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, manualDirectories: [directory]
+  ).discover()
+
+  #expect(result.runners.isEmpty)
+  #expect(result.unreadable.map(\.path) == [directory.path])
+}
+
+@Test func twoHandStartedRunnersKeepSeparateIdentities() throws {
+  // Nothing registered these, so nothing gave them a label. The directory is
+  // what tells them apart, and it has to survive into the identity everything
+  // else keys on — folding, in-flight operations, the settling window.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let first = try box.addManualRunner(
+    named: "one", agentId: 1, gitHubUrl: "https://github.com/acme/widget")
+  let second = try box.addManualRunner(
+    named: "two", agentId: 2, gitHubUrl: "https://github.com/acme/widget")
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, manualDirectories: [first, second]
+  ).discover()
+
+  #expect(Set(result.runners.map(\.label)).count == 2)
+  #expect(result.runners.allSatisfy { $0.label.contains($0.directory.lastPathComponent) })
 }

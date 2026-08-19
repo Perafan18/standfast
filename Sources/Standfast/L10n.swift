@@ -25,6 +25,7 @@ enum L10n {
   /// The two halves a runner's state is made of, named only where they
   /// disagree — which is where one word alone lies.
   static let stateLayerRunningLocally = t("state.layer.runningLocally")
+  static let runnerStartedByHand = t("runner.startedByHand")
   static let stateLayerGitHubSilent = t("state.layer.gitHubSilent")
   static let stateLayerGitHubNotAsked = t("state.layer.gitHubNotAsked")
   static let stateLayerGitHubRateLimited = t("state.layer.gitHubRateLimited")
@@ -39,6 +40,13 @@ enum L10n {
   static let settingsNotificationsFooter = t("settings.notifications.footer")
   static let settingsPowerFooter = t("settings.power.footer")
   static let settingsStartupFooter = t("settings.startup.footer")
+  static let settingsRunners = t("settings.runners")
+  static let settingsRunnersFooter = t("settings.runners.footer")
+  static let settingsRunnersNone = t("settings.runners.none")
+  static let settingsRunnersAdd = t("settings.runners.add")
+  static func settingsRunnersRemove(_ name: String, in bundles: [Bundle]? = nil) -> String {
+    String(format: t("settings.runners.remove", in: bundles), name)
+  }
   static let settingsGitHub = t("settings.github")
   static let settingsGitHubFooter = t("settings.github.footer")
   static let settingsGitHubStored = t("settings.github.stored")
@@ -581,6 +589,8 @@ enum L10n {
     "controlCenter.service.start": "Start service",
     "controlCenter.service.stop": "Stop service",
     "controlCenter.service.restart": "Restart service",
+    "runner.startedByHand":
+      "Started by hand, so Standfast can watch it but not stop or restart it",
     "state.layer.runningLocally": "Running locally",
     "state.layer.gitHubNotAsked": "GitHub not asked",
     "state.layer.gitHubRateLimited": "GitHub rate limit reached",
@@ -614,6 +624,16 @@ enum L10n {
       "Remove token",
     "settings.github.keychainFailed":
       "The Keychain refused to store it. Nothing was changed.",
+    "settings.runners":
+      "Runners started by hand",
+    "settings.runners.footer":
+      "A runner installed as a service announces itself and Standfast finds it. One started with ./run.sh does not, so point Standfast at its folder. Standfast can watch these but cannot start or stop them.",
+    "settings.runners.none":
+      "None added. Only runners installed as a service are being watched.",
+    "settings.runners.add":
+      "Add a runner folder…",
+    "settings.runners.remove":
+      "Stop watching %@",
     "settings.startup.footer":
       "Standfast can open automatically when you log in.",
     "settings.version": "Standfast%@",

@@ -234,6 +234,13 @@ extension RunnerSnapshot {
     JobProgress.reading(jobs, display: display, at: readAt)
   }
 
+  /// Whether Start, Stop and Restart can do anything here.
+  ///
+  /// They are `svc.sh`, and `svc.sh` manages a LaunchAgent. A runner started by
+  /// hand has none, so a Stop button on it would invite a click and then
+  /// explain a failure that was certain before it was pressed.
+  var canControlService: Bool { runner.installation == .launchAgent }
+
   var row: RunnerRow {
     RunnerRow(
       // `displayName`, not `agentName`: the `.runner` file does not always
@@ -247,13 +254,13 @@ extension RunnerSnapshot {
       actions: [
         .init(
           kind: .start, label: L10n.start,
-          isEnabled: display.canStart && !isServiceActionReserved),
+          isEnabled: canControlService && display.canStart && !isServiceActionReserved),
         .init(
           kind: .stop, label: L10n.stop,
-          isEnabled: display.canStop && !isServiceActionReserved),
+          isEnabled: canControlService && display.canStop && !isServiceActionReserved),
         .init(
           kind: .restart, label: L10n.restart,
-          isEnabled: display.canRestart && !isServiceActionReserved),
+          isEnabled: canControlService && display.canRestart && !isServiceActionReserved),
         // Always available: a runner GitHub cannot see is the one you most
         // want to go and look at.
         .init(kind: .openOnGitHub, label: L10n.openOnGitHub, isEnabled: true),

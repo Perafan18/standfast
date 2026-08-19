@@ -18,6 +18,7 @@
 "controlCenter.service.stop" = "Parar servicio";
 "controlCenter.service.restart" = "Reiniciar servicio";
 "state.layer.runningLocally" = "Corriendo en local";
+"runner.startedByHand" = "Arrancado a mano, así que Standfast puede vigilarlo pero no pararlo ni reiniciarlo";
 "state.layer.gitHubSilent" = "GitHub sin respuesta";
 "state.layer.gitHubNotAsked" = "GitHub sin consultar";
 "state.layer.gitHubRateLimited" = "Límite de GitHub alcanzado";
@@ -42,6 +43,11 @@
 "settings.github.remove" = "Quitar token";
 "settings.github.keychainFailed" = "El llavero se negó a guardarlo. No se cambió nada.";
 "settings.startup.footer" = "Standfast puede abrirse automáticamente al iniciar sesión.";
+"settings.runners" = "Runners arrancados a mano";
+"settings.runners.footer" = "Un runner instalado como servicio se anuncia solo y Standfast lo encuentra. Uno arrancado con ./run.sh no, así que señálale su carpeta. Standfast puede vigilarlos pero no arrancarlos ni pararlos.";
+"settings.runners.none" = "Ninguno añadido. Solo se vigilan los runners instalados como servicio.";
+"settings.runners.add" = "Añadir carpeta de runner…";
+"settings.runners.remove" = "Dejar de vigilar %@";
 "settings.version" = "Standfast%@";
 
 "menu.start" = "Arrancar";

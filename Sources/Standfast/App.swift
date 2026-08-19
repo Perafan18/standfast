@@ -5,6 +5,7 @@ struct StandfastApp: App {
   @StateObject private var fleet: RunnerFleetModel
   @StateObject private var loginItem = LoginItem()
   @StateObject private var github = GitHubAccess()
+  @StateObject private var manualRunners = ManualRunnerDirectories()
   @StateObject private var thermal = ThermalMonitor()
   @StateObject private var sceneActivation: SceneActivationCoordinator
 
@@ -48,7 +49,8 @@ struct StandfastApp: App {
     Settings {
       SettingsView(
         loginItem: loginItem, notifications: fleet.notifications, sleep: fleet.sleep,
-        github: github, infoDictionary: Bundle.main.infoDictionary
+        github: github, manualRunners: manualRunners,
+        infoDictionary: Bundle.main.infoDictionary
       )
       .background(
         SceneWindowProbe(

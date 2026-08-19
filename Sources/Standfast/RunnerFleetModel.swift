@@ -241,7 +241,10 @@ final class RunnerFleetModel: ObservableObject {
   ///     refreshes, which is what tests want.
   init(
     discover: @escaping @Sendable () -> DiscoveryResult = {
-      RunnerDiscovery().discover()
+      // The folders the operator added are read here, on every scan, rather
+      // than captured once: one added while the app is open should be found by
+      // the next refresh and not by the next launch.
+      RunnerDiscovery(manualDirectories: ManualRunnerDirectories.stored()).discover()
     },
     resolver: RunnerStateResolver = RunnerStateResolver(),
     controller: ServiceController = ServiceController(),

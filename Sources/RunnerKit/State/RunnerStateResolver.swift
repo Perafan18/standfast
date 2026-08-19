@@ -60,10 +60,22 @@ public struct RunnerStateResolver: Sendable {
 
   public init(
     probe: LaunchctlProbe = LaunchctlProbe(),
+    listeners: ListenerProcessProbe = ListenerProcessProbe(),
     github: any GitHubClient = TokenFirstGitHubClient.standard
   ) {
     self.init(
-      isServiceRunning: { probe.blockingIsRunning(label: $0.label) }, github: github)
+      isServiceRunning: { runner in
+        switch runner.installation {
+        case .launchAgent:
+          probe.blockingIsRunning(label: runner.label)
+        // No launchd job exists for one of these, and asking anyway would get
+        // a confident "not running" for every hand-started runner on the
+        // machine — each drawn as stopped, with its controls greyed out. What
+        // it leaves instead is a process out of its own directory.
+        case .manual:
+          listeners.blockingIsRunning(inDirectory: runner.directory)
+        }
+      }, github: github)
   }
 
   /// Resolves one runner's state without tying up a thread the runtime needs.

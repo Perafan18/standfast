@@ -91,6 +91,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     SettingsView(
       loginItem: LoginItem(), notifications: healthyFleet.notifications,
       sleep: healthyFleet.sleep, github: GitHubAccess(store: RenderTokenStore(nil)),
+      manualRunners: ManualRunnerDirectories(defaults: renderDefaults()),
       infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
     to: directory.appendingPathComponent("0c-ajustes.png"),
     width: StandfastTheme.settingsIdealWidth,
@@ -104,6 +105,8 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
       loginItem: LoginItem(), notifications: healthyFleet.notifications,
       sleep: healthyFleet.sleep,
       github: GitHubAccess(store: RenderTokenStore("ghp_example")),
+      // With one added, so the row and its Remove button are in the picture.
+      manualRunners: renderRunners(["/Users/ci/actions-runner-by-hand"]),
       infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
     to: directory.appendingPathComponent("0d-ajustes-con-token.png"),
     width: StandfastTheme.settingsIdealWidth,
@@ -165,6 +168,18 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     ControlCenterView(fleet: unreadableFleet),
     to: directory.appendingPathComponent("D-estado-ilegible.png"))
 
+  // 3b. A runner nobody registered with launchd. Its controls are dead and the
+  // card has to say why, which is the whole difference between a limitation
+  // and a bug.
+  let byHand = try FleetSandbox(serviceRunning: true)
+  defer { byHand.cleanUp() }
+  _ = try byHand.addManualRunner(name: "mac-mini-m4", scope: "acme-widget")
+  let byHandFleet = fleet(byHand)
+  await byHandFleet.quiesce()
+  try render(
+    ControlCenterView(fleet: byHandFleet),
+    to: directory.appendingPathComponent("C2-arrancado-a-mano.png"))
+
   // 4b. The other layer. `launchctl` refusing to say whether the service is
   // loaded is the one unknown whose instruction points at this Mac rather than
   // at GitHub, and since UI-034 the badge says so — in the longest words any
@@ -215,4 +230,17 @@ private struct RenderTokenStore: GitHubTokenStoring {
   func token() throws -> String? { stored }
   func store(_ token: String) throws {}
   func clear() throws {}
+}
+
+/// Defaults nobody else shares, so a render cannot see — or leave — real
+/// settings on the machine running it.
+private func renderDefaults() -> UserDefaults {
+  UserDefaults(suiteName: "standfast-render-\(UUID().uuidString)")!
+}
+
+@MainActor
+private func renderRunners(_ paths: [String]) -> ManualRunnerDirectories {
+  let subject = ManualRunnerDirectories(defaults: renderDefaults())
+  for path in paths { subject.add(URL(fileURLWithPath: path)) }
+  return subject
 }

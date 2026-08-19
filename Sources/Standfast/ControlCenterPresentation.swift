@@ -196,6 +196,10 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   /// saying. Sits with identity and state rather than behind the fold: it is
   /// the reason somebody would open the card, not something found inside it.
   let queued: QueuedWorkPresentation?
+  /// Why this runner's service controls do nothing, and nil when they work.
+  /// Greyed-out buttons with no explanation are the app knowing something and
+  /// not saying it.
+  let serviceNote: String?
   let operationFeedback: ServiceOperationPresentation?
   let history: RunnerHistoryPresentation
   let progress: String?
@@ -266,6 +270,7 @@ extension RunnerCardPresentation {
       focus: focus,
       queued: QueuedWorkPresentation.building(
         snapshot.queued, runnerLabelled: snapshot.labels, display: snapshot.display),
+      serviceNote: snapshot.canControlService ? nil : L10n.runnerStartedByHand,
       operationFeedback: operation?.isInFlight == false ? operation : nil,
       history: snapshot.isJobHistoryAvailable
         ? .available(rows: historyRows, isTruncated: isHistoryTruncated)

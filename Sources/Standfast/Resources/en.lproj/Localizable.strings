@@ -18,6 +18,7 @@
 "controlCenter.service.stop" = "Stop service";
 "controlCenter.service.restart" = "Restart service";
 "state.layer.runningLocally" = "Running locally";
+"runner.startedByHand" = "Started by hand, so Standfast can watch it but not stop or restart it";
 "state.layer.gitHubSilent" = "GitHub not answering";
 "state.layer.gitHubNotAsked" = "GitHub not asked";
 "state.layer.gitHubRateLimited" = "GitHub rate limit reached";
@@ -42,6 +43,11 @@
 "settings.github.remove" = "Remove token";
 "settings.github.keychainFailed" = "The Keychain refused to store it. Nothing was changed.";
 "settings.startup.footer" = "Standfast can open automatically when you log in.";
+"settings.runners" = "Runners started by hand";
+"settings.runners.footer" = "A runner installed as a service announces itself and Standfast finds it. One started with ./run.sh does not, so point Standfast at its folder. Standfast can watch these but cannot start or stop them.";
+"settings.runners.none" = "None added. Only runners installed as a service are being watched.";
+"settings.runners.add" = "Add a runner folder…";
+"settings.runners.remove" = "Stop watching %@";
 "settings.version" = "Standfast%@";
 
 "menu.start" = "Start";

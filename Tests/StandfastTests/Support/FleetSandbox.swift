@@ -19,6 +19,7 @@ final class FleetSandbox: @unchecked Sendable {
   private var nextRemoteBarrier: BlockingProbe?
   private var nextReleaseBarrier: BlockingReleaseCheck?
   private var discoveryFailure: DiscoveryFailure?
+  private var manualDirectories: [URL] = []
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
   /// Held for the duration of every GitHub call, so a test can make a scan
@@ -215,6 +216,25 @@ final class FleetSandbox: @unchecked Sendable {
     return directory
   }
 
+  /// A runner directory with no LaunchAgent beside it — what `./run.sh`
+  /// leaves, and what only shows up because somebody pointed the app at it.
+  @discardableResult
+  func addManualRunner(
+    name: String = "by-hand", scope: String = "acme-widget", agentId: Int = 91
+  ) throws -> URL {
+    let directory = root.appendingPathComponent("manual.\(scope).\(name)")
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true)
+    let fields: [String: Any] = [
+      "agentId": agentId, "agentName": name, "workFolder": "_work",
+      "gitHubUrl": "https://github.com/acme/\(scope)",
+    ]
+    try JSONSerialization.data(withJSONObject: fields)
+      .write(to: directory.appendingPathComponent(".runner"))
+    withLock { manualDirectories.append(directory) }
+    return directory
+  }
+
   /// Writes the `_diag` a runner leaves beside itself, with one job in it.
   ///
   /// Verbatim from a real listener log, double timestamp and all. The reader
@@ -359,7 +379,10 @@ final class FleetSandbox: @unchecked Sendable {
         if let failure {
           DiscoveryResult(runners: [], failure: failure)
         } else {
-          RunnerDiscovery(launchAgentsDirectory: launchAgents).discover()
+          RunnerDiscovery(
+            launchAgentsDirectory: launchAgents,
+            manualDirectories: withLock { manualDirectories }
+          ).discover()
         }
       barrier?.block()
       return found

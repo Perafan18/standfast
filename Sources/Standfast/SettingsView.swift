@@ -8,6 +8,7 @@ struct SettingsView: View {
   @ObservedObject var notifications: NotificationSettings
   @ObservedObject var sleep: SleepGuard
   @ObservedObject var github: GitHubAccess
+  @ObservedObject var manualRunners: ManualRunnerDirectories
   let infoDictionary: [String: Any]?
 
   /// What is in the field right now, and never where the stored token lives.
@@ -48,6 +49,13 @@ struct SettingsView: View {
             }
           }
           supportingText(presentation.notifications)
+        }
+
+        settingsCard(
+          title: L10n.settingsRunners,
+          systemImage: "folder.badge.plus"
+        ) {
+          handStartedRunners
         }
 
         settingsCard(
@@ -115,6 +123,57 @@ struct SettingsView: View {
         .foregroundStyle(palette.textPrimary.color)
     }
     .accessibilityElement(children: .combine)
+  }
+
+  private var handStartedRunners: some View {
+    VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
+      if manualRunners.directories.isEmpty {
+        Text(L10n.settingsRunnersNone)
+          .font(.callout)
+          .foregroundStyle(palette.textPrimary.color)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      } else {
+        ForEach(manualRunners.directories, id: \.path) { directory in
+          HStack(spacing: StandfastTheme.Spacing.compact) {
+            // The last component reads as the runner; the full path is what
+            // disambiguates two with the same name, so it stays available to
+            // anything reading this row rather than only to a wide window.
+            Text(directory.lastPathComponent)
+              .font(.callout)
+              .foregroundStyle(palette.textPrimary.color)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .help(directory.path)
+            Button {
+              manualRunners.remove(directory)
+            } label: {
+              Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(L10n.settingsRunnersRemove(directory.lastPathComponent))
+          }
+          .frame(maxWidth: .infinity, minHeight: 28)
+          .accessibilityIdentifier(SettingsAccessibility.runnerRow(directory.path))
+        }
+      }
+
+      Button(L10n.settingsRunnersAdd) { chooseRunnerFolder() }
+        .accessibilityIdentifier(SettingsAccessibility.runnersAdd)
+
+      supportingLines(footer: L10n.settingsRunnersFooter, notice: nil)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  /// A folder chosen, never a path typed. The panel is also the only thing that
+  /// can tell this app it may read somewhere it was not launched from.
+  private func chooseRunnerFolder() {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.allowsMultipleSelection = false
+    panel.prompt = L10n.settingsRunnersAdd
+    guard panel.runModal() == .OK, let chosen = panel.url else { return }
+    manualRunners.add(chosen)
   }
 
   private func githubAccess(

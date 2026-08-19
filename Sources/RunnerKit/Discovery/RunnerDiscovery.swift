@@ -1,7 +1,22 @@
 import Foundation
 
 /// One runner installed on this machine, as found on disk.
+/// How this runner got onto the machine, which decides what can be done to it.
+public enum RunnerInstallation: Equatable, Sendable {
+  /// Installed as a service. launchd registered it under `label`, `svc.sh` can
+  /// start and stop it, and the local probe can say whether it is loaded.
+  case launchAgent
+  /// Started by hand with `./run.sh`, and found only because somebody pointed
+  /// this app at its directory. Nothing registered it, so nothing here can
+  /// stop it — and there is no launchd job to ask about.
+  case manual
+}
+
 public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
+  /// launchd's label for a serviced runner. For one started by hand there is
+  /// no such thing, so this is built from its directory — see
+  /// `manualLabel(for:)`. Either way it is the identity everything else keys
+  /// on: folding, in-flight operations, the settling window.
   public let label: String
   public let directory: URL
   public let agentId: Int
@@ -10,6 +25,7 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   /// such needs to be able to tell.
   public let agentName: String
   public let scope: RunnerScope
+  public let installation: RunnerInstallation
 
   public var id: String { label }
   public var workDirectory: URL { directory.appendingPathComponent(workFolder) }
@@ -43,7 +59,8 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   /// one without a runner installed.
   public init(
     label: String, directory: URL, agentId: Int, agentName: String,
-    scope: RunnerScope, workFolder: String = "_work"
+    scope: RunnerScope, workFolder: String = "_work",
+    installation: RunnerInstallation = .launchAgent
   ) {
     self.label = label
     self.directory = directory
@@ -51,6 +68,18 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
     self.agentName = agentName
     self.scope = scope
     self.workFolder = workFolder
+    self.installation = installation
+  }
+
+  /// The identity of a runner launchd never heard of.
+  ///
+  /// The directory, because that is what actually distinguishes one: two
+  /// hand-started runners on one Mac differ by where they live and nothing
+  /// else. Prefixed so it can never collide with a real launchd label, which
+  /// always begins `actions.runner.`, and so that anybody who finds one of
+  /// these in `defaults` can tell what they are looking at.
+  public static func manualLabel(for directory: URL) -> String {
+    "standfast.manual:" + directory.standardizedFileURL.path
   }
 }
 
@@ -177,9 +206,14 @@ public struct DiscoveryResult: Equatable, Sendable {
 /// `.runner`.
 public struct RunnerDiscovery: Sendable {
   private let launchAgentsDirectory: URL
+  /// Runner directories the operator named. Never guessed at: walking the disk
+  /// looking for `.runner` files would read directories nobody asked this app
+  /// to read, and would find other people's runners in shared folders.
+  private let manualDirectories: [URL]
   private let listDirectory: @Sendable (URL) throws -> [URL]
 
-  public init(launchAgentsDirectory: URL? = nil) {
+  public init(launchAgentsDirectory: URL? = nil, manualDirectories: [URL] = []) {
+    self.manualDirectories = manualDirectories
     self.launchAgentsDirectory =
       launchAgentsDirectory
       ?? FileManager.default.homeDirectoryForCurrentUser
@@ -192,9 +226,11 @@ public struct RunnerDiscovery: Sendable {
 
   init(
     launchAgentsDirectory: URL,
+    manualDirectories: [URL] = [],
     listDirectory: @escaping @Sendable (URL) throws -> [URL]
   ) {
     self.launchAgentsDirectory = launchAgentsDirectory
+    self.manualDirectories = manualDirectories
     self.listDirectory = listDirectory
   }
 
@@ -210,15 +246,22 @@ public struct RunnerDiscovery: Sendable {
   /// actor is not enough; see `offCooperativePool`, which is what the menu bar
   /// app wraps this call in.
   public func discover() -> DiscoveryResult {
+    // Read first, so a LaunchAgents directory that will not list does not take
+    // the hand-started runners down with it. The two have nothing to do with
+    // each other, and a failure to enumerate one is no evidence about the
+    // other.
+    let manual = manualRunners()
+
     let entries: [URL]
     do {
       entries = try listDirectory(launchAgentsDirectory)
     } catch {
       if Self.isNoSuchFile(error) {
-        return DiscoveryResult(runners: [])
+        return DiscoveryResult(runners: manual.runners, unreadable: manual.unreadable)
       }
       return DiscoveryResult(
-        runners: [], failure: .launchAgentsUnreadable(launchAgentsDirectory))
+        runners: manual.runners, unreadable: manual.unreadable,
+        failure: .launchAgentsUnreadable(launchAgentsDirectory))
     }
 
     let candidates =
@@ -244,10 +287,55 @@ public struct RunnerDiscovery: Sendable {
       }
     }
 
+    // A directory somebody added that is *also* installed as a service gets one
+    // row, not two, and the serviced identity is the one that survives: it is
+    // the only one that can be started and stopped from here.
+    let serviced = Set(runners.map { $0.directory.standardizedFileURL.path })
+    let extra = manual.runners.filter {
+      !serviced.contains($0.directory.standardizedFileURL.path)
+    }
+
     return DiscoveryResult(
-      runners: deduplicatedByLabel(runners),
-      unreadable: unreadable.sorted { $0.path < $1.path },
+      runners: deduplicatedByLabel(runners + extra),
+      unreadable: (unreadable + manual.unreadable).sorted { $0.path < $1.path },
       possiblyInstalledLabels: hasUnidentifiedCandidate ? nil : possiblyInstalledLabels)
+  }
+
+  /// The runners the operator pointed at, and the directories that did not
+  /// turn out to hold one.
+  ///
+  /// A directory that is not a runner is reported rather than dropped:
+  /// somebody chose the wrong folder, and showing nothing would leave them
+  /// waiting for a row that is never coming.
+  private func manualRunners() -> (runners: [DiscoveredRunner], unreadable: [URL]) {
+    var runners: [DiscoveredRunner] = []
+    var unreadable: [URL] = []
+    for directory in manualDirectories {
+      if let runner = Self.manualRunner(in: directory) {
+        runners.append(runner)
+      } else {
+        unreadable.append(directory)
+      }
+    }
+    return (runners, unreadable)
+  }
+
+  private static func manualRunner(in directory: URL) -> DiscoveredRunner? {
+    let runnerFile = directory.appendingPathComponent(".runner")
+    guard let config = try? RunnerConfig(contentsOf: runnerFile),
+      let scope = RunnerScope(gitHubURL: config.gitHubUrl)
+    else { return nil }
+
+    let runner = DiscoveredRunner(
+      label: DiscoveredRunner.manualLabel(for: directory),
+      directory: directory,
+      agentId: config.agentId,
+      agentName: config.agentName,
+      scope: scope,
+      workFolder: config.workFolder,
+      installation: .manual)
+    guard runner.containedWorkDirectory != nil else { return nil }
+    return runner
   }
 
   private static func isNoSuchFile(_ error: any Error) -> Bool {

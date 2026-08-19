@@ -482,3 +482,46 @@ private final class Ticker: @unchecked Sendable {
     return remaining.isEmpty ? .distantFuture : remaining.removeFirst()
   }
 }
+
+// MARK: - A runner launchd never heard of
+
+@Test func aHandStartedRunnerIsAskedAboutItsProcessAndNotAboutLaunchd() {
+  // There is no launchd job to ask about, and asking anyway would get a
+  // confident "not running" for every hand-started runner on the machine —
+  // every one of them drawn as stopped, with its controls greyed out.
+  let asked = LocalProbeRecorder()
+  let manual = DiscoveredRunner(
+    label: DiscoveredRunner.manualLabel(for: URL(fileURLWithPath: "/Users/ci/by-hand")),
+    directory: URL(fileURLWithPath: "/Users/ci/by-hand"),
+    agentId: 91, agentName: "by-hand",
+    scope: .repository(owner: "acme", name: "widget"),
+    installation: .manual)
+
+  _ = RunnerStateResolver(
+    probe: LaunchctlProbe(commandRunner: asked.launchctl),
+    listeners: ListenerProcessProbe(commandRunner: asked.ps),
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
+  ).blockingReading(for: manual, clock: Date.init)
+
+  #expect(asked.launchctl.invocations.isEmpty)
+  #expect(asked.ps.invocations.map(\.executable) == ["/bin/ps"])
+}
+
+@Test func aServicedRunnerIsStillAskedAboutLaunchd() {
+  let asked = LocalProbeRecorder()
+
+  _ = RunnerStateResolver(
+    probe: LaunchctlProbe(commandRunner: asked.launchctl),
+    listeners: ListenerProcessProbe(commandRunner: asked.ps),
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
+  ).blockingReading(for: runner, clock: Date.init)
+
+  #expect(asked.launchctl.invocations.map(\.executable) == ["/bin/launchctl"])
+  #expect(asked.ps.invocations.isEmpty)
+}
+
+/// Two fakes, so a test can see which of the two local probes was used.
+private struct LocalProbeRecorder {
+  let launchctl = FakeCommandRunner()
+  let ps = FakeCommandRunner()
+}

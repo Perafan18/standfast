@@ -102,6 +102,17 @@ enum SettingsAccessibility {
   static let githubToken = "dev.standfast.settings.github.token"
   static let githubSave = "dev.standfast.settings.github.save"
   static let githubRemove = "dev.standfast.settings.github.remove"
+  static let runnersAdd = "dev.standfast.settings.runners.add"
+
+  /// One per row, so a probe can name the folder it means.
+  ///
+  /// The path with its separators flattened rather than hashed: these appear in
+  /// a manual accessibility matrix somebody reads, and an identifier they can
+  /// match to a folder by eye is worth more here than a short one.
+  static func runnerRow(_ path: String) -> String {
+    "dev.standfast.settings.runners.row"
+      + path.replacingOccurrences(of: "/", with: ".")
+  }
 
   static func notification(_ kind: NotificationKind) -> String {
     switch kind {
