@@ -176,6 +176,40 @@ continues the packaging, launch, process-survival, and background-agent checks w
 that menu, windows, and Accessibility are not covered. A green CI package job is therefore
 not evidence that Control Center or Settings opens, focuses, or closes correctly.
 
+## Talking to GitHub
+
+Two clients behind one protocol, chosen by `TokenFirstGitHubClient`:
+
+- **`GitHubAPIClient`** — this app's own token, from the login Keychain, over HTTPS. What a
+  user who does not live in a terminal gets.
+- **`GHCommandLineClient`** — borrows whatever credentials `gh` already holds.
+
+The fallback is narrow on purpose. **Only `noToken` falls through to `gh`.** A refused token
+and a rate limit are answers, and papering over them would hide a credential the user
+deliberately configured being wrong, or spend a second request to be told the same thing.
+
+**Do not remove the conditional requests.** `GitHubAPIClient` keeps the `Etag` of every
+runner answer and sends it back as `If-None-Match`. GitHub answers 304 and — verified live,
+by comparing `x-ratelimit-remaining` across the pair — **does not charge it against the
+budget**. At one call per runner every fifteen seconds, that is the difference between a
+personal token lasting indefinitely and running out. The failure mode if this breaks is
+silent: unconditional requests are still correct, so nothing goes red until the limit does.
+
+For the same reason `URLSessionHTTPClient` runs with no HTTP cache. URLSession will
+otherwise answer a conditional request from its own store and never tell the caller a 304
+happened.
+
+Two suites need something the machine has and CI does not, so both are behind flags:
+
+```sh
+STANDFAST_KEYCHAIN_TESTS=1 swift test --filter Keychain            # writes to the login keychain
+STANDFAST_GITHUB_TOKEN="$(gh auth token)" swift test --filter LiveGitHub   # spends rate limit
+```
+
+The live one is the only thing that can catch this client being wrong *about GitHub* rather
+than wrong about itself — a header now required, a field renamed, an `Etag` that stops
+arriving. Run it when you touch the client.
+
 ## Running your build for real
 
 ```sh

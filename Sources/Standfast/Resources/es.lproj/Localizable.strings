@@ -29,6 +29,15 @@
 "settings.startup" = "Inicio";
 "settings.notifications.footer" = "Las alertas usan las notificaciones del sistema.";
 "settings.power.footer" = "Cerrar la tapa la sigue durmiendo.";
+"settings.github" = "Acceso a GitHub";
+"settings.github.footer" = "Con un token propio, Standfast le pregunta a GitHub directamente y no necesita ninguna otra herramienta instalada. Sin él, toma prestadas las credenciales de la CLI gh.";
+"settings.github.stored" = "Hay un token guardado. Standfast le pregunta a GitHub directamente.";
+"settings.github.absent" = "Sin token guardado. Standfast pregunta a través de la CLI gh.";
+"settings.github.unreadable" = "El llavero no quiso decir si hay un token guardado.";
+"settings.github.placeholder" = "Pega un token de GitHub";
+"settings.github.save" = "Guardar token";
+"settings.github.remove" = "Quitar token";
+"settings.github.keychainFailed" = "El llavero se negó a guardarlo. No se cambió nada.";
 "settings.startup.footer" = "Standfast puede abrirse automáticamente al iniciar sesión.";
 "settings.version" = "Standfast%@";
 
@@ -127,6 +136,8 @@
 "state.short.unknown" = "Desconocido";
 
 "state.unknown.noCLI" = "Corriendo en local, GitHub sin respuesta — instala la CLI de GitHub (gh)";
+"state.unknown.noToken" = "Corriendo en local, GitHub sin consultar — añade un token de GitHub en Ajustes";
+"state.unknown.rateLimited" = "Corriendo en local, límite de GitHub alcanzado — responde de nuevo en un rato";
 "state.unknown.notAuthenticated" = "Corriendo en local, GitHub sin respuesta — ejecuta gh auth login en una terminal";
 "state.unknown.noAnswer" = "Corriendo en local, GitHub sin respuesta — gh no obtuvo respuesta; revisa tu red";
 "state.unknown.noLocalAnswer" = "No se pudo leer el servicio local — launchctl no respondió; prueba Actualizar ahora";

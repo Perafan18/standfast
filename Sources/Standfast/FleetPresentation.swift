@@ -79,6 +79,8 @@ extension DisplayState {
     case .resolved(.unknown(.cliUnavailable)): L10n.stateUnknownNoCLI
     case .resolved(.unknown(.notAuthenticated)): L10n.stateUnknownNotAuthenticated
     case .resolved(.unknown(.noAnswer)): L10n.stateUnknownNoAnswer
+    case .resolved(.unknown(.noToken)): L10n.stateUnknownNoToken
+    case .resolved(.unknown(.rateLimited)): L10n.stateUnknownRateLimited
     case .resolved(.unknown(.serviceStateUnreadable)): L10n.stateUnknownNoLocalAnswer
     case .starting: L10n.stateStarting
     }

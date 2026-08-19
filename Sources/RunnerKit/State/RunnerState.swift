@@ -12,6 +12,14 @@ public enum UnknownReason: Equatable, Sendable {
   /// token without the scope for this endpoint, a runner GitHub has forgotten,
   /// or a status this version does not recognise.
   case noAnswer
+  /// Nothing is stored for this app to ask GitHub with, and no `gh` answered
+  /// either. Its own case because its instruction is the only one that points
+  /// at this app's own Settings rather than at a terminal.
+  case noToken
+  /// GitHub answered, and what it said was that too much has been asked of
+  /// it. Its own case because the fix is time, and every other reason here has
+  /// a fix that is an action.
+  case rateLimited
   /// `launchctl` could not be asked whether the service is loaded: it would not
   /// launch, or it was still running when the timeout expired. Its own case
   /// because the other three all mean "the local half is fine and GitHub is
@@ -25,6 +33,8 @@ extension UnknownReason {
     case .cliUnavailable: self = .cliUnavailable
     case .notAuthenticated: self = .notAuthenticated
     case .noAnswer: self = .noAnswer
+    case .noToken: self = .noToken
+    case .rateLimited: self = .rateLimited
     }
   }
 }

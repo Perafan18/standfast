@@ -55,7 +55,7 @@ private let everyDisplayState: [DisplayState] = [
 }
 
 @Test func eachUnknownReasonGetsItsOwnLine() {
-  // The whole reason `UnknownReason` carries four cases: the fix differs, and
+  // The whole reason `UnknownReason` carries a case per fix: the fix differs, and
   // one shared "could not tell" would leave the user with nothing to try.
   #expect(
     DisplayState.resolved(.unknown(.cliUnavailable)).summary == L10n.stateUnknownNoCLI)
@@ -67,6 +67,11 @@ private let everyDisplayState: [DisplayState] = [
   #expect(
     DisplayState.resolved(.unknown(.serviceStateUnreadable)).summary
       == L10n.stateUnknownNoLocalAnswer)
+  #expect(
+    DisplayState.resolved(.unknown(.noToken)).summary == L10n.stateUnknownNoToken)
+  #expect(
+    DisplayState.resolved(.unknown(.rateLimited)).summary
+      == L10n.stateUnknownRateLimited)
 }
 
 @Test func noTwoStatesReadTheSame() {

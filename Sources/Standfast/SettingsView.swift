@@ -7,7 +7,13 @@ struct SettingsView: View {
   @ObservedObject var loginItem: LoginItem
   @ObservedObject var notifications: NotificationSettings
   @ObservedObject var sleep: SleepGuard
+  @ObservedObject var github: GitHubAccess
   let infoDictionary: [String: Any]?
+
+  /// What is in the field right now, and never where the stored token lives.
+  /// It is emptied the moment Save hands it over, so the secret does not sit
+  /// in a view that a screen recording or a screenshot would capture.
+  @State private var draftToken = ""
 
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -22,6 +28,7 @@ struct SettingsView: View {
 
   var body: some View {
     let presentation = SettingsPresentation(
+      githubState: github.state, githubNotice: github.notice,
       notificationNotice: notifications.notice,
       loginItemNotice: loginItem.notice,
       infoDictionary: infoDictionary)
@@ -41,6 +48,13 @@ struct SettingsView: View {
             }
           }
           supportingText(presentation.notifications)
+        }
+
+        settingsCard(
+          title: L10n.settingsGitHub,
+          systemImage: "key.fill"
+        ) {
+          githubAccess(presentation.github)
         }
 
         settingsCard(
@@ -101,6 +115,40 @@ struct SettingsView: View {
         .foregroundStyle(palette.textPrimary.color)
     }
     .accessibilityElement(children: .combine)
+  }
+
+  private func githubAccess(
+    _ presentation: GitHubSettingsPresentation
+  ) -> some View {
+    VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
+      Text(presentation.currentState)
+        .font(.callout)
+        .foregroundStyle(palette.textPrimary.color)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      HStack(spacing: StandfastTheme.Spacing.compact) {
+        // Secure, so the token is never on screen even while it is being
+        // pasted — this window is the one people screenshot when they ask for
+        // help with it.
+        SecureField(L10n.settingsGitHubPlaceholder, text: $draftToken)
+          .textFieldStyle(.roundedBorder)
+          .accessibilityIdentifier(SettingsAccessibility.githubToken)
+        Button(L10n.settingsGitHubSave) {
+          github.save(draftToken)
+          draftToken = ""
+        }
+        .disabled(draftToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .accessibilityIdentifier(SettingsAccessibility.githubSave)
+      }
+
+      if presentation.canRemove {
+        Button(L10n.settingsGitHubRemove) { github.remove() }
+          .accessibilityIdentifier(SettingsAccessibility.githubRemove)
+      }
+
+      supportingLines(footer: presentation.footer, notice: presentation.notice)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func notificationToggle(_ kind: NotificationKind) -> some View {
@@ -168,11 +216,15 @@ struct SettingsView: View {
   private func supportingText(
     _ presentation: SettingsSectionPresentation
   ) -> some View {
+    supportingLines(footer: presentation.footer, notice: presentation.notice)
+  }
+
+  private func supportingLines(footer: String, notice: String?) -> some View {
     VStack(alignment: .leading, spacing: StandfastTheme.Spacing.small) {
-      Text(presentation.footer)
+      Text(footer)
         .font(.caption)
         .foregroundStyle(palette.textSecondary.color)
-      if let notice = presentation.notice {
+      if let notice {
         Label(notice, systemImage: "exclamationmark.triangle.fill")
           .font(.caption)
           .foregroundStyle(palette.attentionForeground.color)

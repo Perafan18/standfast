@@ -138,3 +138,54 @@ private func settingsSource(_ name: String) -> String {
   #expect(app.contains("height:StandfastTheme.settingsDefaultHeight"))
   #expect(app.contains("infoDictionary:Bundle.main.infoDictionary"))
 }
+
+// MARK: - GitHub access
+
+@Test func aMachineWithNoTokenIsToldItIsUsingTheCli() {
+  let presentation = SettingsPresentation(
+    githubState: .absent, githubNotice: nil,
+    notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil)
+
+  #expect(presentation.github.currentState == L10n.settingsGitHubAbsent)
+  #expect(presentation.github.supportingText == [L10n.settingsGitHubFooter])
+  // Nothing to remove, so nothing offers to. A button that does nothing is a
+  // question the user has to answer about their own machine.
+  #expect(!presentation.github.canRemove)
+}
+
+@Test func aStoredTokenIsAnnouncedWithoutEverBeingShown() {
+  let presentation = SettingsPresentation(
+    githubState: .stored, githubNotice: nil,
+    notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil)
+
+  #expect(presentation.github.currentState == L10n.settingsGitHubStored)
+  #expect(presentation.github.canRemove)
+}
+
+@Test func aKeychainThatWouldNotAnswerStillOffersTheWayOut() {
+  // Remove stays available: it is the recovery from an item this app can no
+  // longer read, and refusing to offer it would leave the user with a Keychain
+  // entry they have to go find themselves.
+  let presentation = SettingsPresentation(
+    githubState: .unreadable, githubNotice: nil,
+    notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil)
+
+  #expect(presentation.github.currentState == L10n.settingsGitHubUnreadable)
+  #expect(presentation.github.canRemove)
+}
+
+@Test func aKeychainComplaintJoinsThePermanentExplanation() {
+  let presentation = SettingsPresentation(
+    githubState: .absent, githubNotice: L10n.settingsGitHubKeychainFailed,
+    notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil)
+
+  #expect(
+    presentation.github.supportingText
+      == [L10n.settingsGitHubFooter, L10n.settingsGitHubKeychainFailed])
+}
+
+@Test func theGitHubIdentifiersAreStableAndNonlocalized() {
+  #expect(SettingsAccessibility.githubToken == "dev.standfast.settings.github.token")
+  #expect(SettingsAccessibility.githubSave == "dev.standfast.settings.github.save")
+  #expect(SettingsAccessibility.githubRemove == "dev.standfast.settings.github.remove")
+}

@@ -36,6 +36,15 @@ enum L10n {
   static let settingsNotificationsFooter = t("settings.notifications.footer")
   static let settingsPowerFooter = t("settings.power.footer")
   static let settingsStartupFooter = t("settings.startup.footer")
+  static let settingsGitHub = t("settings.github")
+  static let settingsGitHubFooter = t("settings.github.footer")
+  static let settingsGitHubStored = t("settings.github.stored")
+  static let settingsGitHubAbsent = t("settings.github.absent")
+  static let settingsGitHubUnreadable = t("settings.github.unreadable")
+  static let settingsGitHubPlaceholder = t("settings.github.placeholder")
+  static let settingsGitHubSave = t("settings.github.save")
+  static let settingsGitHubRemove = t("settings.github.remove")
+  static let settingsGitHubKeychainFailed = t("settings.github.keychainFailed")
 
   static func settingsVersion(
     _ suffix: String, in bundles: [Bundle]? = nil
@@ -170,6 +179,8 @@ enum L10n {
   // and "unknown" on its own has none. This is the likeliest thing a new user
   // sees, so the line has to be the instruction.
   static let stateUnknownNoCLI = t("state.unknown.noCLI")
+  static let stateUnknownNoToken = t("state.unknown.noToken")
+  static let stateUnknownRateLimited = t("state.unknown.rateLimited")
   static let stateUnknownNotAuthenticated = t("state.unknown.notAuthenticated")
   static let stateUnknownNoAnswer = t("state.unknown.noAnswer")
   static let stateUnknownNoLocalAnswer = t("state.unknown.noLocalAnswer")
@@ -569,6 +580,24 @@ enum L10n {
     "settings.startup": "Startup",
     "settings.notifications.footer": "Alerts use system notifications.",
     "settings.power.footer": "Closing the lid still puts this Mac to sleep.",
+    "settings.github":
+      "GitHub access",
+    "settings.github.footer":
+      "With a token of its own, Standfast asks GitHub directly and needs no other tool installed. Without one it borrows the credentials of the gh CLI.",
+    "settings.github.stored":
+      "A token is stored. Standfast asks GitHub directly.",
+    "settings.github.absent":
+      "No token stored. Standfast asks through the gh CLI.",
+    "settings.github.unreadable":
+      "The Keychain would not say whether a token is stored.",
+    "settings.github.placeholder":
+      "Paste a GitHub token",
+    "settings.github.save":
+      "Save token",
+    "settings.github.remove":
+      "Remove token",
+    "settings.github.keychainFailed":
+      "The Keychain refused to store it. Nothing was changed.",
     "settings.startup.footer":
       "Standfast can open automatically when you log in.",
     "settings.version": "Standfast%@",
@@ -688,6 +717,10 @@ enum L10n {
     "state.short.stopped": "Stopped",
     "state.short.starting": "Starting",
     "state.short.unknown": "Unknown",
+    "state.unknown.noToken":
+      "Running locally, GitHub not asked — add a GitHub token in Settings",
+    "state.unknown.rateLimited":
+      "Running locally, GitHub rate limit reached — it answers again shortly",
     "state.unknown.noCLI":
       "Running locally, GitHub not answering — install the GitHub CLI (gh)",
     "state.unknown.notAuthenticated":

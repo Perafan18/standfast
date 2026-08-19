@@ -37,7 +37,7 @@ public struct RunnerStateResolver: Sendable {
 
   public init(
     probe: LaunchctlProbe = LaunchctlProbe(),
-    github: any GitHubClient = GHCommandLineClient()
+    github: any GitHubClient = TokenFirstGitHubClient.standard
   ) {
     self.init(
       isServiceRunning: { probe.blockingIsRunning(label: $0.label) }, github: github)

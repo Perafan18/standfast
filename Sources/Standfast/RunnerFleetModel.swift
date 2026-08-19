@@ -220,7 +220,7 @@ final class RunnerFleetModel: ObservableObject {
     housekeeping: HousekeepingModel = HousekeepingModel(),
     folding: RunnerCardFolding = RunnerCardFolding(),
     versions: any RunnerVersionReading = RunnerVersionReader(),
-    releases: any RunnerReleaseChecking = GHCommandLineClient(),
+    releases: any RunnerReleaseChecking = TokenFirstGitHubClient.standard,
     opener: any URLOpening = WorkspaceURLOpener(),
     serviceConfirmation: any ServiceActionConfirming,
     clock: @escaping @Sendable () -> Date = Date.init,

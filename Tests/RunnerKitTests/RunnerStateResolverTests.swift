@@ -392,3 +392,16 @@ private func confirm(
   #expect(resolver.blockingConfirmedState(for: runner) == .busy)
   #expect(counter.probes == 0)
 }
+
+@Test func aMissingTokenIsItsOwnReason() {
+  // Not folded into `.notAuthenticated`. That case means a credential was
+  // tried and refused, and its instruction — authenticate — is the wrong
+  // advice for a machine where nothing has been stored to try.
+  #expect(UnknownReason(GitHubError.noToken) == .noToken)
+}
+
+@Test func runningOutOfBudgetIsItsOwnReason() {
+  // Folding it into `.noAnswer` would tell a user whose only problem is
+  // impatience that GitHub is unreachable.
+  #expect(UnknownReason(GitHubError.rateLimited) == .rateLimited)
+}

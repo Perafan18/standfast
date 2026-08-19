@@ -67,6 +67,11 @@ private func l10nSource() -> String {
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
     L10n.stateUnknownNoAnswer, L10n.stateUnknownNoLocalAnswer,
+    L10n.stateUnknownNoToken, L10n.stateUnknownRateLimited,
+    L10n.settingsGitHub, L10n.settingsGitHubFooter, L10n.settingsGitHubStored,
+    L10n.settingsGitHubAbsent, L10n.settingsGitHubUnreadable,
+    L10n.settingsGitHubPlaceholder, L10n.settingsGitHubSave,
+    L10n.settingsGitHubRemove, L10n.settingsGitHubKeychainFailed,
     L10n.stateReadyShort, L10n.stateRunningShort, L10n.stateDisconnectedShort,
     L10n.stateStoppedShort, L10n.stateStartingShort, L10n.stateUnknownShort,
     L10n.checkedJustNow, L10n.checkFailedThenChecked(L10n.checkedJustNow),
@@ -167,7 +172,8 @@ private func l10nSource() -> String {
       "state.short.ready", "state.short.running", "state.short.disconnected",
       "state.short.stopped", "state.short.starting", "state.short.unknown",
       "state.unknown.noCLI", "state.unknown.notAuthenticated",
-      "state.unknown.noAnswer", "state.unknown.noLocalAnswer", "state.checkedAgo",
+      "state.unknown.noAnswer", "state.unknown.noToken",
+      "state.unknown.rateLimited", "state.unknown.noLocalAnswer", "state.checkedAgo",
       "state.checkedJustNow", "state.checkFailed", "state.checkedNever", "job.running",
       "job.runningWithTypical", "job.row", "job.rowNoDuration",
       "job.ageAndDuration",
@@ -219,6 +225,10 @@ private func l10nSource() -> String {
       "settings.notifications", "settings.power", "settings.startup",
       "settings.notifications.footer", "settings.power.footer",
       "settings.startup.footer", "settings.version",
+      "settings.github", "settings.github.footer", "settings.github.stored",
+      "settings.github.absent", "settings.github.unreadable",
+      "settings.github.placeholder", "settings.github.save",
+      "settings.github.remove", "settings.github.keychainFailed",
     ])
   #expect(everyKey == reached)
 }

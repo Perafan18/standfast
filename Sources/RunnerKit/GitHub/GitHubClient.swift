@@ -27,6 +27,15 @@ public enum GitHubError: Error, Equatable {
   /// network, a runner GitHub no longer knows about, a token without the scope
   /// for this endpoint, or a rate limit.
   case noAnswer
+  /// Nothing has been stored for this app to ask with. Distinct from
+  /// `notAuthenticated`, which means a token was tried and refused: nothing was
+  /// tried here, the fix is to add one, and it is what lets a composing client
+  /// fall back to `gh` instead of reporting a failure nobody can act on.
+  case noToken
+  /// GitHub has stopped answering because too much has been asked. Its own
+  /// case because the fix is time, or fewer runners — and because an app that
+  /// polls every fifteen seconds is exactly the shape that meets this.
+  case rateLimited
 }
 
 public protocol GitHubClient: Sendable {
