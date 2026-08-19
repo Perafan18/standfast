@@ -483,3 +483,69 @@ private func job(
   #expect(records.map(\.name) == ["a", "b"])
   #expect(records.map(\.duration) == [nil, 120])
 }
+
+@Test func aRotationRepairedAfterTheFactComesBackWithoutWaitingForTheNextOne()
+  throws
+{
+  // INV-009. The warm path never revisits the rotated logs — they are finished
+  // files, so reading them once is the whole point of the cache. But a
+  // rotation that would not answer when it was first walked stayed missing
+  // from the history until the *next* rotation forced a cold read, and a
+  // listener only rotates when it restarts. Somebody who fixed a permission
+  // would see nothing change for the rest of the day.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  let historicalName = "Runner_20260805-000000-utc.log"
+  let historical = box.diagnostics.appendingPathComponent(historicalName)
+  // A directory where a log should be: unreadable, and exactly what a stale
+  // permission or a wrong file type looks like from here.
+  try FileManager.default.createDirectory(
+    at: historical, withIntermediateDirectories: true)
+  let active = try box.writeLog(
+    startedAt: "20260806-000000",
+    job("current", from: "2026-08-06 00:00:00Z", to: "2026-08-06 00:00:10Z"))
+  var reader = JobLogReader()
+
+  #expect(
+    reader.reading(diagnosticsIn: box.diagnostics).history.records.map(\.name)
+      == ["current"])
+
+  // Repaired: a real log, with a job in it that the first walk never saw.
+  try FileManager.default.removeItem(at: historical)
+  _ = try box.writeLog(
+    startedAt: "20260805-000000",
+    job("earlier", from: "2026-08-05 00:00:00Z", to: "2026-08-05 00:00:10Z"))
+  _ = active
+
+  // Nothing changes straight away: retrying the walk on every refresh is the
+  // work the cache exists to avoid.
+  #expect(
+    reader.reading(diagnosticsIn: box.diagnostics).history.records.map(\.name)
+      == ["current"])
+
+  for _ in 0..<JobLogReader.olderRetryInterval {
+    _ = reader.reading(diagnosticsIn: box.diagnostics)
+  }
+
+  #expect(
+    reader.reading(diagnosticsIn: box.diagnostics).history.records.map(\.name)
+      == ["current", "earlier"])
+}
+
+@Test func aWalkThatEndedOnItsBudgetIsNeverWalkedAgain() {
+  // The other half of INV-009, and the one with the cost. A walk that stopped
+  // because it had read enough stopped *correctly*, and retrying that on a
+  // timer would put the expensive read back on every machine for ever — which
+  // is the work this cache exists to avoid. Only a failure can stop being
+  // true, so only a failure is worth trying again.
+  let interval = JobLogReader.olderRetryInterval
+  #expect(
+    !JobLogReader.isDueForOlderRetry(truncatedByFailure: false, warmReads: interval))
+  #expect(
+    !JobLogReader.isDueForOlderRetry(
+      truncatedByFailure: false, warmReads: interval * 100))
+  #expect(
+    !JobLogReader.isDueForOlderRetry(truncatedByFailure: true, warmReads: interval - 1))
+  #expect(
+    JobLogReader.isDueForOlderRetry(truncatedByFailure: true, warmReads: interval))
+}

@@ -82,8 +82,19 @@ public struct JobLogReader: Sendable {
     var consumed: Int
     /// Records from logs older than the active one, oldest first. Those files
     /// are finished — the listener only ever appends to the newest — so they
-    /// are read once and never opened again.
+    /// are read once and, in the ordinary case, never opened again.
     var older: [JobRecord]
+    /// Whether the walk back through the rotations stopped because one of them
+    /// would not answer, rather than because it had read enough.
+    ///
+    /// Only a *failure* is worth retrying. The walk stopping on its budget or
+    /// its record ceiling is the normal ending, and re-running it for that
+    /// would mean the expensive read on every machine for ever — which is the
+    /// work this cache exists to avoid.
+    var olderTruncatedByFailure: Bool
+    /// Warm reads since the older walk was last attempted. See
+    /// `olderRetryInterval` (INV-009).
+    var warmReadsSinceOlderWalk: Int
     /// Records from the active log, oldest first.
     var active: [JobRecord]
   }
@@ -164,7 +175,9 @@ public struct JobLogReader: Sendable {
       return Reading(history: history(), isAvailable: false)
     }
 
-    if var cached = cache, cached.activeLog == active, cached.consumed <= size {
+    if var cached = cache, cached.activeLog == active, cached.consumed <= size,
+      !Self.isDueForOlderRetry(cached)
+    {
       // The steady state, and the reason this is worth its cache: an idle
       // listener writes nothing at all, so a refresh that finds the same size
       // reads not one byte.
@@ -180,6 +193,7 @@ public struct JobLogReader: Sendable {
         cached.active = Self.trimmed(Self.fold(delta.events, into: cached.active))
         cached.consumed = delta.consumed
       }
+      cached.warmReadsSinceOlderWalk += 1
       cache = cached
       return Reading(history: history(), isAvailable: true)
     }
@@ -231,6 +245,7 @@ public struct JobLogReader: Sendable {
     var older: [[JobRecord]] = []
     var known = current.count
     var budget = coldReadBudget
+    var truncatedByFailure = false
     for log in logs.dropLast().suffix(maxFiles).reversed() {
       guard known < maxRecords, budget > 0 else { break }
       // Folded on its own. Each listener log is a closed world: a job never
@@ -244,7 +259,10 @@ public struct JobLogReader: Sendable {
       // current jobs, version and future notifications on every refresh. The
       // active log above still fails closed because it alone can describe work
       // happening now.
-      guard let events = tailEvents(of: log) else { break }
+      guard let events = tailEvents(of: log) else {
+        truncatedByFailure = true
+        break
+      }
       let records = fold(events, into: [])
       budget -= min(size(of: log) ?? 0, tailWindow)
       known += records.count
@@ -257,7 +275,40 @@ public struct JobLogReader: Sendable {
       // skipped deliberately and re-reading them would undo the ceiling.
       consumed: max(read.consumed, from),
       older: trimmed(older.reversed().flatMap { $0 }),
+      olderTruncatedByFailure: truncatedByFailure,
+      warmReadsSinceOlderWalk: 0,
       active: current)
+  }
+
+  /// How many warm reads pass before a walk that failed is tried again.
+  ///
+  /// INV-009: the warm path never revisits the rotated logs, so a rotation that
+  /// was unreadable when it was first walked stayed missing from the history
+  /// until the next rotation forced a cold read — which can be a day, since a
+  /// listener only rotates when it restarts.
+  ///
+  /// Forty is about ten minutes at the fifteen-second refresh. Long enough that
+  /// a permanently unreadable file costs one extra walk every ten minutes
+  /// instead of one every refresh; short enough that a file somebody has just
+  /// fixed — a permission, a volume that came back — shows its history again
+  /// while they are still looking at the window.
+  static let olderRetryInterval = 40
+
+  /// Whether the walk back through the rotations is worth attempting again.
+  ///
+  /// Both conditions, and the first one carries the cost argument: a walk that
+  /// ended on its budget or its record ceiling ended *correctly*, and retrying
+  /// that would put the expensive read back on every machine on a timer — which
+  /// is the work this cache exists to avoid. Only a failure is worth a retry,
+  /// because only a failure can stop being true.
+  static func isDueForOlderRetry(truncatedByFailure: Bool, warmReads: Int) -> Bool {
+    truncatedByFailure && warmReads >= olderRetryInterval
+  }
+
+  private static func isDueForOlderRetry(_ cache: Cache) -> Bool {
+    isDueForOlderRetry(
+      truncatedByFailure: cache.olderTruncatedByFailure,
+      warmReads: cache.warmReadsSinceOlderWalk)
   }
 
   private static func tailEvents(of log: URL) -> [JobLogEvent]? {
