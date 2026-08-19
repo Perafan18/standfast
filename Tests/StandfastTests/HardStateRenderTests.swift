@@ -165,6 +165,22 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     ControlCenterView(fleet: unreadableFleet),
     to: directory.appendingPathComponent("D-estado-ilegible.png"))
 
+  // 4b. The other layer. `launchctl` refusing to say whether the service is
+  // loaded is the one unknown whose instruction points at this Mac rather than
+  // at GitHub, and since UI-034 the badge says so — in the longest words any
+  // badge on this card carries, which is the reason to look at it rather than
+  // assume it fits.
+  let localUnreadable = try FleetSandbox()
+  defer { localUnreadable.cleanUp() }
+  _ = try localUnreadable.addRunner(name: "mac-mini-m4", scope: "acme-widget")
+  // `launchctl` that would not answer, which is what this state is.
+  localUnreadable.set(serviceRunning: nil)
+  let localUnreadableFleet = fleet(localUnreadable)
+  await localUnreadableFleet.quiesce()
+  try render(
+    ControlCenterView(fleet: localUnreadableFleet),
+    to: directory.appendingPathComponent("D2-servicio-local-ilegible.png"))
+
   // 5. A Mac with nothing installed: the first thing a new user sees.
   let empty = try FleetSandbox()
   defer { empty.cleanUp() }

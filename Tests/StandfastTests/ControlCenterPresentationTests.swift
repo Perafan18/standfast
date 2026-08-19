@@ -542,20 +542,28 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   }
 }
 
-@Test func everyUnknownSharesCompactUnknownButKeepsItsLongRecoveryReason() {
-  let cases: [(UnknownReason, String)] = [
-    (.cliUnavailable, L10n.stateUnknownNoCLI),
-    (.notAuthenticated, L10n.stateUnknownNotAuthenticated),
-    (.noAnswer, L10n.stateUnknownNoAnswer),
-    (.serviceStateUnreadable, L10n.stateUnknownNoLocalAnswer),
+@Test func everyUnknownNamesItsLayerCompactlyAndItsRemedyInFull() {
+  // Used to be `everyUnknownSharesCompactUnknown…`, which is the half of
+  // UI-034 that stayed open: four different problems, four different
+  // instructions, one badge reading `Unknown` over all of them.
+  let cases: [(UnknownReason, compact: String, detail: String)] = [
+    (.cliUnavailable, L10n.stateLayerGitHubSilent, L10n.stateUnknownNoCLI),
+    (.notAuthenticated, L10n.stateLayerGitHubSilent, L10n.stateUnknownNotAuthenticated),
+    (.noAnswer, L10n.stateLayerGitHubSilent, L10n.stateUnknownNoAnswer),
+    (
+      .serviceStateUnreadable, L10n.stateLayerLocalUnreadable,
+      L10n.stateUnknownNoLocalAnswer
+    ),
   ]
-  let subjects = cases.map { reason, _ in
+  let subjects = cases.map { reason, _, _ in
     card(controlCenterSnapshot(.resolved(.unknown(reason))))
   }
 
-  #expect(
-    subjects.map(\.compactState) == Array(repeating: L10n.stateUnknownShort, count: 4))
-  #expect(subjects.map(\.state) == cases.map { $0.1 })
+  // Two layers, so two badges — the same words the long sentence uses.
+  #expect(subjects.map(\.compactState) == cases.map(\.compact))
+  // And the remedy stays one per reason: the badge names where it went quiet,
+  // never what to do about it.
+  #expect(subjects.map(\.state) == cases.map(\.detail))
   #expect(Set(subjects.map(\.state)).count == 4)
 }
 
@@ -988,4 +996,35 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(sandbox.probeCount == probes)
   #expect(sandbox.releaseCheckCount == releaseChecks)
   #expect(diskCommands.invocations == diskInvocations)
+}
+
+// MARK: - UI-039: the empty state offers a way out
+
+@Test func aMacWithNoRunnerIsToldWhereToFindOutHowToGetOne() {
+  // The one screen where the user has nothing else to go on. It told them to
+  // install a self-hosted runner and left them to find the instructions
+  // themselves.
+  #expect(
+    ControlCenterEmptyPresentation.noRunnersInstalled.guide
+      == ControlCenterEmptyPresentation.installGuide)
+}
+
+@Test func aDiscoveryFailureIsNotAnsweredWithInstallationInstructions() {
+  // These states already name the exact paths to inspect. A link about
+  // installing a runner over a directory that would not list is an answer to a
+  // question nobody asked.
+  #expect(ControlCenterEmptyPresentation.checking.guide == nil)
+  #expect(
+    ControlCenterEmptyPresentation.launchAgentsUnavailable(directory: "/x").guide == nil)
+  #expect(ControlCenterEmptyPresentation.unreadableRunners(paths: ["/x"]).guide == nil)
+}
+
+@Test func theEmptyStateSymbolIsNotTheOneThatMeansReading() {
+  // UI-039: `circle.dashed` reads as a spinner, the more so beside the symbol
+  // this app actually uses while it reads the machine. A window whose empty
+  // state looks like it is still loading never tells anybody it has finished.
+  #expect(
+    ControlCenterEmptyPresentation.noRunnersInstalled.symbolName
+      != ControlCenterEmptyPresentation.checking.symbolName)
+  #expect(!FleetSummary.noRunnersSymbolName.contains("circle.dashed"))
 }

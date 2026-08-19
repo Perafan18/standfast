@@ -184,6 +184,7 @@ enum ControlCenterAccessibility {
   static let header = "dev.standfast.control-center.header"
   static let refresh = "dev.standfast.control-center.refresh"
   static let notice = "dev.standfast.control-center.notice"
+  static let installGuide = "dev.standfast.control-center.install-guide"
 
   static func runner(_ durableLabel: String) -> RunnerIdentifiers {
     RunnerIdentifiers(encodedLabel: stableHex(durableLabel.utf8))

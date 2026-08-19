@@ -1,6 +1,7 @@
 "app.statusItem" = "Standfast";
 "controlCenter.title" = "Standfast Control Center";
 "controlCenter.noRunners.description" = "Install a self-hosted GitHub Actions runner, then refresh.";
+"controlCenter.installGuide" = "How to install a runner";
 "controlCenter.scope" = "Scope";
 "controlCenter.status" = "Status";
 "controlCenter.service" = "Runner service";
@@ -18,6 +19,8 @@
 "controlCenter.service.restart" = "Restart service";
 "state.layer.runningLocally" = "Running locally";
 "state.layer.gitHubSilent" = "GitHub not answering";
+"state.layer.gitHubNotAsked" = "GitHub not asked";
+"state.layer.gitHubRateLimited" = "GitHub rate limit reached";
 "state.layer.localUnreadable" = "Local service unreadable";
 "controlCenter.fold" = "Fold";
 "controlCenter.unfold" = "Unfold";
@@ -134,7 +137,6 @@
 "state.short.disconnected" = "Disconnected";
 "state.short.stopped" = "Stopped";
 "state.short.starting" = "Starting";
-"state.short.unknown" = "Unknown";
 
 "queue.waiting.one" = "1 job is waiting for this machine";
 "queue.waiting" = "%d jobs are waiting for this machine";

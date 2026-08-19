@@ -86,6 +86,26 @@ enum ControlCenterEmptyPresentation: Equatable {
     case .launchAgentsUnavailable, .unreadableRunners: "exclamationmark.triangle"
     }
   }
+
+  /// Where somebody with no runner at all can find out how to get one.
+  ///
+  /// The other half of UI-039: the empty state told the user to go and install
+  /// a self-hosted runner and left them to find the instructions themselves,
+  /// which is the one screen where they have nothing else to go on.
+  ///
+  /// Only here. The failure states already name the exact paths to inspect,
+  /// and a link to installation instructions over a directory that would not
+  /// list is an answer to a question nobody asked.
+  var guide: URL? {
+    switch self {
+    case .noRunnersInstalled: Self.installGuide
+    case .checking, .launchAgentsUnavailable, .unreadableRunners: nil
+    }
+  }
+
+  static let installGuide = URL(
+    string: "https://docs.github.com/actions/hosting-your-own-runners"
+      + "/managing-self-hosted-runners/adding-self-hosted-runners")!
 }
 
 enum ControlCenterNoticePresentation: Equatable {

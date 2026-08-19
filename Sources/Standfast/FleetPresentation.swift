@@ -36,7 +36,19 @@ extension DisplayState {
     case .resolved(.busy): L10n.stateRunningShort
     case .resolved(.disconnected): L10n.stateDisconnectedShort
     case .resolved(.stopped): L10n.stateStoppedShort
-    case .resolved(.unknown): L10n.stateUnknownShort
+    // Named, not shrugged. The long sentence has had a stable grammar for the
+    // two layers since D-R16 — "running locally, GitHub not answering" — while
+    // the badge beside it said `Unknown` for both, which is the half of UI-034
+    // that stayed open. The badge now says which layer went quiet, in the same
+    // words the sentence uses.
+    case .resolved(.unknown(.serviceStateUnreadable)): L10n.stateLayerLocalUnreadable
+    // "Not answering" would be a small lie for these two: nothing was asked in
+    // the first, and GitHub answered very clearly in the second. The badge says
+    // what its own sentence says, which is the rule `everyUnknownSentence…`
+    // pins in both catalogues.
+    case .resolved(.unknown(.noToken)): L10n.stateLayerGitHubNotAsked
+    case .resolved(.unknown(.rateLimited)): L10n.stateLayerGitHubRateLimited
+    case .resolved(.unknown): L10n.stateLayerGitHubSilent
     case .starting: L10n.stateStartingShort
     }
   }
@@ -420,7 +432,16 @@ enum FleetSummary {
   /// Nothing installed. Its own symbol rather than the unknown question mark:
   /// a Mac with no runners is not a Mac this app failed to read, and the two
   /// have completely different answers.
-  static let noRunnersSymbolName = "circle.dashed"
+  /// An empty tray, not a dashed circle.
+  ///
+  /// UI-039: `circle.dashed` reads as a spinner — the more so beside
+  /// `arrow.triangle.2.circlepath`, which is the symbol this app actually uses
+  /// for "reading the machine". A window whose empty state looks like it is
+  /// still loading never tells anybody it has finished.
+  ///
+  /// A tray also pairs with the `tray.full` on a card that has queued work
+  /// waiting: nothing here, and something waiting, drawn as the same object.
+  static let noRunnersSymbolName = "tray"
 
   /// Nil when there is nothing at all to summarise.
   static func summarising(_ displays: [DisplayState]) -> DisplayState? {

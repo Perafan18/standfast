@@ -101,13 +101,21 @@ struct ControlCenterView: View {
         .foregroundStyle(palette.textPrimary.color)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
-        // This sentence is the answer the window exists to give. `headline`
-        // renders at 13 pt on macOS — the same size as body text and smaller
-        // than the runner names underneath it, which put the window's own
-        // conclusion below the details it summarises.
-        Text(presentation.summary)
+        // The short form, since UI-041. The long sentence carries diagnosis,
+        // remedy and the name of a button, wraps to two lines the moment any
+        // of them grows, pushes Refresh onto a row of its own — and then says
+        // itself again, word for word, in the card below. The remedy belongs
+        // there, beside the runner it is about.
+        //
+        // This is only worth doing because the short form now says something:
+        // until UI-034 it read `Unknown` for four different problems.
+        //
+        // The long sentence stays for VoiceOver, which has no card to read
+        // next and no layout to protect.
+        Text(presentation.shortSummary)
           .font(.title2.weight(.semibold))
           .foregroundStyle(palette.textPrimary.color)
+          .accessibilityLabel(presentation.summary)
         if let attention = presentation.attention {
           Text(attention)
             .font(.subheadline)
@@ -181,6 +189,15 @@ struct ControlCenterView: View {
           .font(.body)
           .foregroundStyle(palette.textSecondary.color)
           .multilineTextAlignment(.center)
+      }
+      // UI-039. This is the one screen where the user has nothing else to go
+      // on, and it used to tell them to install a runner and leave them to
+      // find out how.
+      if let guide = presentation.guide {
+        Link(L10n.controlCenterInstallGuide, destination: guide)
+          .font(.body)
+          .padding(.top, StandfastTheme.Spacing.xSmall)
+          .accessibilityIdentifier(ControlCenterAccessibility.installGuide)
       }
     }
     .frame(maxWidth: .infinity, minHeight: 320)

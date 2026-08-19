@@ -75,7 +75,7 @@ private func l10nSource() -> String {
     L10n.settingsGitHubPlaceholder, L10n.settingsGitHubSave,
     L10n.settingsGitHubRemove, L10n.settingsGitHubKeychainFailed,
     L10n.stateReadyShort, L10n.stateRunningShort, L10n.stateDisconnectedShort,
-    L10n.stateStoppedShort, L10n.stateStartingShort, L10n.stateUnknownShort,
+    L10n.stateStoppedShort, L10n.stateStartingShort,
     L10n.checkedJustNow, L10n.checkFailedThenChecked(L10n.checkedJustNow),
     L10n.checkedNever, L10n.jobSucceeded, L10n.jobFailed,
     L10n.jobCanceled, L10n.jobInterrupted,
@@ -124,7 +124,8 @@ private func l10nSource() -> String {
     L10n.serviceOperationRestartStartTimedOutTitle,
     L10n.serviceOperationRestartStartTimedOutDetail,
     L10n.statusItemLabel, L10n.controlCenterTitle,
-    L10n.controlCenterNoRunnersDescription, L10n.controlCenterScope,
+    L10n.controlCenterNoRunnersDescription, L10n.controlCenterInstallGuide,
+    L10n.controlCenterScope,
     L10n.controlCenterStatus, L10n.controlCenterService,
     L10n.openWorkflowRuns, L10n.openRunnerSettings,
     L10n.runnerAttention(1), L10n.runnerAttention(2), L10n.viewRuns(),
@@ -173,7 +174,7 @@ private func l10nSource() -> String {
       "state.unreadable.more", "state.idle",
       "state.busy", "state.disconnected", "state.stopped", "state.starting",
       "state.short.ready", "state.short.running", "state.short.disconnected",
-      "state.short.stopped", "state.short.starting", "state.short.unknown",
+      "state.short.stopped", "state.short.starting",
       "state.unknown.noCLI", "state.unknown.notAuthenticated",
       "state.unknown.noAnswer", "state.unknown.noToken",
       "state.unknown.rateLimited",
@@ -217,6 +218,7 @@ private func l10nSource() -> String {
       "operation.restartStartFailed.title", "operation.restartStartFailed.detail",
       "operation.restartStartTimedOut.title", "operation.restartStartTimedOut.detail",
       "app.statusItem", "controlCenter.title", "controlCenter.noRunners.description",
+      "controlCenter.installGuide",
       "controlCenter.scope", "controlCenter.status", "controlCenter.service",
       "controlCenter.openWorkflowRuns", "controlCenter.openRunnerSettings",
       "controlCenter.attention.one", "controlCenter.attention",
@@ -225,7 +227,8 @@ private func l10nSource() -> String {
       "controlCenter.maintenance.compact", "controlCenter.fold",
       "controlCenter.service.start", "controlCenter.service.stop",
       "controlCenter.service.restart", "state.layer.runningLocally",
-      "state.layer.gitHubSilent", "state.layer.localUnreadable",
+      "state.layer.gitHubSilent", "state.layer.gitHubNotAsked",
+      "state.layer.gitHubRateLimited", "state.layer.localUnreadable",
       "controlCenter.unfold", "controlCenter.action.start",
       "controlCenter.action.stop", "controlCenter.action.restart",
       "settings.notifications", "settings.power", "settings.startup",
@@ -421,13 +424,28 @@ private func l10nSource() -> String {
   #expect(L10n.t("state.short.disconnected", in: [english]) == "Disconnected")
   #expect(L10n.t("state.short.stopped", in: [english]) == "Stopped")
   #expect(L10n.t("state.short.starting", in: [english]) == "Starting")
-  #expect(L10n.t("state.short.unknown", in: [english]) == "Unknown")
   #expect(L10n.t("state.short.ready", in: [spanish]) == "Listo")
   #expect(L10n.t("state.short.running", in: [spanish]) == "Ejecutando")
   #expect(L10n.t("state.short.disconnected", in: [spanish]) == "Desconectado")
   #expect(L10n.t("state.short.stopped", in: [spanish]) == "Detenido")
   #expect(L10n.t("state.short.starting", in: [spanish]) == "Arrancando")
-  #expect(L10n.t("state.short.unknown", in: [spanish]) == "Desconocido")
+  // The unknown states no longer share a badge: each names the layer that
+  // went quiet, in the same words its long sentence uses.
+  #expect(L10n.t("state.layer.gitHubSilent", in: [english]) == "GitHub not answering")
+  #expect(L10n.t("state.layer.gitHubNotAsked", in: [english]) == "GitHub not asked")
+  #expect(
+    L10n.t("state.layer.gitHubRateLimited", in: [english])
+      == "GitHub rate limit reached")
+  #expect(
+    L10n.t("state.layer.localUnreadable", in: [english]) == "Local service unreadable")
+  #expect(L10n.t("state.layer.gitHubSilent", in: [spanish]) == "GitHub sin respuesta")
+  #expect(L10n.t("state.layer.gitHubNotAsked", in: [spanish]) == "GitHub sin consultar")
+  #expect(
+    L10n.t("state.layer.gitHubRateLimited", in: [spanish])
+      == "Límite de GitHub alcanzado")
+  #expect(
+    L10n.t("state.layer.localUnreadable", in: [spanish])
+      == "No se pudo leer el servicio local")
 
   #expect(L10n.runnerAttention(1, in: [english]) == "1 runner needs attention")
   #expect(L10n.runnerAttention(3, in: [english]) == "3 runners need attention")
@@ -656,5 +674,40 @@ private func specifiers(in format: String) -> [Character] {
   for language in ["en", "es"] {
     let format = try #require(try catalogue(language)["menu.runnerInScope"])
     #expect(format.components(separatedBy: "%@").count == 3)
+  }
+}
+
+@Test func everyUnknownSentenceOpensWithTheBadgeBesideIt() throws {
+  // The rest of UI-034 is a *stable* grammar, not two vocabularies that happen
+  // to agree: the badge names what is wrong, and the sentence beneath it is
+  // that same clause plus the remedy. They are separate strings, so nothing
+  // stopped one being reworded without the other — and something already had.
+  // `noToken` and `rateLimited` say "not asked" and "rate limit reached", and
+  // a badge reading "not answering" over either is a small lie.
+  //
+  // Which badge each state carries is `DisplayState.shortSummary`'s business
+  // and is tested there. This is the other half: that the two catalogues keep
+  // saying the same thing, in both languages, where a translator editing one
+  // side is exactly how they drift.
+  let pairs = [
+    ("state.unknown.noCLI", "state.layer.gitHubSilent"),
+    ("state.unknown.notAuthenticated", "state.layer.gitHubSilent"),
+    ("state.unknown.noAnswer", "state.layer.gitHubSilent"),
+    ("state.unknown.noToken", "state.layer.gitHubNotAsked"),
+    ("state.unknown.rateLimited", "state.layer.gitHubRateLimited"),
+    ("state.unknown.noLocalAnswer", "state.layer.localUnreadable"),
+  ]
+
+  for language in ["en", "es"] {
+    let pack = try speaking(language)
+    for (sentenceKey, badgeKey) in pairs {
+      let sentence = L10n.t(sentenceKey, in: [pack])
+      let badge = L10n.t(badgeKey, in: [pack])
+      // Case-insensitively: a badge is capitalised and the same clause sits
+      // mid-sentence below it. The words are the contract, not the casing.
+      #expect(
+        sentence.range(of: badge, options: .caseInsensitive) != nil,
+        "\(language)/\(sentenceKey) does not open with \(badgeKey)")
+    }
   }
 }

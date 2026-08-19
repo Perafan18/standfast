@@ -9,6 +9,7 @@ enum L10n {
   static let controlCenterTitle = t("controlCenter.title")
   static let controlCenterNoRunnersDescription = t(
     "controlCenter.noRunners.description")
+  static let controlCenterInstallGuide = t("controlCenter.installGuide")
   static let controlCenterScope = t("controlCenter.scope")
   static let controlCenterStatus = t("controlCenter.status")
   static let controlCenterService = t("controlCenter.service")
@@ -25,6 +26,8 @@ enum L10n {
   /// disagree — which is where one word alone lies.
   static let stateLayerRunningLocally = t("state.layer.runningLocally")
   static let stateLayerGitHubSilent = t("state.layer.gitHubSilent")
+  static let stateLayerGitHubNotAsked = t("state.layer.gitHubNotAsked")
+  static let stateLayerGitHubRateLimited = t("state.layer.gitHubRateLimited")
   static let stateLayerLocalUnreadable = t("state.layer.localUnreadable")
   static let foldCard = t("controlCenter.fold")
   static let unfoldCard = t("controlCenter.unfold")
@@ -128,7 +131,6 @@ enum L10n {
   static let stateDisconnectedShort = t("state.short.disconnected")
   static let stateStoppedShort = t("state.short.stopped")
   static let stateStartingShort = t("state.short.starting")
-  static let stateUnknownShort = t("state.short.unknown")
 
   static func runnerAttention(
     _ count: Int, in bundles: [Bundle]? = nil
@@ -561,6 +563,7 @@ enum L10n {
   static let english: [String: String] = [
     "app.statusItem": "Standfast",
     "controlCenter.title": "Standfast Control Center",
+    "controlCenter.installGuide": "How to install a runner",
     "controlCenter.noRunners.description":
       "Install a self-hosted GitHub Actions runner, then refresh.",
     "controlCenter.scope": "Scope",
@@ -579,6 +582,8 @@ enum L10n {
     "controlCenter.service.stop": "Stop service",
     "controlCenter.service.restart": "Restart service",
     "state.layer.runningLocally": "Running locally",
+    "state.layer.gitHubNotAsked": "GitHub not asked",
+    "state.layer.gitHubRateLimited": "GitHub rate limit reached",
     "state.layer.gitHubSilent": "GitHub not answering",
     "state.layer.localUnreadable": "Local service unreadable",
     "controlCenter.fold": "Fold",
@@ -728,7 +733,6 @@ enum L10n {
     "state.short.disconnected": "Disconnected",
     "state.short.stopped": "Stopped",
     "state.short.starting": "Starting",
-    "state.short.unknown": "Unknown",
     "queue.waiting.one":
       "1 job is waiting for this machine",
     "queue.waiting":

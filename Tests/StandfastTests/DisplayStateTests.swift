@@ -35,9 +35,8 @@ private let everyDisplayState: [DisplayState] = [
       == L10n.stateDisconnectedShort)
   #expect(DisplayState.resolved(.stopped).shortSummary == L10n.stateStoppedShort)
   #expect(DisplayState.starting.shortSummary == L10n.stateStartingShort)
-  #expect(
-    DisplayState.resolved(.unknown(.noAnswer)).shortSummary
-      == L10n.stateUnknownShort)
+  // The unknown states have their own rule, and their own test below: the
+  // badge names the layer that went quiet rather than sharing one word.
 }
 
 @Test func stateToneDoesNotCollapseStateOrAttentionSemantics() {
@@ -146,4 +145,31 @@ private let everyDisplayState: [DisplayState] = [
   #expect(!DisplayState.resolved(.unknown(.noAnswer)).canReceiveWork)
   // The one that would otherwise look like the same predicate.
   #expect(!DisplayState.resolved(.stopped).needsAttention)
+}
+
+@Test func theBadgeNamesTheLayerThatWentQuietRatherThanShrugging() {
+  // The rest of UI-034. D-R16 gave the long sentence a stable grammar for the
+  // two layers — "running locally, GitHub not answering" — and left the badge
+  // beside it saying `Unknown` for both. Codex, reading the screenshots
+  // without the repository: *"the layers were named where it hurt; there is
+  // still no visible, stable grammar for all of them."*
+  //
+  // Every reason GitHub can be quiet for is one layer. The local probe
+  // refusing is the other, and its instruction points somewhere else entirely.
+  for reason in [UnknownReason.cliUnavailable, .notAuthenticated, .noAnswer] {
+    #expect(
+      DisplayState.resolved(.unknown(reason)).shortSummary
+        == L10n.stateLayerGitHubSilent)
+  }
+  // Not "not answering" for these two: nothing was asked in the first, and
+  // GitHub answered very clearly in the second.
+  #expect(
+    DisplayState.resolved(.unknown(.noToken)).shortSummary
+      == L10n.stateLayerGitHubNotAsked)
+  #expect(
+    DisplayState.resolved(.unknown(.rateLimited)).shortSummary
+      == L10n.stateLayerGitHubRateLimited)
+  #expect(
+    DisplayState.resolved(.unknown(.serviceStateUnreadable)).shortSummary
+      == L10n.stateLayerLocalUnreadable)
 }
