@@ -318,7 +318,46 @@ repository does not use.
 
 ## Releasing
 
-Signing and notarisation happen on the release manager's machine, before the tag:
+**Pushing the tag is the release.** `.github/workflows/release.yml` signs, notarises,
+staples, verifies and publishes on the self-hosted Mac; nothing about a release is done by
+hand on somebody's laptop. This section used to say the opposite, and the two rails
+produced a locally signed bundle that was never attached to anything.
+
+The version is written in two places that no build step keeps in step:
+`CFBundleShortVersionString` in `Resources/Info.plist`, and the tag inside `url` in
+`Formula/standfast.rb`. CI compares them and fails when they disagree, which is the only
+thing standing between a bump and an app that reports last release's version forever.
+
+So a release is, in order:
+
+1. Bump `CFBundleShortVersionString`, increment `CFBundleVersion`, and update the formula's
+   `url` tag together, in one commit.
+2. In `CHANGELOG.md`, replace `— Unreleased` on that version's heading with the date, and
+   open a new Unreleased heading above it.
+3. **Tag** `v<version>` and push the tag. That is the whole trigger.
+4. The workflow then signs with the Developer ID certificate, notarises, staples, proves
+   Gatekeeper accepts the result, **creates the GitHub Release** and attaches
+   `Standfast.zip`. It does not create a release that already exists, and it does not
+   upload without one.
+5. **sha256**: take it from the published asset and replace `REPLACE_ON_RELEASE` in the
+   formula.
+6. **Formula**: copy it into the tap.
+
+**A tag with any signing secret missing fails.** It does not skip. A green check over a
+release that does not exist is the failure nobody notices until somebody tries to download
+it. The six the gate requires are `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`,
+`KEYCHAIN_PASSWORD`, `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8_BASE64` — all of them,
+because a run that passed a three-secret gate and died at notarisation had already imported
+a certificate into the host's keychain.
+
+### Rehearsing it
+
+`workflow_dispatch` is the smoke test: it signs, notarises, staples and verifies exactly as
+a tag does, publishes nothing, and **keeps the signed app as a workflow artifact** so the
+run leaves something you can actually open. With secrets missing it skips green, because
+anybody may run it and "not configured yet" is not a failure.
+
+To check signing locally before tagging — or when the runner is unavailable:
 
 ```sh
 ./Scripts/build-app.sh      # says which identity it used — check it is the Developer ID
@@ -338,29 +377,7 @@ spctl --assess --type install -vv .build/Standfast.app   # must say "accepted"
 `--type install` matters: plain `spctl --assess` uses the execute rule, which is not the
 one that rejects a quarantined download.
 
-The version is written in two places that no build step keeps in step:
-`CFBundleShortVersionString` in `Resources/Info.plist`, and the tag inside `url` in
-`Formula/standfast.rb`. CI compares them and fails when they disagree, which is the only
-thing standing between a bump and an app that reports last release's version forever.
-
-So a release is, in order:
-
-1. Bump `CFBundleShortVersionString`, increment `CFBundleVersion`, and update the formula's
-   `url` tag together, in one commit.
-2. In `CHANGELOG.md`, replace `— Unreleased` on that version's heading with the date, and
-   open a new Unreleased heading above it.
-3. **Sign**: `./Scripts/build-app.sh`, and read the line it prints. It must name the
-   Developer ID Application certificate — if it says "Signed ad-hoc", stop.
-4. **Notarise, staple and verify**: `./Scripts/notarize.sh`. It submits, waits for
-   Apple's verdict, staples the ticket into the bundle and then verifies the signature,
-   the ticket and Gatekeeper's assessment. Stapling is not optional: without it a user
-   who is offline, or behind something that blocks Apple, is refused an app that *was*
-   notarised.
-5. **Tag** `v<version>` and push the tag.
-6. **sha256**: put the release tarball's into the formula, replacing `REPLACE_ON_RELEASE`.
-7. **Formula**: copy it into the tap.
-
-Steps 3 and 4 sign the bundle this repository builds. The formula builds from source on
+The workflow signs the bundle this repository builds. The formula builds from source on
 the user's own machine, so what Homebrew installs is signed ad-hoc by their own toolchain
 and never touches Gatekeeper — which is why building from source is the default. The
 notarised bundle is what a direct download needs.

@@ -21,8 +21,16 @@
 #   DEVELOPER_ID_P12_PASSWORD  password for that .p12
 #   KEYCHAIN_PASSWORD          any strong string; names a throwaway keychain
 #
-# Until the three are set the job self-skips green, so tagging never produces a
-# red check.
+# What happens when they are missing depends on why the job is running, and the
+# two cases are not the same thing:
+#
+#   * A **manual run** is the smoke test for this rail. It self-skips green,
+#     because anybody may run it and a red check for "not configured yet" is
+#     noise.
+#   * A **tag** is a publication. It **fails**. A tag that skips green produces
+#     a check saying the release succeeded and a repository with no artifact in
+#     it, which is the shape of a failure nobody notices until somebody tries to
+#     download it.
 name: Release
 
 on:
@@ -32,8 +40,18 @@ on:
 
 # The job mutates machine-wide state on the runner host (the keychain search
 # list), so two of them overlapping on the same Mac would fight over it.
+#
+# A constant group, deliberately not keyed on the ref. Keying on the ref
+# serialises runs of the *same* tag and lets everything else through — two tags,
+# or a tag and a manual run — which are exactly the pairs that would rewrite the
+# host keychain at the same time.
+#
+# What this still cannot do: another repository's release job on the same Mac.
+# GitHub concurrency is per repository, and there is no cross-repository lock.
+# The `security list-keychains` dance below restores what it found rather than
+# assuming, which is the mitigation available at that level.
 concurrency:
-  group: release-${{ github.ref }}
+  group: standfast-release-signing
   cancel-in-progress: false
 
 permissions:
@@ -52,16 +70,45 @@ jobs:
       - name: Are the signing secrets configured?
         id: gate
         env:
-          P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
-          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          # Every secret any later step consumes, named exactly as it is named
+          # in repository settings so the failure below can be acted on without
+          # opening this file. Checking only the signing three meant a run could
+          # pass this gate and die at notarisation — after the certificate was
+          # already imported into the host's keychain.
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
         run: |
-          if [ -z "$P12" ] || [ -z "$P12_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
-            echo "::notice::No Developer ID certificate configured — skipping. See the header of this file."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          else
+          missing=()
+          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD \
+            KEYCHAIN_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64; do
+            # `:-` because a secret that is not set arrives as an empty
+            # string here, but a shell that runs this with `set -u` — a future
+            # runner default, or anybody testing the logic by hand — would
+            # abort on the unset case instead of reporting it.
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+
+          if [ "${#missing[@]}" -eq 0 ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # A tag is somebody publishing. Green-and-empty is worse than red
+          # here: it is a check that says the release worked, over a release
+          # that does not exist.
+          case "$GITHUB_REF" in
+            refs/tags/*)
+              echo "::error::Cannot release $GITHUB_REF: ${missing[*]} not set in repository secrets."
+              exit 1
+              ;;
+          esac
+
+          echo "::notice::Skipping — not configured yet: ${missing[*]}. See the header of this file."
+          echo "configured=false" >> "$GITHUB_OUTPUT"
 
       - name: Test
         if: steps.gate.outputs.configured == 'true'
@@ -128,15 +175,41 @@ jobs:
           spctl -a -vvv -t exec "$APP"
           xcrun stapler validate "$APP"
 
+      - name: Package the signed app
+        if: steps.gate.outputs.configured == 'true'
+        run: ditto -c -k --keepParent .build/Standfast.app "$RUNNER_TEMP/Standfast.zip"
+
+      - name: Keep it, so a manual run leaves something to look at
+        if: steps.gate.outputs.configured == 'true' && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          # A manual run is this rail's smoke test. One that signs, notarises,
+          # staples, and then deletes the result proves the steps executed and
+          # leaves nothing anybody can open — which is most of the value of a
+          # smoke test.
+          name: Standfast-${{ github.sha }}
+          path: ${{ runner.temp }}/Standfast.zip
+          if-no-files-found: error
+
       - name: Attach the app to the release
         if: steps.gate.outputs.configured == 'true' && startsWith(github.ref, 'refs/tags/')
         env:
+          # `gh` reads this. Without it the step fails on authentication — at
+          # the very end, after signing and notarising have already happened.
+          # GITHUB_TOKEN is scoped to this repository, expires with the job, and
+          # is never written anywhere.
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          ditto -c -k --keepParent .build/Standfast.app "$RUNNER_TEMP/Standfast.zip"
-          gh release upload "$TAG" "$RUNNER_TEMP/Standfast.zip" --clobber
-        # GITHUB_TOKEN is scoped to this repository and expires with the job.
-        # It is never written anywhere.
+          # Pushing a tag does not create a GitHub Release. `gh release upload`
+          # against one that does not exist fails, and it failed here — as the
+          # last step of a job that had already done all the expensive work.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$RUNNER_TEMP/Standfast.zip" --clobber
+          else
+            gh release create "$TAG" "$RUNNER_TEMP/Standfast.zip" \
+              --title "$TAG" --generate-notes --verify-tag
+          fi
 
       - name: Put the machine back as it was
         if: always()
