@@ -100,6 +100,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     SettingsView(
       loginItem: LoginItem(), notifications: healthyFleet.notifications,
       sleep: healthyFleet.sleep, github: GitHubAccess(store: RenderTokenStore(nil)),
+      gitLab: GitHubAccess(store: RenderTokenStore(nil)), showsGitLab: false,
       manualRunners: ManualRunnerDirectories(defaults: renderDefaults()),
       infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
     to: directory.appendingPathComponent("0c-ajustes.png"),
@@ -114,6 +115,9 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
       loginItem: LoginItem(), notifications: healthyFleet.notifications,
       sleep: healthyFleet.sleep,
       github: GitHubAccess(store: RenderTokenStore("ghp_example")),
+      // The GitLab card too: this render is the crowded one on purpose, every
+      // optional section at once, because that is the layout worth doubting.
+      gitLab: GitHubAccess(store: RenderTokenStore(nil)), showsGitLab: true,
       // With one added, so the row and its Remove button are in the picture.
       manualRunners: renderRunners(["/Users/ci/actions-runner-by-hand"]),
       infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
@@ -188,6 +192,21 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   try render(
     ControlCenterView(fleet: byHandFleet),
     to: directory.appendingPathComponent("C2-arrancado-a-mano.png"))
+
+  // 3c. A GitLab runner beside a GitHub one. The second provider's whole
+  // pitch is that the same window answers the same question about both — so
+  // the picture has to hold both: GitLab badge vocabulary, dead controls with
+  // GitLab's own note, and the instance host where the scope would be.
+  let mixed = try FleetSandbox(serviceRunning: true)
+  defer { mixed.cleanUp() }
+  _ = try mixed.addRunner(name: "mac-mini-m4", scope: "acme-widget")
+  try mixed.addGitLabRunner(name: "mac-gitlab", id: 91, host: "gitlab.example.com")
+  let mixedFleet = fleet(mixed)
+  await mixedFleet.quiesce()
+  try render(
+    ControlCenterView(fleet: mixedFleet),
+    to: directory.appendingPathComponent("C3-gitlab-junto-a-github.png"),
+    height: 900)
 
   // 4b. The other layer. `launchctl` refusing to say whether the service is
   // loaded is the one unknown whose instruction points at this Mac rather than

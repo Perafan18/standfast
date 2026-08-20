@@ -189,3 +189,38 @@ private func settingsSource(_ name: String) -> String {
   #expect(SettingsAccessibility.githubSave == "dev.standfast.settings.github.save")
   #expect(SettingsAccessibility.githubRemove == "dev.standfast.settings.github.remove")
 }
+
+// MARK: - GitLab access
+
+@Test func aMacWithoutGitLabGetsNoGitLabCard() {
+  // Most Macs. A token field for a provider with nothing on the machine is a
+  // question the user cannot act on.
+  let presentation = SettingsPresentation(
+    githubState: .absent, githubNotice: nil,
+    gitLabState: nil, gitLabNotice: nil,
+    notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil)
+
+  #expect(presentation.gitLab == nil)
+}
+
+@Test func aMacWithGitLabRunnersGetsItsOwnTokenCard() {
+  let presentation = SettingsPresentation(
+    githubState: .absent, githubNotice: nil,
+    gitLabState: .absent, gitLabNotice: nil,
+    notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil)
+
+  let gitLab = presentation.gitLab
+  #expect(gitLab?.currentState == L10n.settingsGitLabAbsent)
+  #expect(gitLab?.footer == L10n.settingsGitLabFooter)
+  #expect(gitLab?.canRemove == false)
+}
+
+@Test func aStoredGitLabTokenIsAnnouncedInGitLabsWords() {
+  let presentation = SettingsPresentation(
+    githubState: .absent, githubNotice: nil,
+    gitLabState: .stored, gitLabNotice: nil,
+    notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil)
+
+  #expect(presentation.gitLab?.currentState == L10n.settingsGitLabStored)
+  #expect(presentation.gitLab?.canRemove == true)
+}

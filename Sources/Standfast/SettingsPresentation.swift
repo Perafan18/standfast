@@ -33,10 +33,15 @@ struct SettingsPresentation: Equatable {
   let power: SettingsSectionPresentation
   let startup: SettingsSectionPresentation
   let github: GitHubSettingsPresentation
+  /// Nil on a Mac with no gitlab-runner configured, which is most Macs: a
+  /// token field for a provider with nothing on the machine is a question the
+  /// user cannot act on.
+  let gitLab: GitHubSettingsPresentation?
   let version: String
 
   init(
     githubState: GitHubAccessState = .absent, githubNotice: String? = nil,
+    gitLabState: GitHubAccessState? = nil, gitLabNotice: String? = nil,
     notificationNotice: String?, loginItemNotice: String?,
     infoDictionary: [String: Any]?
   ) {
@@ -57,7 +62,23 @@ struct SettingsPresentation: Equatable {
       // recovery from an item this app can no longer read, and withholding it
       // would leave the user hunting for the entry in Keychain Access.
       canRemove: githubState != .absent)
+    gitLab = gitLabState.map { state in
+      GitHubSettingsPresentation(
+        currentState: Self.gitLabCurrentState(state),
+        footer: L10n.settingsGitLabFooter,
+        notice: gitLabNotice,
+        canRemove: state != .absent)
+    }
     version = Self.version(infoDictionary: infoDictionary)
+  }
+
+  private static func gitLabCurrentState(_ state: GitHubAccessState) -> String {
+    switch state {
+    case .stored: L10n.settingsGitLabStored
+    case .absent: L10n.settingsGitLabAbsent
+    // The Keychain sentence names no provider, so both cards share it.
+    case .unreadable: L10n.settingsGitHubUnreadable
+    }
   }
 
   private static func currentState(_ state: GitHubAccessState) -> String {
@@ -102,6 +123,9 @@ enum SettingsAccessibility {
   static let githubToken = "dev.standfast.settings.github.token"
   static let githubSave = "dev.standfast.settings.github.save"
   static let githubRemove = "dev.standfast.settings.github.remove"
+  static let gitlabToken = "dev.standfast.settings.gitlab.token"
+  static let gitlabSave = "dev.standfast.settings.gitlab.save"
+  static let gitlabRemove = "dev.standfast.settings.gitlab.remove"
   static let runnersAdd = "dev.standfast.settings.runners.add"
 
   /// One per row, so a probe can name the folder it means.

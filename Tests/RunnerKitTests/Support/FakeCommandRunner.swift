@@ -15,7 +15,7 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
   /// Stands in for whatever Foundation reports when a launch fails.
   struct LaunchFailure: Error {}
 
-  private let responses: [[String]: String]
+  private var responses: [[String]: String]
   private(set) var invocations: [Invocation] = []
   var failingExecutables: Set<String> = []
   /// Executables that run and never finish. Distinct from `failingExecutables`
@@ -36,6 +36,12 @@ final class FakeCommandRunner: CommandRunning, @unchecked Sendable {
   /// and `["gh", "a", "b"]` are different commands, and a `gh --jq` filter is
   /// one argument with spaces in it.
   init(_ responses: [[String]: String] = [:]) { self.responses = responses }
+
+  /// For the tests whose fakes are built before their answers are decided.
+  /// Keyed exactly like the initialiser, executable included.
+  func respond(to command: [String], with output: String) {
+    responses[command] = output
+  }
 
   func run(
     _ executable: String, _ arguments: [String], workingDirectory: URL?

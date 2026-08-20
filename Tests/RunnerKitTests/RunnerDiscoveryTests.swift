@@ -83,6 +83,19 @@ private struct Sandbox {
   func cleanUp() { try? FileManager.default.removeItem(at: root) }
 }
 
+/// Discovery pointed only at the sandbox. The gitLab config is aimed at a file
+/// the sandbox owns and never writes, because the default is the *real*
+/// `~/.gitlab-runner/config.toml` — and a GitHub-discovery test must not grow
+/// a runner because the machine running the suite has GitLab installed.
+private func discovery(
+  in box: Sandbox, manualDirectories: [URL] = []
+) -> RunnerDiscovery {
+  RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents,
+    manualDirectories: manualDirectories,
+    gitLabConfigFile: box.root.appendingPathComponent("no-gitlab-config.toml"))
+}
+
 private struct DirectoryListingFailure: Error {}
 
 @Test func discoversASingleRunner() throws {
@@ -92,7 +105,7 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme-widget.build-mac",
     agentId: 21, gitHubUrl: "https://github.com/acme/widget")
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.count == 1)
   #expect(found.runners[0].agentId == 21)
@@ -111,8 +124,7 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme.mac-b",
     agentId: 2, gitHubUrl: "https://github.com/acme")
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents)
-    .discover().runners.sorted { $0.agentId < $1.agentId }
+  let found = discovery(in: box).discover().runners.sorted { $0.agentId < $1.agentId }
 
   #expect(found.count == 2)
   #expect(found[1].scope == .organization("acme"))
@@ -133,7 +145,7 @@ private struct DirectoryListingFailure: Error {}
     gitHubUrl: "https://github.com/acme/widget",
     fileName: "actions.runner.acme-widget.zulu.plist")
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(
     found.runners.map(\.label) == [
@@ -155,7 +167,7 @@ private struct DirectoryListingFailure: Error {}
     named: "actions.runner.acme-widget.mac-a copy.plist",
     label: "actions.runner.acme-widget.mac-a", workingDirectory: dir)
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.count == 1)
   #expect(Set(found.runners.map(\.id)).count == found.runners.count)
@@ -171,7 +183,7 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme-widget.mac-a", agentId: 1,
     gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName)
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.count == 1)
   #expect(found.runners[0].agentName == "")
@@ -185,7 +197,7 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme-widget.mac-a", agentId: 1,
     gitHubUrl: "https://github.com/acme/widget")
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners[0].displayName == found.runners[0].agentName)
 }
@@ -201,7 +213,7 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme-widget.mac-a", agentId: 1,
     gitHubUrl: "https://github.com/acme/widget", workFolder: "builds")
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners[0].workDirectory == dir.appendingPathComponent("builds"))
   // Under the runner's own directory, never beside it: this path is what a
@@ -219,7 +231,7 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme-widget.absolute", agentId: 2,
     gitHubUrl: "https://github.com/acme/widget", workFolder: "/tmp/outside")
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.isEmpty)
   #expect(
@@ -240,7 +252,7 @@ private struct DirectoryListingFailure: Error {}
   try FileManager.default.createSymbolicLink(
     at: directory.appendingPathComponent("builds"), withDestinationURL: outside)
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.isEmpty)
   #expect(
@@ -260,7 +272,7 @@ private struct DirectoryListingFailure: Error {}
   try FileManager.default.createSymbolicLink(
     at: directory.appendingPathComponent("builds"), withDestinationURL: actualWork)
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.count == 1)
   #expect(found.runners[0].workDirectory == directory.appendingPathComponent("builds"))
@@ -278,7 +290,7 @@ private struct DirectoryListingFailure: Error {}
     gitHubUrl: "https://github.com/acme/widget", runnerFile: .withoutAgentName,
     workFolder: nil)
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners[0].workDirectory == dir.appendingPathComponent("_work"))
 }
@@ -302,7 +314,7 @@ private struct DirectoryListingFailure: Error {}
   try Data("<plist/>".utf8).write(
     to: box.launchAgents.appendingPathComponent("com.spotify.client.plist"))
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.count == 1)
   // Somebody else's broken agent is not this app's problem to report.
@@ -323,7 +335,7 @@ private struct DirectoryListingFailure: Error {}
     named: "com.spotify.client.plist", label: "com.spotify.client",
     workingDirectory: dir)
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.count == 1)
   #expect(found.runners[0].label == "actions.runner.acme-widget.mac-a")
@@ -342,7 +354,7 @@ private struct DirectoryListingFailure: Error {}
     named: "actions.runner.acme-widget.mac-b.txt",
     label: "actions.runner.acme-widget.mac-b", workingDirectory: dir)
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.count == 1)
   #expect(found.runners[0].label == "actions.runner.acme-widget.mac-a")
@@ -364,10 +376,8 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme-widget.ghost", agentId: 9,
     gitHubUrl: "https://github.com/acme/widget", runnerFile: .missing)
 
-  let nothingInstalled =
-    RunnerDiscovery(launchAgentsDirectory: bare.launchAgents).discover()
-  let nothingReadable =
-    RunnerDiscovery(launchAgentsDirectory: broken.launchAgents).discover()
+  let nothingInstalled = discovery(in: bare).discover()
+  let nothingReadable = discovery(in: broken).discover()
 
   #expect(nothingInstalled.runners.isEmpty)
   #expect(nothingInstalled.unreadable.isEmpty)
@@ -389,7 +399,7 @@ private struct DirectoryListingFailure: Error {}
     to: box.launchAgents.appendingPathComponent(
       "actions.runner.acme-widget.unknown.plist"))
 
-  let found = RunnerDiscovery(launchAgentsDirectory: box.launchAgents).discover()
+  let found = discovery(in: box).discover()
 
   #expect(found.runners.isEmpty)
   #expect(found.unreadable.count == 1)
@@ -398,7 +408,13 @@ private struct DirectoryListingFailure: Error {}
 
 @Test func returnsEmptyWhenThereIsNoLaunchAgentsDirectory() {
   let missing = URL(fileURLWithPath: "/nope/does/not/exist")
-  let found = RunnerDiscovery(launchAgentsDirectory: missing).discover()
+  let found = RunnerDiscovery(
+    launchAgentsDirectory: missing,
+    // Aimed away from the machine's real one, like every discovery in this
+    // file: this test is about LaunchAgents, and it must not find a GitLab
+    // fleet because the machine running it has one.
+    gitLabConfigFile: URL(fileURLWithPath: "/nope/does/not/exist/config.toml")
+  ).discover()
 
   #expect(found.runners.isEmpty)
   #expect(found.unreadable.isEmpty)
@@ -451,9 +467,7 @@ private struct DirectoryListingFailure: Error {}
   let directory = try box.addManualRunner(
     named: "hand-started", agentId: 91, gitHubUrl: "https://github.com/acme/widget")
 
-  let result = RunnerDiscovery(
-    launchAgentsDirectory: box.launchAgents, manualDirectories: [directory]
-  ).discover()
+  let result = discovery(in: box, manualDirectories: [directory]).discover()
 
   #expect(result.runners.map(\.agentId) == [91])
   #expect(result.runners.map(\.installation) == [.manual])
@@ -469,9 +483,7 @@ private struct DirectoryListingFailure: Error {}
   let manual = try box.addManualRunner(
     named: "hand-started", agentId: 91, gitHubUrl: "https://github.com/acme/widget")
 
-  let result = RunnerDiscovery(
-    launchAgentsDirectory: box.launchAgents, manualDirectories: [manual]
-  ).discover()
+  let result = discovery(in: box, manualDirectories: [manual]).discover()
 
   #expect(Set(result.runners.map(\.agentId)) == [7, 91])
   #expect(
@@ -488,9 +500,7 @@ private struct DirectoryListingFailure: Error {}
     label: "actions.runner.acme-widget.serviced", agentId: 7,
     gitHubUrl: "https://github.com/acme/widget")
 
-  let result = RunnerDiscovery(
-    launchAgentsDirectory: box.launchAgents, manualDirectories: [directory]
-  ).discover()
+  let result = discovery(in: box, manualDirectories: [directory]).discover()
 
   #expect(result.runners.map(\.installation) == [.launchAgent])
 }
@@ -503,9 +513,7 @@ private struct DirectoryListingFailure: Error {}
   let directory = try box.addManualRunner(
     named: "not-a-runner", agentId: 0, gitHubUrl: "x", runnerFile: .missing)
 
-  let result = RunnerDiscovery(
-    launchAgentsDirectory: box.launchAgents, manualDirectories: [directory]
-  ).discover()
+  let result = discovery(in: box, manualDirectories: [directory]).discover()
 
   #expect(result.runners.isEmpty)
   #expect(result.unreadable.map(\.path) == [directory.path])
@@ -522,10 +530,98 @@ private struct DirectoryListingFailure: Error {}
   let second = try box.addManualRunner(
     named: "two", agentId: 2, gitHubUrl: "https://github.com/acme/widget")
 
-  let result = RunnerDiscovery(
-    launchAgentsDirectory: box.launchAgents, manualDirectories: [first, second]
-  ).discover()
+  let result = discovery(in: box, manualDirectories: [first, second]).discover()
 
   #expect(Set(result.runners.map(\.label)).count == 2)
   #expect(result.runners.allSatisfy { $0.label.contains($0.directory.lastPathComponent) })
+}
+
+// MARK: - GitLab runners
+
+@Test func gitLabRunnersAreDiscoveredFromTheirOwnConfig() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let config = box.root.appendingPathComponent("config.toml")
+  try """
+  [[runners]]
+    id = 91
+    name = "mac-gitlab"
+    url = "https://gitlab.example.com"
+    token = "glrt-SECRET"
+    executor = "shell"
+  """.write(to: config, atomically: true, encoding: .utf8)
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, gitLabConfigFile: config
+  ).discover()
+
+  #expect(result.runners.count == 1)
+  let runner = try #require(result.runners.first)
+  #expect(runner.agentId == 91)
+  #expect(runner.agentName == "mac-gitlab")
+  #expect(runner.scope == .gitLab(instanceHost: "gitlab.example.com"))
+  #expect(runner.installation == .gitLabService)
+  // Identity carries the instance and the id: two runners with the same name
+  // on two instances are two runners, and nothing else tells them apart.
+  #expect(runner.label == "standfast.gitlab:gitlab.example.com:91")
+  // Where the service keeps its own files, for the measure that reads it.
+  #expect(runner.directory.path == config.deletingLastPathComponent().path)
+}
+
+@Test func aMacWithoutGitLabIsUndisturbed() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.serviced", agentId: 7,
+    gitHubUrl: "https://github.com/acme/widget")
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents,
+    gitLabConfigFile: box.root.appendingPathComponent("no-such-config.toml")
+  ).discover()
+
+  #expect(result.runners.map(\.agentId) == [7])
+  #expect(result.unreadable.isEmpty)
+}
+
+@Test func aConfigDeclaringRunnersThisAppCannotUseNamesTheFile() throws {
+  // Written before gitlab-runner 15.0 there is no id, and without one there is
+  // no way to ask the API about this runner. Dropping it silently is how half
+  // a fleet goes missing; the file is reported so somebody can look at it.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let config = box.root.appendingPathComponent("config.toml")
+  try """
+  [[runners]]
+    name = "pre-15"
+    url = "https://gitlab.com"
+  """.write(to: config, atomically: true, encoding: .utf8)
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, gitLabConfigFile: config
+  ).discover()
+
+  #expect(result.runners.isEmpty)
+  #expect(result.unreadable.map(\.path) == [config.path])
+}
+
+@Test func bothProvidersComeBackFromOneScan() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  try box.addRunner(
+    label: "actions.runner.acme-widget.serviced", agentId: 7,
+    gitHubUrl: "https://github.com/acme/widget")
+  let config = box.root.appendingPathComponent("config.toml")
+  try """
+  [[runners]]
+    id = 91
+    name = "mac-gitlab"
+    url = "https://gitlab.com"
+  """.write(to: config, atomically: true, encoding: .utf8)
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, gitLabConfigFile: config
+  ).discover()
+
+  #expect(Set(result.runners.map(\.agentId)) == [7, 91])
 }

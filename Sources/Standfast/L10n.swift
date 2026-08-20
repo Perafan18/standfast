@@ -26,7 +26,16 @@ enum L10n {
   /// disagree — which is where one word alone lies.
   static let stateLayerRunningLocally = t("state.layer.runningLocally")
   static let runnerStartedByHand = t("runner.startedByHand")
+  static let runnerGitLabService = t("runner.gitLabService")
   static let stateLayerGitHubSilent = t("state.layer.gitHubSilent")
+  static let stateUnknownGitLabNoToken = t("state.unknown.gitLabNoToken")
+  static let stateUnknownGitLabNotAuthenticated = t("state.unknown.gitLabNotAuthenticated")
+  static let stateUnknownGitLabRateLimited = t("state.unknown.gitLabRateLimited")
+  static let stateUnknownGitLabSilent = t("state.unknown.gitLabSilent")
+  static let stateLayerGitLabNotAsked = t("state.layer.gitLabNotAsked")
+  static let stateLayerGitLabRefusedToken = t("state.layer.gitLabRefusedToken")
+  static let stateLayerGitLabRateLimited = t("state.layer.gitLabRateLimited")
+  static let stateLayerGitLabSilent = t("state.layer.gitLabSilent")
   static let stateLayerGitHubNotAsked = t("state.layer.gitHubNotAsked")
   static let stateLayerGitHubRateLimited = t("state.layer.gitHubRateLimited")
   static let stateLayerLocalUnreadable = t("state.layer.localUnreadable")
@@ -48,6 +57,11 @@ enum L10n {
     String(format: t("settings.runners.remove", in: bundles), name)
   }
   static let settingsGitHub = t("settings.github")
+  static let settingsGitLab = t("settings.gitlab")
+  static let settingsGitLabFooter = t("settings.gitlab.footer")
+  static let settingsGitLabStored = t("settings.gitlab.stored")
+  static let settingsGitLabAbsent = t("settings.gitlab.absent")
+  static let settingsGitLabPlaceholder = t("settings.gitlab.placeholder")
   static let settingsGitHubFooter = t("settings.github.footer")
   static let settingsGitHubStored = t("settings.github.stored")
   static let settingsGitHubAbsent = t("settings.github.absent")
@@ -589,11 +603,29 @@ enum L10n {
     "controlCenter.service.start": "Start service",
     "controlCenter.service.stop": "Stop service",
     "controlCenter.service.restart": "Restart service",
+    "runner.gitLabService":
+      "Runs under gitlab-runner, one service for every GitLab runner here — start or stop it from a terminal",
     "runner.startedByHand":
       "Started by hand, so Standfast can watch it but not stop or restart it",
     "state.layer.runningLocally": "Running locally",
     "state.layer.gitHubNotAsked": "GitHub not asked",
     "state.layer.gitHubRateLimited": "GitHub rate limit reached",
+    "state.unknown.gitLabNoToken":
+      "Running locally, GitLab not asked — add a GitLab token in Settings",
+    "state.unknown.gitLabNotAuthenticated":
+      "Running locally, GitLab refused the token — replace it in Settings",
+    "state.unknown.gitLabRateLimited":
+      "Running locally, GitLab rate limit reached — it answers again shortly",
+    "state.unknown.gitLabSilent":
+      "Running locally, GitLab not answering — check the network, or the token in Settings",
+    "state.layer.gitLabNotAsked":
+      "GitLab not asked",
+    "state.layer.gitLabRefusedToken":
+      "GitLab refused the token",
+    "state.layer.gitLabRateLimited":
+      "GitLab rate limit reached",
+    "state.layer.gitLabSilent":
+      "GitLab not answering",
     "state.layer.gitHubSilent": "GitHub not answering",
     "state.layer.localUnreadable": "Local service unreadable",
     "controlCenter.fold": "Fold",
@@ -606,6 +638,16 @@ enum L10n {
     "settings.startup": "Startup",
     "settings.notifications.footer": "Alerts use system notifications.",
     "settings.power.footer": "Closing the lid still puts this Mac to sleep.",
+    "settings.gitlab":
+      "GitLab access",
+    "settings.gitlab.footer":
+      "With a personal access token, Standfast asks your GitLab instance about its runners. The instance comes from each runner's own configuration.",
+    "settings.gitlab.stored":
+      "A token is stored. Standfast asks GitLab directly.",
+    "settings.gitlab.absent":
+      "No token stored. GitLab runners show as not asked.",
+    "settings.gitlab.placeholder":
+      "Paste a GitLab token",
     "settings.github":
       "GitHub access",
     "settings.github.footer":

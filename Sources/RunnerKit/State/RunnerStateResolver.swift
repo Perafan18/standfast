@@ -49,19 +49,24 @@ public struct RunnerStateResolver: Sendable {
   /// `LaunchctlProbe.blockingIsRunning(label:)`.
   private let isServiceRunning: @Sendable (DiscoveredRunner) -> Bool?
   private let github: any GitHubClient
+  private let gitLab: GitLabAPIClient
 
   public init(
     isServiceRunning: @escaping @Sendable (DiscoveredRunner) -> Bool?,
-    github: any GitHubClient
+    github: any GitHubClient,
+    gitLab: GitLabAPIClient = GitLabAPIClient.standard
   ) {
     self.isServiceRunning = isServiceRunning
     self.github = github
+    self.gitLab = gitLab
   }
 
   public init(
     probe: LaunchctlProbe = LaunchctlProbe(),
     listeners: ListenerProcessProbe = ListenerProcessProbe(),
-    github: any GitHubClient = TokenFirstGitHubClient.standard
+    gitLabRunners: GitLabRunnerProcessProbe = GitLabRunnerProcessProbe(),
+    github: any GitHubClient = TokenFirstGitHubClient.standard,
+    gitLab: GitLabAPIClient = GitLabAPIClient.standard
   ) {
     self.init(
       isServiceRunning: { runner in
@@ -74,8 +79,13 @@ public struct RunnerStateResolver: Sendable {
         // it leaves instead is a process out of its own directory.
         case .manual:
           listeners.blockingIsRunning(inDirectory: runner.directory)
+        // One machine-wide process serves every GitLab runner, so the local
+        // half of the question is per machine and this probe takes no
+        // argument.
+        case .gitLabService:
+          gitLabRunners.blockingIsRunning()
         }
-      }, github: github)
+      }, github: github, gitLab: gitLab)
   }
 
   /// Resolves one runner's state without tying up a thread the runtime needs.
@@ -151,8 +161,16 @@ public struct RunnerStateResolver: Sendable {
     }
 
     do {
-      let remote = try github.blockingRunnerStatus(
-        id: runner.agentId, scope: runner.scope)
+      // Which provider gets the question is the scope's decision, made here
+      // rather than behind the client protocol: sending a GitLab runner to the
+      // GitHub client would ask the wrong API with the wrong token and, on
+      // failure, hand the user the wrong instruction.
+      let remote: RemoteStatus
+      if case .gitLab(let host) = runner.scope {
+        remote = try gitLab.blockingRunnerStatus(id: runner.agentId, instanceHost: host)
+      } else {
+        remote = try github.blockingRunnerStatus(id: runner.agentId, scope: runner.scope)
+      }
       let stateReadAt = clock()
       // Connection before occupation, and the order is load-bearing: GitHub
       // describes a machine that died mid-job as offline with the job still
@@ -169,6 +187,10 @@ public struct RunnerStateResolver: Sendable {
         state: remote.busy ? .busy : .idle, readAt: readAt, beganAt: beganAt,
         stateReadAt: stateReadAt, labels: remote.labels)
     } catch let failure as GitHubError {
+      return Reading(
+        state: .unknown(UnknownReason(failure)), readAt: readAt, beganAt: beganAt,
+        stateReadAt: clock())
+    } catch let failure as GitLabError {
       return Reading(
         state: .unknown(UnknownReason(failure)), readAt: readAt, beganAt: beganAt,
         stateReadAt: clock())

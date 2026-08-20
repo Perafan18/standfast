@@ -20,6 +20,7 @@ final class FleetSandbox: @unchecked Sendable {
   private var nextReleaseBarrier: BlockingReleaseCheck?
   private var discoveryFailure: DiscoveryFailure?
   private var manualDirectories: [URL] = []
+  private var gitLabConfig: URL?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
   /// Held for the duration of every GitHub call, so a test can make a scan
@@ -235,6 +236,25 @@ final class FleetSandbox: @unchecked Sendable {
     return directory
   }
 
+  /// A gitlab-runner `config.toml` with one runner in it, and the sandbox's
+  /// discovery pointed at it.
+  @discardableResult
+  func addGitLabRunner(
+    name: String = "mac-gitlab", id: Int = 91, host: String = "gitlab.example.com"
+  ) throws -> URL {
+    let config = root.appendingPathComponent("gitlab-config.toml")
+    try """
+    [[runners]]
+      id = \(id)
+      name = "\(name)"
+      url = "https://\(host)"
+      token = "glrt-TEST"
+      executor = "shell"
+    """.write(to: config, atomically: true, encoding: .utf8)
+    withLock { gitLabConfig = config }
+    return config
+  }
+
   /// Writes the `_diag` a runner leaves beside itself, with one job in it.
   ///
   /// Verbatim from a real listener log, double timestamp and all. The reader
@@ -381,7 +401,12 @@ final class FleetSandbox: @unchecked Sendable {
         } else {
           RunnerDiscovery(
             launchAgentsDirectory: launchAgents,
-            manualDirectories: withLock { manualDirectories }
+            manualDirectories: withLock { manualDirectories },
+            // Never nil: nil would fall through to the real
+            // ~/.gitlab-runner/config.toml, and a test fleet must not grow a
+            // runner because the machine running the suite has one.
+            gitLabConfigFile: withLock { gitLabConfig }
+              ?? root.appendingPathComponent("no-gitlab-config.toml")
           ).discover()
         }
       barrier?.block()
@@ -402,7 +427,31 @@ final class FleetSandbox: @unchecked Sendable {
         barrier?.block()
         return withLock { running }
       },
-      github: Client(sandbox: self))
+      github: Client(sandbox: self),
+      // Never the default. `GitLabAPIClient.standard` reads the operator's
+      // real Keychain and would put a network call in any test whose sandbox
+      // holds a GitLab runner. No token stored is the state every test wants:
+      // the runner resolves to its own "not asked", with nothing external.
+      gitLab: GitLabAPIClient(token: NoStoredToken(), http: RefusingHTTP()))
+  }
+
+  /// An empty token store, so a sandboxed GitLab runner reads as "not asked"
+  /// without the real Keychain ever being opened.
+  private struct NoStoredToken: GitHubTokenStoring {
+    func token() throws -> String? { nil }
+    func store(_ token: String) throws {}
+    func clear() throws {}
+  }
+
+  /// Refuses every request, loudly. With no token stored nothing should reach
+  /// the network, and if a change ever routes around that guard, a test fails
+  /// here instead of silently calling a GitLab that does not exist.
+  private struct RefusingHTTP: HTTPPerforming {
+    struct SandboxedTest: Error {}
+
+    func blockingGet(_ url: URL, headers: [String: String]) throws -> HTTPResponse {
+      throw HTTPError.unreachable(underlying: SandboxedTest())
+    }
   }
 
   /// Answers whatever the sandbox is currently set to, and counts the asking.

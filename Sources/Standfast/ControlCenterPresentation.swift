@@ -270,7 +270,7 @@ extension RunnerCardPresentation {
       focus: focus,
       queued: QueuedWorkPresentation.building(
         snapshot.queued, runnerLabelled: snapshot.labels, display: snapshot.display),
-      serviceNote: snapshot.canControlService ? nil : L10n.runnerStartedByHand,
+      serviceNote: snapshot.serviceNote,
       operationFeedback: operation?.isInFlight == false ? operation : nil,
       history: snapshot.isJobHistoryAvailable
         ? .available(rows: historyRows, isTruncated: isHistoryTruncated)

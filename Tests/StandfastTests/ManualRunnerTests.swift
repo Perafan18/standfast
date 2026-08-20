@@ -72,3 +72,45 @@ private func servicedSnapshot(_ display: DisplayState = .resolved(.idle)) -> Run
 
   #expect(card.serviceNote == nil)
 }
+
+// MARK: - GitLab runners
+
+private func gitLabSnapshot(
+  _ display: DisplayState = .resolved(.idle), labels: [String] = ["macos"],
+  queued: QueuedWorkKnowledge = .notAsked
+) -> RunnerSnapshot {
+  RunnerSnapshot(
+    runner: DiscoveredRunner(
+      label: "standfast.gitlab:gitlab.example.com:91",
+      directory: URL(fileURLWithPath: "/Users/ci/.gitlab-runner"),
+      agentId: 91, agentName: "mac-gitlab",
+      scope: .gitLab(instanceHost: "gitlab.example.com"),
+      installation: .gitLabService),
+    display: display, labels: labels, queued: queued)
+}
+
+@Test func aGitLabRunnerOffersNoServiceControlsAndSaysItsOwnWhy() {
+  // One machine-wide process serves every GitLab runner: stopping it stops all
+  // of them, which is a terminal's decision, not one card's button. And the
+  // note must be GitLab's own — "started by hand" would be a lie about a
+  // runner that is running as a service.
+  let card = RunnerCardPresentation.building(
+    gitLabSnapshot(), measurement: nil, latestRelease: nil,
+    isMaintenanceWorking: false, maintenanceNotice: nil,
+    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+
+  #expect(card.serviceNote == L10n.runnerGitLabService)
+  #expect(card.action(.start)?.isEnabled == false)
+  #expect(card.action(.stop)?.isEnabled == false)
+}
+
+@Test func aGitLabRunnerIsNeverAskedAboutTheGitHubQueue() {
+  // Its labels arrive — GitLab tags — so without this guard the model would
+  // ask GitHub's queue endpoints about a GitLab runner and report the failure
+  // in a sentence about organisations. GitLab's queue is a later feature;
+  // silence is honest, a wrong sentence is not.
+  let presentation = QueuedWorkPresentation.building(
+    .notAsked, runnerLabelled: ["macos"], display: .resolved(.stopped))
+
+  #expect(presentation == nil)
+}

@@ -517,6 +517,11 @@ final class RunnerFleetModel: ObservableObject {
     through queues: any QueuedWorkReading
   ) async -> QueuedWorkKnowledge {
     guard !reading.labels.isEmpty, reading.state != .busy else { return .notAsked }
+    // A GitLab runner's labels arrive — its tags — but the queue reader speaks
+    // GitHub's API, and its not-available sentence talks about organisations.
+    // GitLab's queue is a later feature; until then silence is the honest
+    // answer, and a wrong sentence is not.
+    if case .gitLab = runner.scope { return .notAsked }
     return await offCooperativePool {
       do {
         return .work(try queues.blockingQueuedWork(in: runner.scope))

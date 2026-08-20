@@ -525,3 +525,76 @@ private struct LocalProbeRecorder {
   let launchctl = FakeCommandRunner()
   let ps = FakeCommandRunner()
 }
+
+// MARK: - GitLab runners take a different road entirely
+
+@Test func aGitLabRunnerIsAskedThroughItsOwnClientAndProbe() {
+  // Neither launchctl (no per-runner job exists) nor the GitHub client (wrong
+  // API, wrong token, wrong instructions when it fails).
+  let asked = LocalProbeRecorder()
+  asked.ps.respond(
+    to: ["/bin/ps", "-Awwo", "command="],
+    with:
+      "/opt/homebrew/bin/gitlab-runner run --config /Users/ci/.gitlab-runner/config.toml\n")
+  let gitLabURL = URL(string: "https://gitlab.example.com/api/v4/runners/91")!
+  let http = FakeHTTPClient([
+    gitLabURL: [
+      .ok(
+        #"{"id":91,"status":"online","job_execution_status":"active","#
+          + #""tag_list":["macos","standfast"]}"#)
+    ]
+  ])
+  let gitHub = StubGitHub(result: .success(online), asked: StubGitHub.Recorder())
+
+  let reading = RunnerStateResolver(
+    probe: LaunchctlProbe(commandRunner: asked.launchctl),
+    listeners: ListenerProcessProbe(commandRunner: asked.ps),
+    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps),
+    github: gitHub,
+    gitLab: GitLabAPIClient(token: FakeTokenStore("glpat-x"), http: http)
+  ).blockingReading(for: gitLabRunner, clock: Date.init)
+
+  #expect(reading.state == .busy)
+  #expect(reading.labels == ["macos", "standfast"])
+  #expect(asked.launchctl.invocations.isEmpty)
+  #expect(gitHub.asked.questions.isEmpty)
+}
+
+@Test func aGitLabRunnerWithoutATokenSaysSoInGitLabsWords() {
+  let asked = LocalProbeRecorder()
+  asked.ps.respond(
+    to: ["/bin/ps", "-Awwo", "command="],
+    with: "/opt/homebrew/bin/gitlab-runner run\n")
+
+  let reading = RunnerStateResolver(
+    probe: LaunchctlProbe(commandRunner: asked.launchctl),
+    listeners: ListenerProcessProbe(commandRunner: asked.ps),
+    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps),
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()),
+    gitLab: GitLabAPIClient(token: FakeTokenStore(nil), http: FakeHTTPClient())
+  ).blockingReading(for: gitLabRunner, clock: Date.init)
+
+  #expect(reading.state == .unknown(.gitLabNoToken))
+}
+
+@Test func aGitLabServiceThatIsNotRunningIsStopped() {
+  let asked = LocalProbeRecorder()
+  asked.ps.respond(to: ["/bin/ps", "-Awwo", "command="], with: "/usr/sbin/cfprefsd\n")
+
+  let reading = RunnerStateResolver(
+    probe: LaunchctlProbe(commandRunner: asked.launchctl),
+    listeners: ListenerProcessProbe(commandRunner: asked.ps),
+    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps),
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()),
+    gitLab: GitLabAPIClient(token: FakeTokenStore("glpat-x"), http: FakeHTTPClient())
+  ).blockingReading(for: gitLabRunner, clock: Date.init)
+
+  #expect(reading.state == .stopped)
+}
+
+private let gitLabRunner = DiscoveredRunner(
+  label: "standfast.gitlab:gitlab.example.com:91",
+  directory: URL(fileURLWithPath: "/Users/ci/.gitlab-runner"),
+  agentId: 91, agentName: "mac-gitlab",
+  scope: .gitLab(instanceHost: "gitlab.example.com"),
+  installation: .gitLabService)

@@ -8,6 +8,13 @@ struct SettingsView: View {
   @ObservedObject var notifications: NotificationSettings
   @ObservedObject var sleep: SleepGuard
   @ObservedObject var github: GitHubAccess
+  /// The GitLab token, over its own Keychain account. Its card only appears
+  /// when this Mac has gitlab-runner configured; see `showsGitLab`.
+  @ObservedObject var gitLab: GitHubAccess
+  /// Decided at launch from whether `config.toml` exists. Static per run on
+  /// purpose: installing gitlab-runner mid-session is rare, and a Settings
+  /// pane that reads the disk on every body pass is not the price for it.
+  let showsGitLab: Bool
   @ObservedObject var manualRunners: ManualRunnerDirectories
   let infoDictionary: [String: Any]?
 
@@ -15,6 +22,7 @@ struct SettingsView: View {
   /// It is emptied the moment Save hands it over, so the secret does not sit
   /// in a view that a screen recording or a screenshot would capture.
   @State private var draftToken = ""
+  @State private var draftGitLabToken = ""
 
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -30,6 +38,7 @@ struct SettingsView: View {
   var body: some View {
     let presentation = SettingsPresentation(
       githubState: github.state, githubNotice: github.notice,
+      gitLabState: showsGitLab ? gitLab.state : nil, gitLabNotice: gitLab.notice,
       notificationNotice: notifications.notice,
       loginItemNotice: loginItem.notice,
       infoDictionary: infoDictionary)
@@ -63,6 +72,22 @@ struct SettingsView: View {
           systemImage: "key.fill"
         ) {
           githubAccess(presentation.github)
+        }
+
+        if let gitLabPresentation = presentation.gitLab {
+          settingsCard(
+            title: L10n.settingsGitLab,
+            systemImage: "key.fill"
+          ) {
+            tokenAccess(
+              gitLabPresentation, draft: $draftGitLabToken, access: gitLab,
+              placeholder: L10n.settingsGitLabPlaceholder,
+              identifiers: (
+                token: SettingsAccessibility.gitlabToken,
+                save: SettingsAccessibility.gitlabSave,
+                remove: SettingsAccessibility.gitlabRemove
+              ))
+          }
         }
 
         settingsCard(
@@ -179,6 +204,24 @@ struct SettingsView: View {
   private func githubAccess(
     _ presentation: GitHubSettingsPresentation
   ) -> some View {
+    tokenAccess(
+      presentation, draft: $draftToken, access: github,
+      placeholder: L10n.settingsGitHubPlaceholder,
+      identifiers: (
+        token: SettingsAccessibility.githubToken,
+        save: SettingsAccessibility.githubSave,
+        remove: SettingsAccessibility.githubRemove
+      ))
+  }
+
+  /// One shape for both providers' token cards, because they are one shape:
+  /// what differs is which Keychain account is behind them and which words
+  /// describe it, and both arrive as parameters.
+  private func tokenAccess(
+    _ presentation: GitHubSettingsPresentation, draft: Binding<String>,
+    access: GitHubAccess, placeholder: String,
+    identifiers: (token: String, save: String, remove: String)
+  ) -> some View {
     VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
       Text(presentation.currentState)
         .font(.callout)
@@ -189,20 +232,22 @@ struct SettingsView: View {
         // Secure, so the token is never on screen even while it is being
         // pasted — this window is the one people screenshot when they ask for
         // help with it.
-        SecureField(L10n.settingsGitHubPlaceholder, text: $draftToken)
+        SecureField(placeholder, text: draft)
           .textFieldStyle(.roundedBorder)
-          .accessibilityIdentifier(SettingsAccessibility.githubToken)
+          .accessibilityIdentifier(identifiers.token)
         Button(L10n.settingsGitHubSave) {
-          github.save(draftToken)
-          draftToken = ""
+          access.save(draft.wrappedValue)
+          draft.wrappedValue = ""
         }
-        .disabled(draftToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        .accessibilityIdentifier(SettingsAccessibility.githubSave)
+        .disabled(
+          draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
+        .accessibilityIdentifier(identifiers.save)
       }
 
       if presentation.canRemove {
-        Button(L10n.settingsGitHubRemove) { github.remove() }
-          .accessibilityIdentifier(SettingsAccessibility.githubRemove)
+        Button(L10n.settingsGitHubRemove) { access.remove() }
+          .accessibilityIdentifier(identifiers.remove)
       }
 
       supportingLines(footer: presentation.footer, notice: presentation.notice)

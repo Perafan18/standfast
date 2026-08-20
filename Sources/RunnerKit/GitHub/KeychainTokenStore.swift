@@ -11,14 +11,19 @@ public struct KeychainTokenStore: GitHubTokenStoring {
   /// The app's bundle identifier, so the item shows up in Keychain Access
   /// under a name whoever finds it can act on.
   public static let defaultService = "dev.standfast.app"
-  /// One token, one account. There is no second GitHub this app talks to yet;
-  /// when there is, the host belongs here.
+  /// The GitHub token's account name. One per provider: the GitLab token
+  /// lives beside it under its own name, in the same service.
   public static let account = "github-token"
 
   private let service: String
+  private let account: String
 
-  public init(service: String = KeychainTokenStore.defaultService) {
+  public init(
+    service: String = KeychainTokenStore.defaultService,
+    account: String = KeychainTokenStore.account
+  ) {
     self.service = service
+    self.account = account
   }
 
   public struct KeychainFailure: Error, Equatable {
@@ -38,7 +43,7 @@ public struct KeychainTokenStore: GitHubTokenStoring {
       // protection keychain requires one.
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
-      kSecAttrAccount as String: Self.account,
+      kSecAttrAccount as String: account,
     ]
   }
 

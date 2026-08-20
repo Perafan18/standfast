@@ -20,6 +20,15 @@ public enum UnknownReason: Equatable, Sendable {
   /// it. Its own case because the fix is time, and every other reason here has
   /// a fix that is an action.
   case rateLimited
+  /// The GitLab mirrors of the four reasons above. Separate cases rather than
+  /// a provider parameter, because each reason *is* its instruction and the
+  /// instructions differ: "add a GitLab token in Settings" is not "run gh auth
+  /// login", and a runner whose fix points at the wrong provider is worse than
+  /// one that says nothing.
+  case gitLabNoToken
+  case gitLabNotAuthenticated
+  case gitLabRateLimited
+  case gitLabSilent
   /// `launchctl` could not be asked whether the service is loaded: it would not
   /// launch, or it was still running when the timeout expired. Its own case
   /// because the other three all mean "the local half is fine and GitHub is
@@ -40,6 +49,15 @@ extension UnknownReason {
     // and mapped to the honest answer — if it ever did arrive here, this app
     // would not know the state.
     case .notAvailableForScope: self = .noAnswer
+    }
+  }
+
+  init(_ error: GitLabError) {
+    switch error {
+    case .noToken: self = .gitLabNoToken
+    case .notAuthenticated: self = .gitLabNotAuthenticated
+    case .rateLimited: self = .gitLabRateLimited
+    case .noAnswer: self = .gitLabSilent
     }
   }
 }

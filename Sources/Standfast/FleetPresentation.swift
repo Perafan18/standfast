@@ -48,6 +48,11 @@ extension DisplayState {
     // pins in both catalogues.
     case .resolved(.unknown(.noToken)): L10n.stateLayerGitHubNotAsked
     case .resolved(.unknown(.rateLimited)): L10n.stateLayerGitHubRateLimited
+    case .resolved(.unknown(.gitLabNoToken)): L10n.stateLayerGitLabNotAsked
+    case .resolved(.unknown(.gitLabNotAuthenticated)):
+      L10n.stateLayerGitLabRefusedToken
+    case .resolved(.unknown(.gitLabRateLimited)): L10n.stateLayerGitLabRateLimited
+    case .resolved(.unknown(.gitLabSilent)): L10n.stateLayerGitLabSilent
     case .resolved(.unknown): L10n.stateLayerGitHubSilent
     case .starting: L10n.stateStartingShort
     }
@@ -93,6 +98,11 @@ extension DisplayState {
     case .resolved(.unknown(.noAnswer)): L10n.stateUnknownNoAnswer
     case .resolved(.unknown(.noToken)): L10n.stateUnknownNoToken
     case .resolved(.unknown(.rateLimited)): L10n.stateUnknownRateLimited
+    case .resolved(.unknown(.gitLabNoToken)): L10n.stateUnknownGitLabNoToken
+    case .resolved(.unknown(.gitLabNotAuthenticated)):
+      L10n.stateUnknownGitLabNotAuthenticated
+    case .resolved(.unknown(.gitLabRateLimited)): L10n.stateUnknownGitLabRateLimited
+    case .resolved(.unknown(.gitLabSilent)): L10n.stateUnknownGitLabSilent
     case .resolved(.unknown(.serviceStateUnreadable)): L10n.stateUnknownNoLocalAnswer
     case .starting: L10n.stateStarting
     }
@@ -240,6 +250,17 @@ extension RunnerSnapshot {
   /// hand has none, so a Stop button on it would invite a click and then
   /// explain a failure that was certain before it was pressed.
   var canControlService: Bool { runner.installation == .launchAgent }
+
+  /// Why the controls do nothing, in the words of how this runner actually
+  /// runs. One note per installation, because "started by hand" over a runner
+  /// that runs as a service is a lie with a helpful tone.
+  var serviceNote: String? {
+    switch runner.installation {
+    case .launchAgent: nil
+    case .manual: L10n.runnerStartedByHand
+    case .gitLabService: L10n.runnerGitLabService
+    }
+  }
 
   var row: RunnerRow {
     RunnerRow(

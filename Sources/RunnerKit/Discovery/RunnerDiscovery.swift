@@ -10,6 +10,11 @@ public enum RunnerInstallation: Equatable, Sendable {
   /// this app at its directory. Nothing registered it, so nothing here can
   /// stop it — and there is no launchd job to ask about.
   case manual
+  /// A GitLab runner, served by the machine-wide gitlab-runner process. No
+  /// per-runner control exists: stopping that process stops every runner in
+  /// `config.toml`, which is a decision for a terminal, not for one card's
+  /// button.
+  case gitLabService
 }
 
 public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
@@ -210,10 +215,20 @@ public struct RunnerDiscovery: Sendable {
   /// looking for `.runner` files would read directories nobody asked this app
   /// to read, and would find other people's runners in shared folders.
   private let manualDirectories: [URL]
+  /// Where gitlab-runner keeps its `config.toml` — a fixed, documented place,
+  /// which is why GitLab runners need no pointing at.
+  private let gitLabConfigFile: URL
   private let listDirectory: @Sendable (URL) throws -> [URL]
 
-  public init(launchAgentsDirectory: URL? = nil, manualDirectories: [URL] = []) {
+  public init(
+    launchAgentsDirectory: URL? = nil, manualDirectories: [URL] = [],
+    gitLabConfigFile: URL? = nil
+  ) {
     self.manualDirectories = manualDirectories
+    self.gitLabConfigFile =
+      gitLabConfigFile
+      ?? FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".gitlab-runner/config.toml")
     self.launchAgentsDirectory =
       launchAgentsDirectory
       ?? FileManager.default.homeDirectoryForCurrentUser
@@ -227,10 +242,13 @@ public struct RunnerDiscovery: Sendable {
   init(
     launchAgentsDirectory: URL,
     manualDirectories: [URL] = [],
+    gitLabConfigFile: URL? = nil,
     listDirectory: @escaping @Sendable (URL) throws -> [URL]
   ) {
     self.launchAgentsDirectory = launchAgentsDirectory
     self.manualDirectories = manualDirectories
+    self.gitLabConfigFile =
+      gitLabConfigFile ?? URL(fileURLWithPath: "/nonexistent/config.toml")
     self.listDirectory = listDirectory
   }
 
@@ -247,20 +265,24 @@ public struct RunnerDiscovery: Sendable {
   /// app wraps this call in.
   public func discover() -> DiscoveryResult {
     // Read first, so a LaunchAgents directory that will not list does not take
-    // the hand-started runners down with it. The two have nothing to do with
-    // each other, and a failure to enumerate one is no evidence about the
-    // other.
+    // the other providers down with it. None of these sources has anything to
+    // do with the others, and a failure to enumerate one is no evidence about
+    // any of them.
     let manual = manualRunners()
+    let gitLab = gitLabRunners()
 
     let entries: [URL]
     do {
       entries = try listDirectory(launchAgentsDirectory)
     } catch {
       if Self.isNoSuchFile(error) {
-        return DiscoveryResult(runners: manual.runners, unreadable: manual.unreadable)
+        return DiscoveryResult(
+          runners: manual.runners + gitLab.runners,
+          unreadable: manual.unreadable + gitLab.unreadable)
       }
       return DiscoveryResult(
-        runners: manual.runners, unreadable: manual.unreadable,
+        runners: manual.runners + gitLab.runners,
+        unreadable: manual.unreadable + gitLab.unreadable,
         failure: .launchAgentsUnreadable(launchAgentsDirectory))
     }
 
@@ -296,9 +318,37 @@ public struct RunnerDiscovery: Sendable {
     }
 
     return DiscoveryResult(
-      runners: deduplicatedByLabel(runners + extra),
-      unreadable: (unreadable + manual.unreadable).sorted { $0.path < $1.path },
+      runners: deduplicatedByLabel(runners + extra + gitLab.runners),
+      unreadable: (unreadable + manual.unreadable + gitLab.unreadable)
+        .sorted { $0.path < $1.path },
       possiblyInstalledLabels: hasUnidentifiedCandidate ? nil : possiblyInstalledLabels)
+  }
+
+  /// The runners `config.toml` declares. A missing file is a Mac without
+  /// gitlab-runner, which is most Macs; a file declaring runners this app
+  /// cannot use is reported by name, because dropping a runner the file
+  /// plainly declares is how half a fleet goes missing in silence.
+  private func gitLabRunners() -> (runners: [DiscoveredRunner], unreadable: [URL]) {
+    guard let text = try? String(contentsOf: gitLabConfigFile, encoding: .utf8) else {
+      return ([], [])
+    }
+    guard let reading = try? GitLabRunnerConfigFile.reading(text) else {
+      return ([], [gitLabConfigFile])
+    }
+    let home = gitLabConfigFile.deletingLastPathComponent()
+    let runners = reading.entries.map { entry in
+      DiscoveredRunner(
+        // Instance and id, because nothing else tells two runners with the
+        // same name on two instances apart. Prefixed like the manual labels,
+        // so anybody who meets one in `defaults` can tell what it is.
+        label: "standfast.gitlab:\(entry.instanceHost):\(entry.id)",
+        directory: home,
+        agentId: entry.id,
+        agentName: entry.name,
+        scope: .gitLab(instanceHost: entry.instanceHost),
+        installation: .gitLabService)
+    }
+    return (runners, reading.skipped.isEmpty ? [] : [gitLabConfigFile])
   }
 
   /// The runners the operator pointed at, and the directories that did not
