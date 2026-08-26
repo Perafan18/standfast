@@ -170,6 +170,11 @@ struct RunnerCardView: View {
         Text(card.scope)
           .font(.subheadline)
           .foregroundStyle(palette.textSecondary.color)
+          // UI-026. `acme/acme-widget` under a runner name reads as a fixed
+          // assignment, a filter, the last repository used, or the job in
+          // flight. It is where the runner is registered, and that was the one
+          // reading the card never stated.
+          .help(L10n.scopeExplained(card.scope))
       }
 
       Spacer(minLength: StandfastTheme.Spacing.small)
@@ -418,7 +423,7 @@ struct RunnerCardView: View {
             .font(.subheadline.weight(.semibold))
           Spacer()
           if case .available(let rows, true) = card.history {
-            Text("\(rows.count)+")
+            Text(L10n.historyLatest(rows.count))
               .font(.caption.weight(.semibold))
               .foregroundStyle(palette.textSecondary.color)
           }

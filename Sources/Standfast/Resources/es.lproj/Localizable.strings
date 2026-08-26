@@ -4,6 +4,8 @@
 "controlCenter.installGuide" = "Cómo instalar un runner";
 "controlCenter.noRunners.manual" = "¿Ya arrancaste uno con ./run.sh? Señálale su carpeta en Ajustes.";
 "controlCenter.scope" = "Ámbito";
+"controlCenter.scope.explained" = "Registrado en %@: sólo recibe trabajos de ese ámbito";
+"controlCenter.history.latest" = "Últimos %d";
 "controlCenter.status" = "Estado";
 "controlCenter.service" = "Servicio del runner";
 "controlCenter.openWorkflowRuns" = "Abrir ejecuciones de workflows";
@@ -117,8 +119,8 @@
 "disk.logs" = "Logs — %@";
 "disk.working" = "Trabajando…";
 "disk.notMeasured" = "Uso de disco aún sin medir";
-"disk.measuredJustNow" = "Medido ahora mismo";
-"disk.measuredAgo" = "Medido hace %@";
+"disk.measuredJustNow" = "Uso de disco medido ahora mismo";
+"disk.measuredAgo" = "Uso de disco medido hace %@";
 "disk.unavailable" = "No se pudo medir el uso de disco";
 "disk.outsideRunner" = "El checkout vive fuera de la carpeta del runner, así que el mantenimiento no lo toca";
 

@@ -998,6 +998,54 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(diskCommands.invocations == diskInvocations)
 }
 
+// MARK: - UI-038, UI-025, UI-026: what it counts, what it touches, where work comes from
+
+@Test func restartDoesNotWearTheSymbolThatMeansReread() {
+  let subject = card(controlCenterSnapshot())
+
+  // `Actualizar ahora` re-reads the machine and touches nothing; `Reiniciar
+  // servicio` stops and starts a LaunchAgent. They wore the same circular
+  // arrow, which is the one control on this card that cannot afford to be
+  // confused with the harmless one.
+  #expect(subject.action(.restart)?.symbolName != "arrow.clockwise")
+  #expect(
+    standfastSource("ControlCenterView.swift")
+      .contains("Label(L10n.refreshNow, systemImage: \"arrow.clockwise\")"))
+}
+
+@Test func theHistoryBadgeSaysWhatItCounts() {
+  // `5+` says neither what is being counted nor why it stops at five. It sits
+  // beside a disclosure labelled "Trabajos recientes", so the number reads as
+  // a count of everything rather than as how many are listed.
+  let source = standfastSource("RunnerCardView.swift")
+
+  #expect(!source.contains("\\(rows.count)+"))
+  #expect(source.contains("L10n.historyLatest"))
+}
+
+@Test func theMeasurementLineSaysWhatWasMeasured() {
+  // `Medido hace 6m` — measured what? The line one row below already says
+  // "Uso de disco aún sin medir" when there is no measurement, so the app
+  // names the subject only while it has nothing to report about it.
+  // Language-agnostic on purpose: what has to hold is that all three name the
+  // same subject, whichever catalogue is loaded.
+  let opening = [
+    L10n.diskNotMeasured, L10n.diskMeasuredJustNow, L10n.diskMeasuredAgo("6m"),
+  ]
+  .map { $0.split(separator: " ").prefix(2).joined(separator: " ") }
+
+  #expect(Set(opening).count == 1, "the three disk lines open differently: \(opening)")
+}
+
+@Test func theScopeLineExplainsWhatItIsToTheRunner() {
+  // `acme/acme-widget` under a runner name can be read as a fixed assignment,
+  // a filter, the last repository used, or the job in flight. It is where the
+  // runner is registered, and that is the only reading the card never states.
+  let source = standfastSource("RunnerCardView.swift")
+
+  #expect(source.contains("L10n.scopeExplained(card.scope)"))
+}
+
 // MARK: - UI-031: the empty state does not answer with the header
 
 @Test func theEmptyStateDoesNotRepeatTheHeaderAbove() {

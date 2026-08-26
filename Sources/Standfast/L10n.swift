@@ -17,6 +17,14 @@ enum L10n {
   static let settingsAppearanceFooter = t("settings.appearance.footer")
   static let settingsShowInDock = t("settings.showInDock")
   static let controlCenterScope = t("controlCenter.scope")
+  /// What a scope *is* to a runner, for the line that only shows the name.
+  static func scopeExplained(_ scope: String) -> String {
+    String(format: t("controlCenter.scope.explained"), scope)
+  }
+  /// How many of the recent jobs are listed — the badge used to be a bare `5+`.
+  static func historyLatest(_ count: Int) -> String {
+    String(format: t("controlCenter.history.latest"), count)
+  }
   static let controlCenterStatus = t("controlCenter.status")
   static let controlCenterService = t("controlCenter.service")
   /// The service buttons, with the object the bare verbs were missing.
@@ -745,8 +753,11 @@ enum L10n {
     "disk.logs": "Logs — %@",
     "disk.working": "Working…",
     "disk.notMeasured": "Disk use not measured yet",
-    "disk.measuredJustNow": "Measured just now",
-    "disk.measuredAgo": "Measured %@ ago",
+    "controlCenter.scope.explained":
+      "Registered in %@: it only receives work from that scope",
+    "controlCenter.history.latest": "Latest %d",
+    "disk.measuredJustNow": "Disk use measured just now",
+    "disk.measuredAgo": "Disk use measured %@ ago",
     "disk.outsideRunner":
       "The checkout lives outside the runner's folder, so maintenance leaves it alone",
     "disk.unavailable": "Disk use could not be measured",

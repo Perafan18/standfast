@@ -4,6 +4,8 @@
 "controlCenter.installGuide" = "How to install a runner";
 "controlCenter.noRunners.manual" = "Already started one with ./run.sh? Point Settings at its folder.";
 "controlCenter.scope" = "Scope";
+"controlCenter.scope.explained" = "Registered in %@: it only receives work from that scope";
+"controlCenter.history.latest" = "Latest %d";
 "controlCenter.status" = "Status";
 "controlCenter.service" = "Runner service";
 "controlCenter.openWorkflowRuns" = "Open workflow runs";
@@ -117,8 +119,8 @@
 "disk.logs" = "Logs — %@";
 "disk.working" = "Working…";
 "disk.notMeasured" = "Disk use not measured yet";
-"disk.measuredJustNow" = "Measured just now";
-"disk.measuredAgo" = "Measured %@ ago";
+"disk.measuredJustNow" = "Disk use measured just now";
+"disk.measuredAgo" = "Disk use measured %@ ago";
 "disk.unavailable" = "Disk use could not be measured";
 "disk.outsideRunner" = "The checkout lives outside the runner's folder, so maintenance leaves it alone";
 

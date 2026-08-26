@@ -325,7 +325,10 @@ extension RunnerCardPresentation {
     case .restart:
       label = L10n.serviceRestart
       accessibilityLabel = L10n.restartRunner(runnerName)
-      symbolName = "arrow.clockwise"
+      // Not `arrow.clockwise`: that is `Actualizar ahora`, which re-reads the
+      // machine and changes nothing. This one stops and starts a LaunchAgent,
+      // and the two sat on the same card wearing the same circular arrow.
+      symbolName = "restart"
     case .openOnGitHub:
       label =
         switch destination {
