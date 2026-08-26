@@ -3052,3 +3052,40 @@ func aSlowReleaseCheckDoesNotHoldUpTheMenu() async throws {
   // the app, describing a directory the uninstall may well have taken with it.
   #expect(fleet.housekeeping.measurement(for: runner) == nil)
 }
+
+@Test @MainActor func retainedBusyEvidenceExpiresInsteadOfHoldingTheMacAwakeForever()
+  async throws
+{
+  // INV-005, the half the conservative rule left open. A busy runner whose
+  // configuration becomes unreadable keeps its evidence — correct, the job is
+  // probably still running — but that retention had no bound, so a
+  // half-finished uninstall could keep this Mac awake until somebody noticed
+  // the power bill. Thirty minutes is ten times the longest job this machine
+  // has ever run; a job that genuinely outlives it loses the guard, and a
+  // broken file stops costing electricity the same afternoon.
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: true))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let clock = TestClock(Date(timeIntervalSince1970: 1_785_962_174))
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, clock: clock.read, sleep: sleepGuard)
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  try FileManager.default.removeItem(at: directory.appendingPathComponent(".runner"))
+  clock.advance(29 * 60)
+  fleet.refresh()
+  await fleet.quiesce()
+  // Inside the bound the conservative rule stands: the job is probably still
+  // going, and sleeping through it is the failure this guard exists for.
+  #expect(activity.isHeld)
+
+  clock.advance(2 * 60)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(!activity.isHeld)
+}

@@ -241,7 +241,19 @@ private struct DirectoryListingFailure: Error {}
     ])
 }
 
-@Test func reportsAWorkFolderSymlinkedOutsideTheRunnerAsUnreadable() throws {
+@Test func aWorkFolderSymlinkedOutsideTheRunnerStillYieldsTheRunner() throws {
+  // INV-006. Builds on an external SSD are a legitimate configuration — a
+  // well-formed `.runner`, a symlink on disk — and this used to erase the
+  // whole row, as if a runner whose checkout lives elsewhere had no state, no
+  // jobs and no Stop button. Only housekeeping needs the containment, and
+  // `Housekeeper` and `DiskUsage` each re-derive it themselves, failing closed
+  // without any help from here. What discovery owes the operator is the
+  // runner; what maintenance owes them is restraint, said out loud.
+  //
+  // Deliberately unlike `reportsRunnersWithEscapingWorkFoldersAsUnreadable`
+  // above: a `.runner` that *declares* an escaping path is a malformed file
+  // and stays rejected. This one declares "builds" and the filesystem points
+  // it elsewhere, which is not the file's fault.
   let box = try Sandbox()
   defer { box.cleanUp() }
   let directory = try box.addRunner(
@@ -254,11 +266,10 @@ private struct DirectoryListingFailure: Error {}
 
   let found = discovery(in: box).discover()
 
-  #expect(found.runners.isEmpty)
-  #expect(
-    found.unreadable.map(\.lastPathComponent)
-      == ["actions.runner.acme-widget.linked.plist"])
-  #expect(found.possiblyInstalledLabels == ["actions.runner.acme-widget.linked"])
+  #expect(found.runners.map(\.agentId) == [1])
+  #expect(found.unreadable.isEmpty)
+  // And the guard housekeeping actually uses still refuses it.
+  #expect(found.runners[0].containedWorkDirectory == nil)
 }
 
 @Test func keepsAWorkFolderSymlinkedWithinTheRunner() throws {

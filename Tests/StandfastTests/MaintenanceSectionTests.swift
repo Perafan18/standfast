@@ -370,3 +370,21 @@ private func section(
   // that started thirty seconds ago has nothing to say about its version.
   #expect(section(snapshot(version: .absent)).version == nil)
 }
+
+// MARK: - INV-006: a checkout that lives elsewhere
+
+@Test func aCheckoutOutsideTheRunnerIsARefusalWithAReasonNotAFailedMeasure() {
+  // The runner is on the menu now — INV-006 stopped discovery erasing it — so
+  // this section is where the restraint has to be said. "Could not measure"
+  // would be a lie: nothing failed. The checkout lives outside the runner's
+  // directory, maintenance does not follow it there on purpose, and a Measure
+  // button would be a button that can only ever apologise.
+  let section = section(snapshot(isWorkDirectoryContained: false))
+
+  #expect(section.measured == L10n.diskOutsideRunner)
+  #expect(section.offers.isEmpty)
+}
+
+@Test func aContainedCheckoutKeepsItsMeasureButton() {
+  #expect(section(snapshot()).offer(.measure) != nil)
+}

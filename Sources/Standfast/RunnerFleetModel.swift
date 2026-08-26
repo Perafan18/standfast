@@ -44,6 +44,14 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// a local stopped/unknown result and later when GitHub completed the state.
   /// Event ordering uses this without changing the local probe stamp above.
   let stateReadAt: Date
+  /// Whether the checkout actually lives under the runner's directory, as the
+  /// filesystem had it when this snapshot was read. False is a fact about a
+  /// legitimate machine — builds symlinked to an external disk — not a fault:
+  /// state, jobs and controls all still work, and only maintenance abstains
+  /// (INV-006). Read in the scan, off the main actor, because proving it means
+  /// resolving symlinks.
+  let isWorkDirectoryContained: Bool
+
   /// Which runner is installed here, as far as its own log says. Read with the
   /// rest of the scan rather than on its own schedule: it comes out of the head
   /// of the same log the job history is read from, and a runner that updated
@@ -65,6 +73,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
   init(
     runner: DiscoveredRunner, display: DisplayState,
     labels: [String] = [], queued: QueuedWorkKnowledge = .notAsked,
+    isWorkDirectoryContained: Bool = true,
     qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
     isJobHistoryAvailable: Bool = true, readBeganAt: Date? = nil,
@@ -76,6 +85,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     self.display = display
     self.labels = labels
     self.queued = queued
+    self.isWorkDirectoryContained = isWorkDirectoryContained
     self.qualifier = qualifier
     self.jobs = jobs
     self.isJobHistoryAvailable = isJobHistoryAvailable
@@ -222,7 +232,18 @@ final class RunnerFleetModel: ObservableObject {
   /// a later discovery may be unable to do so.
   /// In that case an empty menu is honest UI, but it is not evidence that work
   /// previously observed on that label has ended.
-  private var activityEvidence: [String: Bool] = [:]
+  ///
+  /// Dated, because retention has a bound (INV-005). Evidence from a runner
+  /// discovery can still see is refreshed every scan and never expires; what
+  /// expires is evidence being *retained* for a runner that stopped resolving
+  /// while busy. Without the bound, a half-finished uninstall of a busy runner
+  /// kept this Mac awake until somebody noticed the power bill.
+  private var activityEvidence: [String: (busy: Bool, observedAt: Date)] = [:]
+
+  /// Ten times the longest job this machine has ever run. A job that genuinely
+  /// outlives it loses the sleep guard — unless any readable runner is still
+  /// busy — and a broken file stops costing electricity the same afternoon.
+  static let retainedBusyEvidenceLifetime: TimeInterval = 30 * 60
 
   private enum ExpectedStopResult {
     case none
@@ -449,6 +470,7 @@ final class RunnerFleetModel: ObservableObject {
     var states: [RunnerState] = []
     var labels: [[String]] = []
     var queued: [QueuedWorkKnowledge] = []
+    var workContained: [Bool] = []
     var jobs: [JobLogReader.Reading] = []
     var installed: [InstalledRunnerVersion] = []
     var readAt: [Date] = []
@@ -463,6 +485,7 @@ final class RunnerFleetModel: ObservableObject {
         await queuedWork(for: runner, reading: state, through: queues))
       readAt.append(state.readAt)
       readBeganAt.append(state.beganAt)
+      workContained.append(runner.containedWorkDirectory != nil)
       stateReadAt.append(state.stateReadAt)
       // The same rule as discovery, for the same reason: this is file I/O, and
       // the cheap path — a directory listing and a `stat` — is only the usual
@@ -491,7 +514,8 @@ final class RunnerFleetModel: ObservableObject {
       installed.append(read.version)
     }
     return Scan(
-      found: found, states: states, labels: labels, queued: queued, jobs: jobs,
+      found: found, states: states, labels: labels, queued: queued,
+      workContained: workContained, jobs: jobs,
       readers: readers, versions: installed,
       discoveryStartedAt: discoveryStartedAt, readAt: readAt,
       readBeganAt: readBeganAt, stateReadAt: stateReadAt)
@@ -558,6 +582,7 @@ final class RunnerFleetModel: ObservableObject {
     let states: [RunnerState]
     let labels: [[String]]
     let queued: [QueuedWorkKnowledge]
+    let workContained: [Bool]
     let jobs: [JobLogReader.Reading]
     let readers: [String: JobLogReader]
     let versions: [InstalledRunnerVersion]
@@ -636,6 +661,7 @@ final class RunnerFleetModel: ObservableObject {
           readBeganAt: scan.readBeganAt[index]),
         labels: scan.labels[index],
         queued: scan.queued[index],
+        isWorkDirectoryContained: scan.workContained[index],
         // Only where the name alone would not say which runner this is.
         qualifier: repeated.contains(runner.displayName)
           ? runner.scope.displayName : nil,
@@ -650,11 +676,19 @@ final class RunnerFleetModel: ObservableObject {
         isServiceActionReserved: serviceActionsInFlight.contains(runner.label),
         operation: operations[runner.label])
     }
-    activityEvidence = activityEvidence.filter { retainedLabels.contains($0.key) }
+    activityEvidence = activityEvidence.filter { entry in
+      guard retainedLabels.contains(entry.key) else { return false }
+      // The bound applies only here, to evidence surviving on retention. A
+      // runner the scan resolved gets a fresh date two lines down.
+      return startedAt.timeIntervalSince(entry.value.observedAt)
+        < Self.retainedBusyEvidenceLifetime
+    }
     for snapshot in snapshots {
-      activityEvidence[snapshot.runner.label] =
-        snapshot.display.resolvedState == .busy
-        || (snapshot.display.resolvedState != .stopped && snapshot.jobs.running != nil)
+      activityEvidence[snapshot.runner.label] = (
+        busy: snapshot.display.resolvedState == .busy
+          || (snapshot.display.resolvedState != .stopped && snapshot.jobs.running != nil),
+        observedAt: startedAt
+      )
     }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable,
@@ -671,7 +705,7 @@ final class RunnerFleetModel: ObservableObject {
     // runner the settling window is covering for cannot be announced as
     // disconnected while the menu says it is starting.
     notifications.deliver(watcher.events(in: snapshots))
-    sleep.update(busy: activityEvidence.values.contains(true))
+    sleep.update(busy: activityEvidence.values.contains { $0.busy })
   }
 
   /// Releases a runner only after apply has consumed local evidence newer than
@@ -767,6 +801,7 @@ final class RunnerFleetModel: ObservableObject {
       return RunnerSnapshot(
         runner: snapshot.runner, display: snapshot.display,
         labels: snapshot.labels, queued: snapshot.queued,
+        isWorkDirectoryContained: snapshot.isWorkDirectoryContained,
         qualifier: snapshot.qualifier, jobs: snapshot.jobs,
         readAt: snapshot.readAt,
         isJobHistoryAvailable: snapshot.isJobHistoryAvailable,

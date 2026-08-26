@@ -126,6 +126,7 @@ func snapshot(
   readAt: Date = Date(timeIntervalSince1970: 1_785_962_174),
   stateReadAt: Date? = nil,
   version: InstalledRunnerVersion = .absent,
+  isWorkDirectoryContained: Bool = true,
   operation: ServiceOperation? = nil
 ) -> RunnerSnapshot {
   RunnerSnapshot(
@@ -133,7 +134,8 @@ func snapshot(
       label: "actions.runner.\(scope).\(name)",
       directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: 7, agentName: name,
       scope: .repository(owner: "acme", name: scope)),
-    display: display, qualifier: qualifier, jobs: jobs, readAt: readAt,
+    display: display, isWorkDirectoryContained: isWorkDirectoryContained,
+    qualifier: qualifier, jobs: jobs, readAt: readAt,
     isJobHistoryAvailable: isJobHistoryAvailable, stateReadAt: stateReadAt,
     version: version, operation: operation)
 }

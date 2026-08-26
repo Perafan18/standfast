@@ -91,7 +91,11 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
 extension DiscoveredRunner {
   /// Resolves the part of a work path that exists and proves the result stays
   /// under the runner.
-  var containedWorkDirectory: URL? {
+  ///
+  /// Public since INV-006: discovery stopped enforcing this, so the app's scan
+  /// reads it to tell maintenance when to abstain — and it involves resolving
+  /// symlinks, which is why the scan reads it off the main actor.
+  public var containedWorkDirectory: URL? {
     Self.resolvedPath(workDirectory, containedIn: directory, allowingRoot: true)
   }
 
@@ -384,7 +388,6 @@ public struct RunnerDiscovery: Sendable {
       scope: scope,
       workFolder: config.workFolder,
       installation: .manual)
-    guard runner.containedWorkDirectory != nil else { return nil }
     return runner
   }
 
@@ -433,7 +436,14 @@ public struct RunnerDiscovery: Sendable {
       agentName: config.agentName,
       scope: scope,
       workFolder: config.workFolder)
-    guard runner.containedWorkDirectory != nil else { return (nil, agent.label) }
+    // Deliberately no containment check here (INV-006). A work folder
+    // symlinked outside the runner — builds on an external SSD — is a
+    // legitimate machine, and erasing its whole row treated it as having no
+    // state, no jobs and no Stop button. Only housekeeping needs containment,
+    // and `Housekeeper` and `DiskUsage` re-derive it themselves at the moment
+    // it matters, failing closed. A `.runner` that *declares* an escaping
+    // path is still rejected above, by `RunnerConfig` — that one is the
+    // file's fault.
     return (runner, agent.label)
   }
 }

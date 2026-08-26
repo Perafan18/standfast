@@ -123,6 +123,7 @@ enum L10n {
   static let diskNotMeasured = t("disk.notMeasured")
   static let diskMeasuredJustNow = t("disk.measuredJustNow")
   static let diskUnavailable = t("disk.unavailable")
+  static let diskOutsideRunner = t("disk.outsideRunner")
 
   // The two buttons of the confirmation, and nothing else in it. Everything
   // above them names a directory, a size or a runner, which is what makes the
@@ -733,6 +734,8 @@ enum L10n {
     "disk.notMeasured": "Disk use not measured yet",
     "disk.measuredJustNow": "Measured just now",
     "disk.measuredAgo": "Measured %@ ago",
+    "disk.outsideRunner":
+      "The checkout lives outside the runner's folder, so maintenance leaves it alone",
     "disk.unavailable": "Disk use could not be measured",
     "cleanup.confirm.title": "Delete %@?",
     "cleanup.confirm.body": "This frees %@ on %@.",

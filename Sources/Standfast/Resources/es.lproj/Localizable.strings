@@ -116,6 +116,7 @@
 "disk.measuredJustNow" = "Medido ahora mismo";
 "disk.measuredAgo" = "Medido hace %@";
 "disk.unavailable" = "No se pudo medir el uso de disco";
+"disk.outsideRunner" = "El checkout vive fuera de la carpeta del runner, así que el mantenimiento no lo toca";
 
 "cleanup.confirm.title" = "¿Borrar %@?";
 "cleanup.confirm.body" = "Esto libera %@ en %@.";

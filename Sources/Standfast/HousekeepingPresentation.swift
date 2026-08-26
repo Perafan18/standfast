@@ -115,6 +115,16 @@ extension MaintenanceSection {
     _ snapshot: RunnerSnapshot, measurement: DiskMeasurement?, latest: RunnerVersion?,
     isWorking: Bool, notice: String?, now: Date
   ) -> MaintenanceSection {
+    // A checkout that lives outside the runner's directory is a refusal with a
+    // reason, not a failed measure: nothing broke, maintenance just does not
+    // follow a symlink off the runner on purpose, and a Measure button here
+    // could only ever apologise (INV-006).
+    guard snapshot.isWorkDirectoryContained else {
+      return MaintenanceSection(
+        version: Self.versionLine(snapshot.version, latest: latest),
+        usage: [], measured: L10n.diskOutsideRunner, offers: [],
+        notes: notice.map { [$0] } ?? [])
+    }
     let report = measurement?.report
     var offers = [
       MaintenanceOffer(

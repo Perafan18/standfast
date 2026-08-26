@@ -549,3 +549,45 @@ private func job(
   #expect(
     JobLogReader.isDueForOlderRetry(truncatedByFailure: true, warmReads: interval))
 }
+
+@Test func aColdReaderMeetingAnUnreadableActiveLogInstallsNoHalfCache() throws {
+  // INV-008. The fail-closed rule for the active log — it alone can describe
+  // work happening now, so an I/O failure there must poison the whole reading
+  // — lost its dedicated regression when case N1 was rewritten. This is that
+  // fixture: a cold reader, no cache to fall back on, an active log whose size
+  // can be statted but whose bytes cannot be read.
+  //
+  // Both halves matter. The reading must say unavailable rather than "empty
+  // history"; and no partial cache may be installed, because a cache built
+  // from the rotated logs with a hole where the active one goes would answer
+  // the next refresh confidently — and the repair below would go unnoticed
+  // until the next rotation.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  _ = try box.writeLog(
+    startedAt: "20260805-000000",
+    job("earlier", from: "2026-08-05 00:00:00Z", to: "2026-08-05 00:00:10Z"))
+  let active = try box.writeLog(
+    startedAt: "20260806-000000",
+    job("current", from: "2026-08-06 00:00:00Z", to: "2026-08-06 00:00:10Z"))
+  try FileManager.default.setAttributes(
+    [.posixPermissions: 0o000], ofItemAtPath: active.path)
+  defer {
+    try? FileManager.default.setAttributes(
+      [.posixPermissions: 0o644], ofItemAtPath: active.path)
+  }
+  var reader = JobLogReader()
+
+  let blocked = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(!blocked.isAvailable)
+  #expect(blocked.history == .empty)
+
+  // Repaired. A reader that had quietly kept half a cache would now serve the
+  // rotated history without the active log, or the reverse; a reader that
+  // installed nothing reads everything, at once, on the very next refresh.
+  try FileManager.default.setAttributes(
+    [.posixPermissions: 0o644], ofItemAtPath: active.path)
+  let recovered = reader.reading(diagnosticsIn: box.diagnostics)
+  #expect(recovered.isAvailable)
+  #expect(recovered.history.records.map(\.name) == ["current", "earlier"])
+}
