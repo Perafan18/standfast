@@ -32,6 +32,10 @@ struct SettingsPresentation: Equatable {
   let notifications: SettingsSectionPresentation
   let power: SettingsSectionPresentation
   let startup: SettingsSectionPresentation
+  /// Where the app is willing to be seen. `LSUIElement` cannot be a
+  /// preference — it is read once at launch — so the switch it stands for
+  /// lives here; see `DockVisibility`.
+  let appearance: SettingsSectionPresentation
   let github: GitHubSettingsPresentation
   /// Nil on a Mac with no gitlab-runner configured, which is most Macs: a
   /// token field for a provider with nothing on the machine is a question the
@@ -54,6 +58,9 @@ struct SettingsPresentation: Equatable {
     startup = SettingsSectionPresentation(
       footer: L10n.settingsStartupFooter,
       notice: loginItemNotice)
+    appearance = SettingsSectionPresentation(
+      footer: L10n.settingsAppearanceFooter,
+      notice: nil)
     github = GitHubSettingsPresentation(
       currentState: Self.currentState(githubState),
       footer: L10n.settingsGitHubFooter,
@@ -119,6 +126,7 @@ struct SettingsPresentation: Equatable {
 enum SettingsAccessibility {
   static let powerPreventSleep = "dev.standfast.settings.power.prevent-sleep"
   static let startupOpenAtLogin = "dev.standfast.settings.startup.open-at-login"
+  static let appearanceShowInDock = "dev.standfast.settings.appearance.show-in-dock"
   static let version = "dev.standfast.settings.version"
   static let githubToken = "dev.standfast.settings.github.token"
   static let githubSave = "dev.standfast.settings.github.save"

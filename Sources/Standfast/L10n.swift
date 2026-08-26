@@ -10,6 +10,12 @@ enum L10n {
   static let controlCenterNoRunnersDescription = t(
     "controlCenter.noRunners.description")
   static let controlCenterInstallGuide = t("controlCenter.installGuide")
+  /// Said only on the empty state, where somebody who started a runner with
+  /// `./run.sh` would otherwise decide this app cannot see their machine.
+  static let controlCenterNoRunnersManual = t("controlCenter.noRunners.manual")
+  static let settingsAppearance = t("settings.appearance")
+  static let settingsAppearanceFooter = t("settings.appearance.footer")
+  static let settingsShowInDock = t("settings.showInDock")
   static let controlCenterScope = t("controlCenter.scope")
   static let controlCenterStatus = t("controlCenter.status")
   static let controlCenterService = t("controlCenter.service")
@@ -589,6 +595,13 @@ enum L10n {
     "controlCenter.installGuide": "How to install a runner",
     "controlCenter.noRunners.description":
       "Install a self-hosted GitHub Actions runner, then refresh.",
+    "controlCenter.noRunners.manual":
+      "Already started one with ./run.sh? Point Settings at its folder.",
+    "settings.appearance": "Appearance",
+    "settings.showInDock": "Show in the Dock",
+    "settings.appearance.footer":
+      "Standfast lives in the menu bar. Turn this on and it also takes a Dock "
+      + "tile and appears in \u{2318}-Tab, which survives a restart.",
     "controlCenter.scope": "Scope",
     "controlCenter.status": "Status",
     "controlCenter.service": "Runner service",

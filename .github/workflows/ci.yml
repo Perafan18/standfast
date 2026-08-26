@@ -151,6 +151,9 @@ jobs:
       - name: Every place that names a minimum macOS names the same one
         run: Tests/Scripts/MinimumOSContractTests.sh
 
+      - name: The Dock preference and the gate that checks it agree
+        run: Tests/Scripts/DockPreferenceContractTests.sh
+
       - name: No private workspace references in the PR diff
         if: github.event_name == 'pull_request'
         run: ./Scripts/check-public-diff.sh "origin/${GITHUB_BASE_REF}...HEAD"

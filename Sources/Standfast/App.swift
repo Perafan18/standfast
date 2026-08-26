@@ -9,6 +9,10 @@ struct StandfastApp: App {
   @StateObject private var gitLabAccess = GitHubAccess(
     store: KeychainTokenStore(account: GitLabAPIClient.keychainAccount))
   @StateObject private var manualRunners = ManualRunnerDirectories()
+  /// Applies the saved Dock preference at launch, before anybody opens
+  /// Settings: `LSUIElement` decides how the process starts, and this decides
+  /// whether it stays that way.
+  @StateObject private var dock = DockVisibility()
   /// Whether this Mac has gitlab-runner configured, decided at launch. The
   /// Settings card for a GitLab token only exists where it can matter.
   private let showsGitLab = FileManager.default.fileExists(
@@ -58,7 +62,7 @@ struct StandfastApp: App {
       SettingsView(
         loginItem: loginItem, notifications: fleet.notifications, sleep: fleet.sleep,
         github: github, gitLab: gitLabAccess, showsGitLab: showsGitLab,
-        manualRunners: manualRunners,
+        manualRunners: manualRunners, dock: dock,
         infoDictionary: Bundle.main.infoDictionary
       )
       .background(

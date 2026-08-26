@@ -998,6 +998,29 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(diskCommands.invocations == diskInvocations)
 }
 
+// MARK: - UI-031: the empty state does not answer with the header
+
+@Test func theEmptyStateDoesNotRepeatTheHeaderAbove() {
+  // The header already reads "No hay runners instalados en esta Mac". The body
+  // said the same sentence again, 250 points below it and in a larger font, on
+  // the first screen anybody who installs this app ever sees. The states that
+  // do not share their sentence with the header keep their title.
+  #expect(ControlCenterEmptyPresentation.noRunnersInstalled.title == nil)
+  #expect(ControlCenterEmptyPresentation.checking.title != nil)
+  #expect(
+    ControlCenterEmptyPresentation.launchAgentsUnavailable(directory: "/x").title != nil)
+  #expect(ControlCenterEmptyPresentation.unreadableRunners(paths: ["/x"]).title != nil)
+}
+
+@Test func aMacWhoseRunnerWasStartedByHandIsNotToldItHasNone() {
+  // The empty state is exactly where somebody running `./run.sh` concludes the
+  // app cannot see their machine and quits. It can — Settings takes the folder
+  // — and this is the one screen with room to say so.
+  #expect(
+    ControlCenterEmptyPresentation.noRunnersInstalled.detailLines
+      .contains(L10n.controlCenterNoRunnersManual))
+}
+
 // MARK: - UI-039: the empty state offers a way out
 
 @Test func aMacWithNoRunnerIsToldWhereToFindOutHowToGetOne() {

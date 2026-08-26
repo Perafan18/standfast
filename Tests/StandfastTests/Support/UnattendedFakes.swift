@@ -108,6 +108,25 @@ final class FakeThermalReporter: ThermalReporting, @unchecked Sendable {
 
 /// A defaults domain of this test's own, so a switch flipped here is never read
 /// back on the machine running the suite.
+/// Records what the app asked macOS to be, instead of asking it.
+///
+/// `NSApplication.setActivationPolicy` is process-wide: a test that set it for
+/// real would put the test runner in the Dock and leave it there for every
+/// test that ran afterwards.
+@MainActor
+final class RecordingActivationPolicy: ActivationPolicySetting {
+  private(set) var applied: [DockPresence] = []
+
+  func apply(_ presence: DockPresence) { applied.append(presence) }
+}
+
+/// A Dock preference wired to nothing, for the surfaces that only need one to
+/// exist.
+@MainActor
+func unattendedDockVisibility() -> DockVisibility {
+  DockVisibility(policy: RecordingActivationPolicy(), defaults: scratchDefaults())
+}
+
 func scratchDefaults() -> UserDefaults {
   let name = "standfast.tests.\(UUID().uuidString)"
   let defaults = UserDefaults(suiteName: name)!

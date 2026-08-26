@@ -181,9 +181,11 @@ struct ControlCenterView: View {
         .font(.system(size: 32, weight: .medium))
         .foregroundStyle(palette.textPrimary.color)
         .accessibilityHidden(true)
-      Text(presentation.title)
-        .font(.title3.weight(.semibold))
-        .foregroundStyle(palette.textPrimary.color)
+      if let title = presentation.title {
+        Text(title)
+          .font(.title3.weight(.semibold))
+          .foregroundStyle(palette.textPrimary.color)
+      }
       ForEach(presentation.detailLines, id: \.self) { detail in
         Text(detail)
           .font(.body)

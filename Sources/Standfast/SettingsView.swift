@@ -16,6 +16,9 @@ struct SettingsView: View {
   /// pane that reads the disk on every body pass is not the price for it.
   let showsGitLab: Bool
   @ObservedObject var manualRunners: ManualRunnerDirectories
+  /// Whether this Mac shows Standfast in the Dock. `LSUIElement` starts the
+  /// process without a tile; this is what can give it one afterwards.
+  @ObservedObject var dock: DockVisibility
   let infoDictionary: [String: Any]?
 
   /// What is in the field right now, and never where the stored token lives.
@@ -118,6 +121,21 @@ struct SettingsView: View {
           )
           .accessibilityIdentifier(SettingsAccessibility.startupOpenAtLogin)
           supportingText(presentation.startup)
+        }
+
+        settingsCard(
+          title: L10n.settingsAppearance,
+          systemImage: "dock.rectangle"
+        ) {
+          settingsToggle(
+            title: L10n.settingsShowInDock,
+            systemImage: "macwindow",
+            isOn: Binding(
+              get: { dock.isVisible },
+              set: { dock.setVisible($0) })
+          )
+          .accessibilityIdentifier(SettingsAccessibility.appearanceShowInDock)
+          supportingText(presentation.appearance)
         }
 
         Text(presentation.version)

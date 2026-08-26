@@ -102,6 +102,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
       sleep: healthyFleet.sleep, github: GitHubAccess(store: RenderTokenStore(nil)),
       gitLab: GitHubAccess(store: RenderTokenStore(nil)), showsGitLab: false,
       manualRunners: ManualRunnerDirectories(defaults: renderDefaults()),
+      dock: unattendedDockVisibility(),
       infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
     to: directory.appendingPathComponent("0c-ajustes.png"),
     width: StandfastTheme.settingsIdealWidth,
@@ -120,6 +121,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
       gitLab: GitHubAccess(store: RenderTokenStore(nil)), showsGitLab: true,
       // With one added, so the row and its Remove button are in the picture.
       manualRunners: renderRunners(["/Users/ci/actions-runner-by-hand"]),
+      dock: unattendedDockVisibility(),
       infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
     to: directory.appendingPathComponent("0d-ajustes-con-token.png"),
     width: StandfastTheme.settingsIdealWidth,

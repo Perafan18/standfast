@@ -102,8 +102,14 @@ private func discoveryLines(
   #expect(discoveryLines(in: subject.quickMenu) == [L10n.noRunnersFound])
   #expect(subject.header.summary == L10n.noRunnersFound)
   #expect(subject.header.symbolName == FleetSummary.noRunnersSymbolName)
-  #expect(empty.title == L10n.noRunnersFound)
-  #expect(empty.detailLines == [L10n.controlCenterNoRunnersDescription])
+  // The header says it. The body does not say it again (UI-031) — it spends
+  // the room on the two things the header cannot: what to install, and where a
+  // runner already started by hand goes.
+  #expect(empty.title == nil)
+  #expect(
+    empty.detailLines == [
+      L10n.controlCenterNoRunnersDescription, L10n.controlCenterNoRunnersManual,
+    ])
   #expect(subject.notice == nil)
 }
 

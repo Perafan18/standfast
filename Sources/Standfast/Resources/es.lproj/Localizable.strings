@@ -2,6 +2,7 @@
 "controlCenter.title" = "Centro de control de Standfast";
 "controlCenter.noRunners.description" = "Instala un runner autohospedado de GitHub Actions y selecciona Actualizar ahora.";
 "controlCenter.installGuide" = "Cómo instalar un runner";
+"controlCenter.noRunners.manual" = "¿Ya arrancaste uno con ./run.sh? Señálale su carpeta en Ajustes.";
 "controlCenter.scope" = "Ámbito";
 "controlCenter.status" = "Estado";
 "controlCenter.service" = "Servicio del runner";
@@ -62,6 +63,9 @@
 "settings.runners.none" = "Ninguno añadido. Solo se vigilan los runners instalados como servicio.";
 "settings.runners.add" = "Añadir carpeta de runner…";
 "settings.runners.remove" = "Dejar de vigilar %@";
+"settings.appearance" = "Apariencia";
+"settings.showInDock" = "Mostrar en el Dock";
+"settings.appearance.footer" = "Standfast vive en la barra de menús. Con esto además ocupa un sitio en el Dock y aparece en ⌘-Tab, y se recuerda al reiniciar.";
 "settings.version" = "Standfast%@";
 
 "menu.start" = "Arrancar";

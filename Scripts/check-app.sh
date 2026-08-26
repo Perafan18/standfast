@@ -191,14 +191,28 @@ echo "    still alive after ${ALIVE_SECONDS}s"
 AX_CHECK_STATUS=0
 "$ROOT/Scripts/check-app-ax.sh" "$PID" || AX_CHECK_STATUS=$?
 
-echo "==> Checking it stays out of the Dock"
+# The Dock preference this app writes, named once. `DockPreferenceContractTests.sh`
+# holds it equal to `DockVisibility.defaultsKey`: renamed on one side only, this
+# reads a key nobody writes and reports "off" forever.
+DOCK_PREFERENCE_KEY="dev.standfast.settings.dock.visible"
+
+echo "==> Checking it is where the preference says"
+# Absent means off. `defaults read` exits non-zero for a key that was never
+# written, which is every fresh install.
+wants_dock="$(defaults read dev.standfast.app "$DOCK_PREFERENCE_KEY" 2>/dev/null || echo 0)"
 background="$(CHECK_PID="$PID" osascript -e \
   'tell application "System Events" to get background only of (first process whose unix id is ((system attribute "CHECK_PID") as integer))' \
   2>/dev/null || true)"
-case "$background" in
-  true) echo "    background only: no Dock tile" ;;
-  "") echo "    SKIPPED: could not read the process list" ;;
-  *) fail "the app is not background-only; LSUIElement did not take effect" ;;
+case "$wants_dock:$background" in
+  # Shipped shape: `LSUIElement` took effect and nothing asked for more.
+  0:true) echo "    background only: no Dock tile" ;;
+  # Somebody turned the switch on. A tile here is the preference working, and
+  # failing on it would be a red gate over a feature behaving exactly as asked.
+  1:false) echo "    background only: a Dock tile, as configured" ;;
+  *:"") echo "    SKIPPED: could not read the process list" ;;
+  0:*) fail "the app is not background-only; LSUIElement did not take effect" ;;
+  1:*) fail "the Dock preference is on and the app has no Dock tile; the activation policy did not take effect" ;;
+  *) fail "unreadable Dock preference '$wants_dock'" ;;
 esac
 
 [ "$AX_CHECK_STATUS" -eq 0 ] || exit "$AX_CHECK_STATUS"

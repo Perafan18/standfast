@@ -57,10 +57,18 @@ enum ControlCenterEmptyPresentation: Equatable {
     }
   }
 
-  var title: String {
+  /// Nil where the header directly above already carries this sentence.
+  ///
+  /// UI-031. An empty Control Center repeated "No hay runners instalados en
+  /// esta Mac" twice — once in the header, once in the body 250 points below
+  /// it, in a larger font — on the first screen anybody installing this app
+  /// ever sees. The failure states keep their title: the header summarises the
+  /// fleet, and "1 runner requiere atención" is not the same sentence as the
+  /// directory that would not list.
+  var title: String? {
     switch self {
     case .checking: L10n.checkingRunners
-    case .noRunnersInstalled: L10n.noRunnersFound
+    case .noRunnersInstalled: nil
     case .launchAgentsUnavailable: L10n.launchAgentsUnreadable
     case .unreadableRunners: L10n.someRunnersUnreadable
     }
@@ -71,7 +79,11 @@ enum ControlCenterEmptyPresentation: Equatable {
     case .checking:
       []
     case .noRunnersInstalled:
-      [L10n.controlCenterNoRunnersDescription]
+      // The second line is the one that keeps somebody from concluding the app
+      // cannot see their machine: a runner started with `./run.sh` leaves no
+      // LaunchAgent, so discovery cannot find it and this screen is where they
+      // find out Settings takes the folder.
+      [L10n.controlCenterNoRunnersDescription, L10n.controlCenterNoRunnersManual]
     case .launchAgentsUnavailable(let directory):
       [directory]
     case .unreadableRunners(let paths):
