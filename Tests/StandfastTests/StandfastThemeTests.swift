@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Standfast
@@ -165,4 +166,104 @@ import Testing
   #expect(
     dark.attentionOnSurface.contrastRatio(against: dark.surface)
       > dark.healthyBadge.contrastRatio(against: dark.surface))
+}
+
+// MARK: - A named type scale, instead of a decision per view
+
+@Test func theTypeScaleHasOneRolePerStepAndNoTwoStepsCollide() {
+  // Eight roles, chosen once. The point is not "personality": it is that the
+  // hierarchy stops being re-decided in every view, which is how `scope` ended
+  // up at 11 pt under a 15 pt name and the badge — the only coloured object on
+  // a card — ended up the smallest text on screen.
+  let scale: [Font] = [
+    StandfastTheme.Typography.display, StandfastTheme.Typography.title,
+    StandfastTheme.Typography.bodyEmphasized, StandfastTheme.Typography.body,
+    StandfastTheme.Typography.secondary, StandfastTheme.Typography.meta,
+    StandfastTheme.Typography.badge, StandfastTheme.Typography.micro,
+  ]
+
+  #expect(Set(scale).count == scale.count)
+}
+
+@Test func noViewPicksItsOwnTypeAnyMore() {
+  // Semantic styles, so the accessibility text-size axis the manual matrix
+  // still owes keeps working; what the tokens fix is which role goes where.
+  for view in ["ControlCenterView.swift", "RunnerCardView.swift", "SettingsView.swift"] {
+    let source = standfastSource(view)
+    #expect(
+      !source.contains(".font(.title") && !source.contains(".font(.subheadline")
+        && !source.contains(".font(.caption") && !source.contains(".font(.body")
+        && !source.contains(".font(.callout") && !source.contains(".font(.headline"),
+      "\(view) still picks a system font style by hand")
+  }
+}
+
+// MARK: - Surfaces do some of the work the 1 pt cage was doing alone
+
+@Test func theCardIsToldFromItsCanvasWithoutNeedingABorder() {
+  let dark = StandfastTheme.palette(for: .dark)
+  let light = StandfastTheme.palette(for: .light)
+
+  // Every boundary in this window used to be a 1 pt structural border, so a
+  // decorative separator and the edge of a card said the same thing at the
+  // same volume. A card that sits on its own canvas is already an object.
+  #expect(dark.canvas != dark.surface)
+  #expect(light.canvas != light.surface)
+
+  // Decorative, and therefore quieter than the boundary that carries meaning.
+  // Not invisible: it still has to group.
+  #expect(
+    dark.divider.contrastRatio(against: dark.surface)
+      < dark.structuralBorder.contrastRatio(against: dark.surface))
+  #expect(
+    light.divider.contrastRatio(against: light.surface)
+      < light.structuralBorder.contrastRatio(against: light.surface))
+  #expect(dark.divider.contrastRatio(against: dark.surface) > 1.2)
+  #expect(light.divider.contrastRatio(against: light.surface) > 1.2)
+}
+
+@Test func increasedContrastNeverLeansOnTheDecorativeSeparator() {
+  let plain = StandfastTheme.palette(for: .dark)
+  let raised = StandfastTheme.palette(for: .dark, increasedContrast: true)
+
+  // The separator is allowed to stay subtle when contrast is raised, because
+  // nothing essential is drawn with it. What must not happen is the reverse:
+  // an essential boundary quietly becoming the subtle one.
+  #expect(
+    raised.structuralBorder.contrastRatio(against: raised.surface)
+      >= plain.structuralBorder.contrastRatio(against: plain.surface))
+  #expect(
+    raised.structuralBorder.contrastRatio(against: raised.surface)
+      > raised.divider.contrastRatio(against: raised.surface))
+}
+
+// MARK: - Motion, and the setting that switches it off
+
+@Test func reduceMotionIsAnAbsenceOfAnimationAndNotAFasterOne() {
+  // The whole contract: with the setting on, the caller gets nil and SwiftUI
+  // cuts. A shortened duration is still motion, and this is an operational
+  // tool — somebody who turned that setting on did not ask for a quicker
+  // slide.
+  #expect(
+    StandfastTheme.Motion.honouring(StandfastTheme.Motion.fold, reduceMotion: true) == nil)
+  #expect(
+    StandfastTheme.Motion.honouring(StandfastTheme.Motion.fold, reduceMotion: false) != nil)
+  #expect(
+    StandfastTheme.Motion.honouring(StandfastTheme.Motion.receipt, reduceMotion: true)
+      == nil)
+}
+
+@Test func onlyFoldingAndReceiptsAreAnimatedAtAll() {
+  let card = standfastSource("RunnerCardView.swift")
+  let centre = standfastSource("ControlCenterView.swift")
+
+  // State, enablement and freshness stay instantaneous. The freshness line
+  // lives inside a `TimelineView` that ticks every two seconds, so a blanket
+  // `.animation` would interpolate "Consultado ahora mismo" — an app tweening
+  // the age of its own data is an app deciding to look busy over being right.
+  #expect(centre.contains("accessibilityReduceMotion"))
+  #expect(centre.contains("StandfastTheme.Motion.honouring"))
+  #expect(card.contains("StandfastTheme.Motion.honouring"))
+  #expect(!card.contains(".animation(.default"))
+  #expect(!centre.contains(".animation(.default"))
 }

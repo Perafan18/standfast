@@ -8,7 +8,7 @@ struct StateBadge: View {
   var body: some View {
     let colors = palette.badge(for: tone)
     Text(label)
-      .font(.caption.weight(.semibold))
+      .font(StandfastTheme.Typography.badge)
       .foregroundStyle(colors.foreground.color)
       .padding(.horizontal, StandfastTheme.Spacing.small)
       .padding(.vertical, StandfastTheme.Spacing.xSmall)
@@ -35,6 +35,7 @@ struct RunnerCardView: View {
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var jobsExpanded = false
   @State private var maintenanceExpanded = false
 
@@ -102,7 +103,7 @@ struct RunnerCardView: View {
             .foregroundStyle(palette.textSecondary.color)
             .accessibilityHidden(true)
           Text(note)
-            .font(.subheadline)
+            .font(StandfastTheme.Typography.secondary)
             .foregroundStyle(palette.textSecondary.color)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -112,9 +113,20 @@ struct RunnerCardView: View {
       // purpose: hiding the outcome of an action the operator just took would
       // make folding feel like the app forgot.
       if let feedback = card.operationFeedback {
+        // Presence, so it fades and rises 4 pt rather than appearing between
+        // two frames. The receipt is the answer to something the operator just
+        // did; arriving without transition reads as if it had always been
+        // there, which is the one thing it was not.
         operationFeedback(feedback)
+          .transition(
+            .opacity.combined(with: .offset(y: 4))
+          )
       }
     }
+    .animation(
+      StandfastTheme.Motion.honouring(
+        StandfastTheme.Motion.receipt, reduceMotion: reduceMotion),
+      value: card.operationFeedback)
   }
 
   /// Everything a person opens a card in order to do.
@@ -131,9 +143,12 @@ struct RunnerCardView: View {
       }
       .padding(.top, StandfastTheme.Spacing.large)
 
+      // Decorative: it groups the two things you open on purpose away from the
+      // controls above them. Drawn at the structural weight it read as the
+      // edge of something, which is a boundary it is not.
       Rectangle()
-        .fill(palette.structuralBorder.color)
-        .frame(height: StandfastTheme.Stroke.structural)
+        .fill(palette.divider.color)
+        .frame(height: StandfastTheme.Stroke.separator)
         .padding(.top, StandfastTheme.Spacing.xLarge)
 
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
@@ -159,16 +174,16 @@ struct RunnerCardView: View {
   private var identitySummary: some View {
     HStack(alignment: .firstTextBaseline, spacing: StandfastTheme.Spacing.compact) {
       Image(systemName: card.stateSymbolName)
-        .font(.title2.weight(.semibold))
+        .font(StandfastTheme.Typography.display)
         .foregroundStyle(palette.textPrimary.color)
         .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
         Text(card.title)
-          .font(.title3.weight(.semibold))
+          .font(StandfastTheme.Typography.title)
           .foregroundStyle(palette.textPrimary.color)
         Text(card.scope)
-          .font(.subheadline)
+          .font(StandfastTheme.Typography.secondary)
           .foregroundStyle(palette.textSecondary.color)
           // UI-026. `acme/acme-widget` under a runner name reads as a fixed
           // assignment, a filter, the last repository used, or the job in
@@ -200,7 +215,7 @@ struct RunnerCardView: View {
   private var foldControl: some View {
     Button(action: toggleCollapsed) {
       Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-        .font(.body.weight(.semibold))
+        .font(StandfastTheme.Typography.bodyEmphasized)
         .foregroundStyle(palette.textSecondary.color)
         .frame(
           minWidth: StandfastTheme.controlMinimumHeight,
@@ -241,11 +256,11 @@ struct RunnerCardView: View {
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
         Text(title)
-          .font(.body.weight(.medium))
+          .font(StandfastTheme.Typography.bodyEmphasized)
           .foregroundStyle(palette.textPrimary.color)
         if let detail {
           Text(detail)
-            .font(.subheadline)
+            .font(StandfastTheme.Typography.secondary)
             .foregroundStyle(palette.textSecondary.color)
         }
       }
@@ -273,7 +288,10 @@ struct RunnerCardView: View {
         .foregroundStyle(colour)
         .accessibilityHidden(true)
       Text(queued.line)
-        .font(queued.tone == .attention ? .subheadline.weight(.semibold) : .subheadline)
+        .font(
+          queued.tone == .attention
+            ? StandfastTheme.Typography.bodyEmphasized : StandfastTheme.Typography.secondary
+        )
         .foregroundStyle(colour)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -303,10 +321,10 @@ struct RunnerCardView: View {
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
         Text(feedback.title)
-          .font(.subheadline.weight(.semibold))
+          .font(StandfastTheme.Typography.bodyEmphasized)
           .foregroundStyle(ink.color)
         Text(feedback.detail)
-          .font(.subheadline)
+          .font(StandfastTheme.Typography.secondary)
           .foregroundStyle(palette.textSecondary.color)
       }
     }
@@ -448,11 +466,11 @@ struct RunnerCardView: View {
       disclosureLabel(isExpanded: $jobsExpanded) {
         HStack {
           Text(L10n.recentJobs)
-            .font(.subheadline.weight(.semibold))
+            .font(StandfastTheme.Typography.bodyEmphasized)
           Spacer()
           if case .available(let rows, true) = card.history {
             Text(L10n.historyLatest(rows.count))
-              .font(.caption.weight(.semibold))
+              .font(StandfastTheme.Typography.badge)
               .foregroundStyle(palette.textSecondary.color)
           }
         }
@@ -526,10 +544,10 @@ struct RunnerCardView: View {
       disclosureLabel(isExpanded: $maintenanceExpanded) {
         HStack {
           Text(L10n.maintenance)
-            .font(.subheadline.weight(.semibold))
+            .font(StandfastTheme.Typography.bodyEmphasized)
           Spacer()
           Text(card.maintenance.measured)
-            .font(.caption)
+            .font(StandfastTheme.Typography.meta)
             .foregroundStyle(palette.textSecondary.color)
         }
       }

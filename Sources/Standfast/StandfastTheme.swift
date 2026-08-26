@@ -71,6 +71,10 @@ struct StandfastSRGBColor: Equatable, Sendable {
 }
 
 struct StandfastPalette: Equatable, Sendable {
+  /// What a card sits on. A window whose background is the same colour as its
+  /// cards needs a border around every one of them to say where they end; give
+  /// the cards a canvas and the surface does that work by itself.
+  let canvas: StandfastSRGBColor
   let surface: StandfastSRGBColor
   let textPrimary: StandfastSRGBColor
   let textSecondary: StandfastSRGBColor
@@ -84,6 +88,10 @@ struct StandfastPalette: Equatable, Sendable {
   /// the one thing that explains why it is off.
   let controlTextDisabled: StandfastSRGBColor
   let structuralBorder: StandfastSRGBColor
+  /// A separator that groups and means nothing. Deliberately quieter than
+  /// `structuralBorder`: when every line is drawn at the same weight, none of
+  /// them tells you which boundary matters.
+  let divider: StandfastSRGBColor
   let primaryButton: StandfastSRGBColor
   let primaryButtonText: StandfastSRGBColor
   let healthyBadge: StandfastSRGBColor
@@ -148,6 +156,57 @@ enum StandfastTheme {
   /// The 44 pt this replaced is the iOS *touch* target, and on a pointer-driven
   /// Mac it makes every control read as a ported phone button. This keeps a few
   /// points of comfort over the system's own height without leaving it behind.
+  /// The eight roles this app writes in, chosen once.
+  ///
+  /// Every view used to pick a system style by hand, which is how `scope`
+  /// ended up at 11 pt under a 15 pt name, and how the badge — the only
+  /// coloured object on a card — ended up the smallest text on screen.
+  ///
+  /// Semantic styles rather than fixed point sizes, deliberately: the manual
+  /// accessibility matrix still owes the maximum-text-size axis, and
+  /// `.system(size:)` would quietly opt this app out of it. The sizes in the
+  /// comments are what macOS resolves them to at the default setting.
+  enum Typography {
+    /// 22 · the window's own answer, which has to outrank a runner's name.
+    static let display = Font.title.weight(.semibold)
+    /// 15 · a runner's name.
+    static let title = Font.title3.weight(.semibold)
+    /// 13 medium · the state or job in focus.
+    static let bodyEmphasized = Font.body.weight(.medium)
+    /// 13 · copy.
+    static let body = Font.body
+    /// 12 · scope, explanations, the detail under a receipt. Was 11.
+    static let secondary = Font.callout
+    /// 11 · freshness and durations, with digits that do not jitter.
+    static let meta = Font.subheadline.monospacedDigit()
+    /// 11 semibold · the pill. Was 10.
+    static let badge = Font.subheadline.weight(.semibold)
+    /// 10 · footers.
+    static let micro = Font.caption
+  }
+
+  /// The two things that move, and the setting that stops them.
+  ///
+  /// Only presence and geometry are animated: a card folding, a receipt
+  /// arriving. State, enablement, freshness and elapsed times stay
+  /// instantaneous — the window redraws every two seconds inside a
+  /// `TimelineView`, and interpolating any of that would mean tweening the
+  /// age of the data on screen.
+  enum Motion {
+    /// 180 ms. Geometry, so it needs long enough to be followed by an eye.
+    static let fold = Animation.easeOut(duration: 0.18)
+    /// 140 ms. Presence, which only has to stop being abrupt.
+    static let receipt = Animation.easeOut(duration: 0.14)
+
+    /// Nil when Reduce Motion is on, which SwiftUI reads as "cut".
+    ///
+    /// Not a shorter duration: a quicker slide is still a slide, and somebody
+    /// who turned that setting on did not ask for a faster one.
+    static func honouring(_ animation: Animation, reduceMotion: Bool) -> Animation? {
+      reduceMotion ? nil : animation
+    }
+  }
+
   static let controlMinimumHeight: CGFloat = 28
 
   static let controlCenterMinimumWidth: CGFloat = 520
@@ -165,6 +224,7 @@ enum StandfastTheme {
     switch appearance {
     case .dark:
       StandfastPalette(
+        canvas: StandfastSRGBColor(hex: 0x121518),
         surface: StandfastSRGBColor(hex: 0x1B2024),
         textPrimary: StandfastSRGBColor(hex: 0xF5F7F8),
         textSecondary: StandfastSRGBColor(hex: 0xC2C8CE),
@@ -172,6 +232,8 @@ enum StandfastTheme {
         controlTextDisabled: StandfastSRGBColor(hex: 0x6E7479),
         structuralBorder: StandfastSRGBColor(
           hex: increasedContrast ? 0x8996A1 : 0x6E7B86),
+        // 1.65:1 against the card — enough to group, too little to compete.
+        divider: StandfastSRGBColor(hex: 0x3A444D),
         // The candidate 0A5FC7 misses 3:1 against the dark surface. This is
         // the nearest measured step that clears that boundary and keeps white
         // button copy above 4.5:1.
@@ -186,6 +248,7 @@ enum StandfastTheme {
         stoppedBadge: StandfastSRGBColor(hex: 0x4F5B66))
     case .light:
       StandfastPalette(
+        canvas: StandfastSRGBColor(hex: 0xF4F6F8),
         surface: StandfastSRGBColor(hex: 0xFFFFFF),
         textPrimary: StandfastSRGBColor(hex: 0x14171A),
         textSecondary: StandfastSRGBColor(hex: 0x4F5B66),
@@ -194,6 +257,7 @@ enum StandfastTheme {
         controlTextDisabled: StandfastSRGBColor(hex: 0x848C94),
         structuralBorder: StandfastSRGBColor(
           hex: increasedContrast ? 0x4F5B66 : 0x65717C),
+        divider: StandfastSRGBColor(hex: 0xD7DEE5),
         primaryButton: StandfastSRGBColor(hex: 0x005AC6),
         primaryButtonText: StandfastSRGBColor(hex: 0xFFFFFF),
         healthyBadge: StandfastSRGBColor(hex: 0x0D6B39),

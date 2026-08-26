@@ -139,7 +139,7 @@ struct SettingsView: View {
         }
 
         Text(presentation.version)
-          .font(.caption)
+          .font(StandfastTheme.Typography.micro)
           .foregroundStyle(palette.textSecondary.color)
           .frame(maxWidth: .infinity, alignment: .center)
           .accessibilityIdentifier(SettingsAccessibility.version)
@@ -156,13 +156,23 @@ struct SettingsView: View {
 
   private var productHeader: some View {
     HStack(spacing: StandfastTheme.Spacing.compact) {
+      // UI-028. The icon is a beacon whose metal measures about 2.46:1 against
+      // this surface, so at 48 pt only its glow survived and the rest read as a
+      // smudge. A well of canvas behind it gives the dark half something to sit
+      // against; the artwork is untouched.
       Image(nsImage: NSApplication.shared.applicationIconImage)
         .resizable()
         .interpolation(.high)
         .frame(width: 48, height: 48)
+        .padding(StandfastTheme.Spacing.small)
+        .background(
+          palette.canvas.color,
+          in: RoundedRectangle(
+            cornerRadius: StandfastTheme.Radius.compact, style: .continuous)
+        )
         .accessibilityHidden(true)
       Text(L10n.statusItemLabel)
-        .font(.title2.weight(.semibold))
+        .font(StandfastTheme.Typography.display)
         .foregroundStyle(palette.textPrimary.color)
     }
     .accessibilityElement(children: .combine)
@@ -172,7 +182,7 @@ struct SettingsView: View {
     VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
       if manualRunners.directories.isEmpty {
         Text(L10n.settingsRunnersNone)
-          .font(.callout)
+          .font(StandfastTheme.Typography.secondary)
           .foregroundStyle(palette.textPrimary.color)
           .frame(maxWidth: .infinity, alignment: .leading)
       } else {
@@ -182,7 +192,7 @@ struct SettingsView: View {
             // disambiguates two with the same name, so it stays available to
             // anything reading this row rather than only to a wide window.
             Text(directory.lastPathComponent)
-              .font(.callout)
+              .font(StandfastTheme.Typography.secondary)
               .foregroundStyle(palette.textPrimary.color)
               .frame(maxWidth: .infinity, alignment: .leading)
               .help(directory.path)
@@ -242,7 +252,7 @@ struct SettingsView: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
       Text(presentation.currentState)
-        .font(.callout)
+        .font(StandfastTheme.Typography.secondary)
         .foregroundStyle(palette.textPrimary.color)
         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -304,7 +314,11 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .toggleStyle(.switch)
-    .frame(maxWidth: .infinity, minHeight: 44)
+    // 44 is the iPhone touch target, and this theme rejected it once already:
+    // `controlMinimumHeight` is 28 because a pointer is not a thumb. A settings
+    // row still wants more air than a button, hence 32 rather than 28 — but not
+    // the height of a control on a phone.
+    .frame(maxWidth: .infinity, minHeight: 32)
     .contentShape(Rectangle())
   }
 
@@ -314,7 +328,7 @@ struct SettingsView: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
       Label(title, systemImage: systemImage)
-        .font(.headline)
+        .font(StandfastTheme.Typography.title)
         .foregroundStyle(palette.textPrimary.color)
       content()
     }
@@ -344,11 +358,11 @@ struct SettingsView: View {
   private func supportingLines(footer: String, notice: String?) -> some View {
     VStack(alignment: .leading, spacing: StandfastTheme.Spacing.small) {
       Text(footer)
-        .font(.caption)
+        .font(StandfastTheme.Typography.micro)
         .foregroundStyle(palette.textSecondary.color)
       if let notice {
         Label(notice, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption)
+          .font(StandfastTheme.Typography.micro)
           .foregroundStyle(palette.attentionForeground.color)
       }
     }

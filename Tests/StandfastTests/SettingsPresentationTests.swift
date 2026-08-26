@@ -119,7 +119,11 @@ private func settingsSource(_ name: String) -> String {
   // The row keeps the 44 pt pointer target and takes the whole card width, so
   // every switch lands on one trailing edge. An intrinsically sized row hugs
   // its own label instead, and the section reads as a ragged, centred stack.
-  #expect(compact.contains(".frame(maxWidth:.infinity,minHeight:44)"))
+  // 32, not 44: 44 is the iPhone touch target this theme rejected once
+  // already — `controlMinimumHeight` is 28 because a pointer is not a thumb.
+  // A settings row still wants more air than a button, which is why it is not
+  // 28 either.
+  #expect(compact.contains(".frame(maxWidth:.infinity,minHeight:32)"))
   #expect(
     compact.contains(
       "Label(title,systemImage:systemImage).foregroundStyle(palette.textPrimary.color)"

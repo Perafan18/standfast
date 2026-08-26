@@ -14,6 +14,7 @@ struct ControlCenterView: View {
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   init(fleet: RunnerFleetModel) {
     self.fleet = fleet
@@ -47,7 +48,14 @@ struct ControlCenterView: View {
                 RunnerCardView(
                   card: card,
                   isCollapsed: fleet.folding.isCollapsed(card),
-                  toggleCollapsed: { fleet.folding.toggle(card) },
+                  toggleCollapsed: {
+                    withAnimation(
+                      StandfastTheme.Motion.honouring(
+                        StandfastTheme.Motion.fold, reduceMotion: reduceMotion)
+                    ) {
+                      fleet.folding.toggle(card)
+                    }
+                  },
                   performAction: { action in
                     fleet.perform(action, onRunnerID: card.id)
                   },
@@ -63,7 +71,7 @@ struct ControlCenterView: View {
       }
       .frame(minWidth: StandfastTheme.controlCenterMinimumWidth)
       .frame(maxHeight: .infinity)
-      .background(Color(nsColor: .windowBackgroundColor))
+      .background(palette.canvas.color)
     }
   }
 
@@ -85,9 +93,12 @@ struct ControlCenterView: View {
     .padding(.vertical, StandfastTheme.Spacing.standard)
     .background(palette.surface.color)
     .overlay(alignment: .bottom) {
+      // The header sits on `surface` and the scroll below it on `canvas`, so
+      // the boundary is already visible as a change of ground. The line is
+      // there to sharpen it, not to be it.
       Rectangle()
-        .fill(palette.structuralBorder.color)
-        .frame(height: StandfastTheme.Stroke.structural)
+        .fill(palette.divider.color)
+        .frame(height: StandfastTheme.Stroke.separator)
     }
     .accessibilityIdentifier(ControlCenterAccessibility.header)
   }
@@ -97,7 +108,7 @@ struct ControlCenterView: View {
   ) -> some View {
     HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
       Image(systemName: presentation.symbolName)
-        .font(.title2.weight(.semibold))
+        .font(StandfastTheme.Typography.display)
         .foregroundStyle(palette.textPrimary.color)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
@@ -113,16 +124,16 @@ struct ControlCenterView: View {
         // The long sentence stays for VoiceOver, which has no card to read
         // next and no layout to protect.
         Text(presentation.shortSummary)
-          .font(.title2.weight(.semibold))
+          .font(StandfastTheme.Typography.display)
           .foregroundStyle(palette.textPrimary.color)
           .accessibilityLabel(presentation.summary)
         if let attention = presentation.attention {
           Text(attention)
-            .font(.subheadline)
+            .font(StandfastTheme.Typography.secondary)
             .foregroundStyle(palette.attentionForeground.color)
         }
         Text(presentation.freshness)
-          .font(.caption)
+          .font(StandfastTheme.Typography.meta)
           .foregroundStyle(palette.textSecondary.color)
       }
     }
@@ -159,11 +170,11 @@ struct ControlCenterView: View {
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
         Text(content.title)
-          .font(.subheadline.weight(.semibold))
+          .font(StandfastTheme.Typography.bodyEmphasized)
           .foregroundStyle(palette.textPrimary.color)
         ForEach(content.lines, id: \.self) { line in
           Text(line)
-            .font(.subheadline)
+            .font(StandfastTheme.Typography.secondary)
             .foregroundStyle(palette.textSecondary.color)
         }
       }
@@ -183,12 +194,12 @@ struct ControlCenterView: View {
         .accessibilityHidden(true)
       if let title = presentation.title {
         Text(title)
-          .font(.title3.weight(.semibold))
+          .font(StandfastTheme.Typography.title)
           .foregroundStyle(palette.textPrimary.color)
       }
       ForEach(presentation.detailLines, id: \.self) { detail in
         Text(detail)
-          .font(.body)
+          .font(StandfastTheme.Typography.body)
           .foregroundStyle(palette.textSecondary.color)
           .multilineTextAlignment(.center)
       }
@@ -196,10 +207,20 @@ struct ControlCenterView: View {
       // on, and it used to tell them to install a runner and leave them to
       // find out how.
       if let guide = presentation.guide {
-        Link(L10n.controlCenterInstallGuide, destination: guide)
-          .font(.body)
-          .padding(.top, StandfastTheme.Spacing.xSmall)
-          .accessibilityIdentifier(ControlCenterAccessibility.installGuide)
+        // The only way out of the first screen a new user sees, and it was a
+        // line of blue text among three other lines of text. Same destination,
+        // same identifier, same single link — it just looks like the thing to
+        // press now.
+        Link(destination: guide) {
+          Text(L10n.controlCenterInstallGuide)
+            .font(StandfastTheme.Typography.bodyEmphasized)
+            .padding(.horizontal, StandfastTheme.Spacing.compact)
+            .frame(minHeight: StandfastTheme.controlMinimumHeight)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(palette.primaryButton.color)
+        .padding(.top, StandfastTheme.Spacing.small)
+        .accessibilityIdentifier(ControlCenterAccessibility.installGuide)
       }
     }
     .frame(maxWidth: .infinity, minHeight: 320)

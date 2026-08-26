@@ -359,16 +359,22 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(!source.contains("detail: job.outcome.label"))
 }
 
-@Test func runnerCardSeparatorUsesTheMeasuredStructuralBoundary() {
+@Test func runnerCardSeparatorUsesTheMeasuredDecorativeDivider() {
   let source = standfastSource("RunnerCardView.swift")
   let compact = source.filter { !$0.isWhitespace }
 
+  // This used to require the structural border. It was the right rule while
+  // every boundary in the window was drawn the same way — a measured line
+  // beats `Divider()`, whose colour nobody chose. What changed is that the
+  // card now has a canvas behind it, so the edge of the card is visible
+  // without help, and a separator drawn at the same weight as that edge says
+  // "something ends here" about a line that only groups.
   #expect(!compact.contains("Divider()"))
   #expect(
     compact.contains(
-      "Rectangle().fill(palette.structuralBorder.color)"
-        + ".frame(height:StandfastTheme.Stroke.structural)"))
-  #expect(StandfastTheme.Stroke.structural >= 1)
+      "Rectangle().fill(palette.divider.color)"
+        + ".frame(height:StandfastTheme.Stroke.separator)"))
+  #expect(StandfastTheme.Stroke.separator < StandfastTheme.Stroke.structural)
 
   for appearance in StandfastTheme.Appearance.allCases {
     let standard = StandfastTheme.palette(for: appearance)
