@@ -41,6 +41,34 @@ owned by the release manager.
 - **An original Standfast app icon:** a text-free sentinel/beacon, compiled into every macOS
   icon size and included inside the signed resource seal. Live status remains the job of
   semantic SF Symbols in the menu bar rather than the product icon.
+- **A GitHub client of Standfast's own,** with the token in the Keychain. `gh` is now a
+  fallback used only when nothing is stored, so a menu bar app no longer requires a
+  terminal tool to be installed, authenticated and well-behaved before it can say anything
+  about a runner. Every query carries the previous `Etag`, so an unchanged answer costs a
+  304 that GitHub does not bill — measured against `x-ratelimit-remaining`, not assumed.
+  Settings says whether a token exists and never what it is.
+- **Queued work, by label.** The app answers the question that names it — not "are you
+  ready" but "is there work waiting for *this* runner" — reproducing GitHub's dispatch rule
+  that a job goes to a runner carrying every label it asked for. A stopped runner, whose
+  labels the app does not know, is left unanswered rather than declared idle. Organization
+  and enterprise runners say the question cannot be answered there, because GitHub has no
+  endpoint for it.
+- **Runners started by hand.** A runner launched with `./run.sh` leaves no LaunchAgent and
+  was invisible to a product that promises to find your runners. Their folders are pointed
+  at explicitly in Settings — never guessed by walking the disk — re-read on every scan,
+  and probed by process rather than by launchd. Service controls stay off for them, with
+  the reason beside them.
+- **GitLab runners, beside the GitHub ones,** scoped to what the product already promises:
+  whether the runners on this machine will get work. Discovery reads the fixed, documented
+  `~/.gitlab-runner/config.toml`; the runner token stays in that file, and self-managed
+  GitLab works because the host travels from each runner's config. GitLab states are phrased
+  in GitLab's own words, since "run gh auth login" is the wrong advice for a GitLab token.
+- **An optional Dock tile.** Standfast lives in the menu bar and still starts without one;
+  a switch in Settings promotes it at launch for anybody who wants it in the Dock and in
+  ⌘-Tab.
+- **`Scripts/install-app.sh`,** which installs over the running copy, keeps the version you
+  were running and the one before it, and cannot take away the only working app if the
+  build fails.
 
 ### Changed
 
@@ -49,6 +77,18 @@ owned by the release manager.
   labels those registration destinations as run history.
 - The operational interface uses native `GroupBox`, `LabeledContent`, `ControlGroup`,
   `Form`, and system semantic styles, with no custom color or type scale in the app UI.
+- The app names its state layers when they disagree — local and remote no longer collapse
+  into one word — the service verbs name their object (`Parar servicio`, not `Parar`), the
+  idle state is called `Listo` in both the short and long forms, and the preferences window
+  has one name instead of two.
+- Job rows say when before they say how long, in words: `hace 6d · duró 43s`. A bare
+  duration in parentheses read as an age, and two bare numbers side by side left the reader
+  guessing which was which.
+- The empty Control Center no longer repeats the header it sits under. It spends that room
+  on what to install and on where a runner already started by hand goes.
+- CI runs entirely on the self-hosted Mac. No rented macOS minutes, and `Build and test`
+  dropped from ~2 min to 43 s. The trade is stated in the docs: the job that compiled
+  against an older Xcode on a real macOS 14 is gone.
 
 ### Fixed
 
@@ -68,6 +108,26 @@ owned by the release manager.
   success for a press that opened nothing — so the probe failed against a working app and
   blamed a screen lock that was not there. A locked screen is now reported as a diagnosis
   attached to whatever the probe actually observed, never as the verdict itself.
+- A second job failing inside the same second as the first was never announced. A timestamp
+  was doing the work of an identity; the watermark now carries the instant *and* how many
+  finished records shared it.
+- A runner with no version reported is told apart from a log that cannot be read, instead
+  of both arriving as one empty optional.
+- The local probe's read timestamp was an upper bound being used as causal evidence by the
+  settling window. A reading now carries both ends.
+- A rotated log repaired after an unreadable read reappears in about ten minutes, instead of
+  waiting for the next rotation. Stopping on budget is a correct ending and is not retried.
+- A busy runner whose configuration stops resolving keeps its evidence — the job is probably
+  still running — but no longer without bound: half an hour, ten times the longest job this
+  machine has run.
+- A checkout symlinked outside the runner folder erased the whole row. Discovery yields the
+  runner; only maintenance abstains, and it says why.
+- The strict Accessibility gate blamed a locked screen for a failure caused by a second
+  copy of the app running, and its diagnosis note lived inside a branch that did not exist
+  when the menu bar was visible.
+- The four places that promise a minimum macOS — `Package.swift`, `Info.plist`, the README
+  and the landing page — are held equal by a contract. Bumping one used to leave the others
+  promising a version macOS would still install on a system where the app cannot run.
 
 No Standfast version has been published yet. The 0.1.0 through 0.4.0 sections below are
 integrated development milestones that were built and reviewed in sequence, never tags or
