@@ -1099,3 +1099,29 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
       != ControlCenterEmptyPresentation.checking.symbolName)
   #expect(!FleetSummary.noRunnersSymbolName.contains("circle.dashed"))
 }
+
+// MARK: - A failed order is not the same kind of news as a finished one
+
+@Test func aFailedOperationCarriesAToneTheCardCanRaise() {
+  // `F-accion-fallida`: a Stop that could not run, sitting under a green
+  // `Listo` badge in the same weight as everything else. The card cannot lift
+  // what the presentation never marked, so the outcome carries its own tone.
+  let failed = ServiceOperation(
+    action: .stop, phase: .failed(.scriptMissing), changedAt: controlCenterNow)
+  let accepted = ServiceOperation(
+    action: .stop, phase: .requestAccepted, changedAt: controlCenterNow)
+  let uncertain = ServiceOperation(
+    action: .stop, phase: .uncertain(.commandTimedOut), changedAt: controlCenterNow)
+
+  #expect(failed.presentation.tone == .attention)
+  #expect(accepted.presentation.tone == .healthy)
+  // Not attention: an uncertain result is not a failure, and saying so in red
+  // would be the app claiming to know something it just admitted it does not.
+  #expect(uncertain.presentation.tone == .neutral)
+}
+
+@Test func theCardRaisesTheFailedReceiptWithItsOwnRule() {
+  let source = standfastSource("RunnerCardView.swift")
+
+  #expect(source.contains("attentionOnSurface"))
+}

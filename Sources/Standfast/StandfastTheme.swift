@@ -74,12 +74,28 @@ struct StandfastPalette: Equatable, Sendable {
   let surface: StandfastSRGBColor
   let textPrimary: StandfastSRGBColor
   let textSecondary: StandfastSRGBColor
+  /// The label of a control that cannot be pressed right now.
+  ///
+  /// A measured colour per appearance rather than an opacity, because an
+  /// opacity is one number pretending to work in two places: 40% of
+  /// `textSecondary` measures 2.71:1 on the dark surface and 1.89:1 on white.
+  /// Both of these clear 3:1 and sit far below `textPrimary`, so a disabled
+  /// control reads as off at a glance and still reads at all — its tooltip is
+  /// the one thing that explains why it is off.
+  let controlTextDisabled: StandfastSRGBColor
   let structuralBorder: StandfastSRGBColor
   let primaryButton: StandfastSRGBColor
   let primaryButtonText: StandfastSRGBColor
   let healthyBadge: StandfastSRGBColor
   let attentionForeground: StandfastSRGBColor
   let attentionBackground: StandfastSRGBColor
+  /// Attention as it reads *on the card surface*, not inside a pill.
+  ///
+  /// `attentionForeground` is built to sit on `attentionBackground`; in dark
+  /// mode it is nearly white, so a title recoloured with it changes by 1.04:1
+  /// — invisible. One value per appearance because a single one cannot serve
+  /// both: the dark candidate measures 2.06:1 on white.
+  let attentionOnSurface: StandfastSRGBColor
   let stoppedBadge: StandfastSRGBColor
 
   struct Badge: Equatable, Sendable {
@@ -152,6 +168,8 @@ enum StandfastTheme {
         surface: StandfastSRGBColor(hex: 0x1B2024),
         textPrimary: StandfastSRGBColor(hex: 0xF5F7F8),
         textSecondary: StandfastSRGBColor(hex: 0xC2C8CE),
+        // 3.47:1 against surface — `textSecondary` at 50%, resolved to a hex.
+        controlTextDisabled: StandfastSRGBColor(hex: 0x6E7479),
         structuralBorder: StandfastSRGBColor(
           hex: increasedContrast ? 0x8996A1 : 0x6E7B86),
         // The candidate 0A5FC7 misses 3:1 against the dark surface. This is
@@ -162,12 +180,18 @@ enum StandfastTheme {
         healthyBadge: StandfastSRGBColor(hex: 0x0D6B39),
         attentionForeground: StandfastSRGBColor(hex: 0xFFF0DF),
         attentionBackground: StandfastSRGBColor(hex: 0xB04B00),
+        // 7.99:1 against surface, and it beats the healthy badge (2.49:1) it
+        // was losing to in the failed-action frame.
+        attentionOnSurface: StandfastSRGBColor(hex: 0xFF9F0A),
         stoppedBadge: StandfastSRGBColor(hex: 0x4F5B66))
     case .light:
       StandfastPalette(
         surface: StandfastSRGBColor(hex: 0xFFFFFF),
         textPrimary: StandfastSRGBColor(hex: 0x14171A),
         textSecondary: StandfastSRGBColor(hex: 0x4F5B66),
+        // 3.41:1 against white — the same perceptual weight as the dark one,
+        // which needed a different opacity to get there.
+        controlTextDisabled: StandfastSRGBColor(hex: 0x848C94),
         structuralBorder: StandfastSRGBColor(
           hex: increasedContrast ? 0x4F5B66 : 0x65717C),
         primaryButton: StandfastSRGBColor(hex: 0x005AC6),
@@ -175,6 +199,8 @@ enum StandfastTheme {
         healthyBadge: StandfastSRGBColor(hex: 0x0D6B39),
         attentionForeground: StandfastSRGBColor(hex: 0x853800),
         attentionBackground: StandfastSRGBColor(hex: 0xFFF0DF),
+        // 8.19:1 on white. The dark orange would be 2.06:1 here.
+        attentionOnSurface: StandfastSRGBColor(hex: 0x853800),
         stoppedBadge: StandfastSRGBColor(hex: 0xDCE2E7))
     }
   }

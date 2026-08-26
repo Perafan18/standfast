@@ -284,19 +284,33 @@ struct RunnerCardView: View {
   private func operationFeedback(
     _ feedback: ServiceOperationPresentation
   ) -> some View {
-    HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
+    // A failure used to arrive in the same ink as everything else, under a
+    // green `Listo` badge that outweighed it. The rule and the colour are what
+    // make it the loudest thing on the card while it is there; both are
+    // decoration, so the element the reader hears is unchanged.
+    let failed = feedback.tone == .attention
+    let ink = failed ? palette.attentionOnSurface : palette.textPrimary
+
+    return HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
+      if failed {
+        RoundedRectangle(cornerRadius: StandfastTheme.Stroke.structural)
+          .fill(palette.attentionOnSurface.color)
+          .frame(width: 3)
+          .accessibilityHidden(true)
+      }
       Image(systemName: feedback.symbolName)
-        .foregroundStyle(palette.textPrimary.color)
+        .foregroundStyle(ink.color)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
         Text(feedback.title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.textPrimary.color)
+          .foregroundStyle(ink.color)
         Text(feedback.detail)
           .font(.subheadline)
           .foregroundStyle(palette.textSecondary.color)
       }
     }
+    .fixedSize(horizontal: false, vertical: true)
     .accessibilityElement(children: .combine)
   }
 
@@ -342,7 +356,14 @@ struct RunnerCardView: View {
           Label(action.label, systemImage: action.symbolName)
             .foregroundStyle(foreground.color)
         } else {
+          // Tint, and only tint. `Arrancar` disabled and `Parar` enabled used
+          // to weigh almost the same, so a card at rest read as a panel of
+          // controls rather than as a machine with nothing to do. The button
+          // keeps its place in the layout and its identifier either way.
           Label(action.label, systemImage: action.symbolName)
+            .foregroundStyle(
+              action.isEnabled
+                ? palette.textPrimary.color : palette.controlTextDisabled.color)
         }
       }
       .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
@@ -383,7 +404,14 @@ struct RunnerCardView: View {
           Label(action.label, systemImage: action.symbolName)
             .foregroundStyle(foreground.color)
         } else {
+          // Tint, and only tint. `Arrancar` disabled and `Parar` enabled used
+          // to weigh almost the same, so a card at rest read as a panel of
+          // controls rather than as a machine with nothing to do. The button
+          // keeps its place in the layout and its identifier either way.
           Label(action.label, systemImage: action.symbolName)
+            .foregroundStyle(
+              action.isEnabled
+                ? palette.textPrimary.color : palette.controlTextDisabled.color)
         }
       }
       .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)

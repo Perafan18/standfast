@@ -77,6 +77,10 @@ struct ServiceOperationPresentation: Equatable {
   let detail: String
   let symbolName: String
   let isInFlight: Bool
+  /// How loudly the card should say this. A failure earns the surface
+  /// attention colour and a rule; an uncertain result deliberately does not,
+  /// because painting "I do not know" as a failure is a claim of its own.
+  let tone: StateTone
 }
 
 extension ServiceOperation {
@@ -87,47 +91,47 @@ extension ServiceOperation {
       .init(
         title: L10n.serviceOperationInFlightTitle(actionTitle),
         detail: L10n.serviceOperationInFlightDetail(actionTitle),
-        symbolName: "arrow.triangle.2.circlepath", isInFlight: true)
+        symbolName: "arrow.triangle.2.circlepath", isInFlight: true, tone: .active)
     case .requestAccepted:
       .init(
         title: L10n.serviceOperationAcceptedTitle(actionTitle),
         detail: L10n.serviceOperationAcceptedDetail(actionTitle),
-        symbolName: "checkmark.circle", isInFlight: false)
+        symbolName: "checkmark.circle", isInFlight: false, tone: .healthy)
     case .uncertain(.commandTimedOut):
       .init(
         title: L10n.serviceOperationTimedOutTitle(actionTitle),
         detail: L10n.serviceOperationTimedOutDetail(actionTitle),
-        symbolName: "questionmark.circle", isInFlight: false)
+        symbolName: "questionmark.circle", isInFlight: false, tone: .neutral)
     case .failed(.scriptMissing):
       .init(
         title: L10n.serviceOperationScriptMissingTitle(actionTitle),
         detail: L10n.serviceOperationScriptMissingDetail(actionTitle),
-        symbolName: "exclamationmark.triangle", isInFlight: false)
+        symbolName: "exclamationmark.triangle", isInFlight: false, tone: .attention)
     case .failed(.commandCouldNotLaunch):
       .init(
         title: L10n.serviceOperationCouldNotLaunchTitle(actionTitle),
         detail: L10n.serviceOperationCouldNotLaunchDetail(actionTitle),
-        symbolName: "exclamationmark.triangle", isInFlight: false)
+        symbolName: "exclamationmark.triangle", isInFlight: false, tone: .attention)
     case .failed(.unexpectedFailure):
       .init(
         title: L10n.serviceOperationUnexpectedFailureTitle(actionTitle),
         detail: L10n.serviceOperationUnexpectedFailureDetail(actionTitle),
-        symbolName: "exclamationmark.triangle", isInFlight: false)
+        symbolName: "exclamationmark.triangle", isInFlight: false, tone: .attention)
     case .failed(.confirmationUnavailable):
       .init(
         title: L10n.serviceOperationConfirmationUnavailableTitle(actionTitle),
         detail: L10n.serviceOperationConfirmationUnavailableDetail(actionTitle),
-        symbolName: "exclamationmark.triangle", isInFlight: false)
+        symbolName: "exclamationmark.triangle", isInFlight: false, tone: .attention)
     case .failed(.restartStartFailed):
       .init(
         title: L10n.serviceOperationRestartStartFailedTitle,
         detail: L10n.serviceOperationRestartStartFailedDetail,
-        symbolName: "exclamationmark.triangle", isInFlight: false)
+        symbolName: "exclamationmark.triangle", isInFlight: false, tone: .attention)
     case .uncertain(.restartStartTimedOut):
       .init(
         title: L10n.serviceOperationRestartStartTimedOutTitle,
         detail: L10n.serviceOperationRestartStartTimedOutDetail,
-        symbolName: "questionmark.circle", isInFlight: false)
+        symbolName: "questionmark.circle", isInFlight: false, tone: .neutral)
     // Only Restart creates the two restart-start cases, and only the timeout
     // is uncertain. Keeping the impossible shapes honest if constructed by a
     // future caller is safer than silently claiming the runner changed state.
@@ -135,12 +139,12 @@ extension ServiceOperation {
       .init(
         title: L10n.serviceOperationTimedOutTitle(actionTitle),
         detail: L10n.serviceOperationTimedOutDetail(actionTitle),
-        symbolName: "questionmark.circle", isInFlight: false)
+        symbolName: "questionmark.circle", isInFlight: false, tone: .neutral)
     case .failed:
       .init(
         title: L10n.serviceOperationUnexpectedFailureTitle(actionTitle),
         detail: L10n.serviceOperationUnexpectedFailureDetail(actionTitle),
-        symbolName: "exclamationmark.triangle", isInFlight: false)
+        symbolName: "exclamationmark.triangle", isInFlight: false, tone: .attention)
     }
   }
 }
