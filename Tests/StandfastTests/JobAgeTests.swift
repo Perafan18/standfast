@@ -111,11 +111,15 @@ private func finished(
   #expect(source.contains("detail: job.circumstances"))
 }
 
-@Test func theHistoryRowSaysWhenBeforeItSaysHowLong() {
+@Test func theHistoryRowNamesWhichNumberIsWhich() {
   let source = standfastSource("RunnerCardView.swift")
 
   // Five rows of "Correcto" with no dates do not say whether they are from
   // today or from last month, which is the same question the focus line was
-  // failing to answer.
-  #expect(source.contains("job.age"))
+  // failing to answer. Answering it with two bare numbers — `Correcto 48s 49s`
+  // — asks a new one: which of them is the age? The rows say it in the same
+  // words the focus line already uses.
+  #expect(source.contains("if let circumstances = job.circumstances"))
+  #expect(!source.contains("Text(age)"))
+  #expect(!source.contains("Text(duration)"))
 }

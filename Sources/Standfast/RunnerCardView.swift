@@ -453,15 +453,13 @@ struct RunnerCardView: View {
       Spacer(minLength: StandfastTheme.Spacing.small)
       Text(job.outcome.label)
         .foregroundStyle(palette.textSecondary.color)
-      // When first, then how long. Five rows of "Correcto" with no dates do
-      // not say whether they are from today or from last month.
-      if let age = job.age {
-        Text(age)
-          .monospacedDigit()
-          .foregroundStyle(palette.textSecondary.color)
-      }
-      if let duration = job.duration {
-        Text(duration)
+      // When first, then how long — and both named, in the sentence the focus
+      // line above already uses. Five rows of "Correcto" with no dates do not
+      // say whether they are from today or from last month; two bare numbers
+      // answering that ("Correcto 48s 49s") only move the guesswork onto which
+      // of them is the age.
+      if let circumstances = job.circumstances {
+        Text(circumstances)
           .monospacedDigit()
           .foregroundStyle(palette.textSecondary.color)
       }
