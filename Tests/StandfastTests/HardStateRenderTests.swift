@@ -23,11 +23,31 @@ private var renderDirectory: URL? {
     .map { URL(fileURLWithPath: $0) }
 }
 
+/// The appearances a render can be taken in.
+///
+/// Dark was the only one for a long time, which meant every judgement about
+/// this app's look was a judgement about half of it. The light palette has its
+/// own measured values — and the table that reviewed this app found a token
+/// that reads at 7.99:1 in one appearance and 2.06:1 in the other, which is
+/// exactly the kind of thing a dark-only render cannot show.
+/// Increase Contrast is deliberately absent: `colorSchemeContrast` is
+/// read-only in SwiftUI, so it cannot be injected into a render. That axis
+/// stays what it already was — a person toggling it in System Settings with
+/// the window open, which is also the only way to test its hot path (UI-021).
+private struct RenderAppearance {
+  let suffix: String
+  let scheme: ColorScheme
+
+  static let dark = RenderAppearance(suffix: "", scheme: .dark)
+  static let light = RenderAppearance(suffix: "-claro", scheme: .light)
+}
+
 @MainActor
 private func render(
   _ view: some View, to url: URL,
   width: CGFloat = StandfastTheme.controlCenterDefaultWidth,
-  height: CGFloat = 720
+  height: CGFloat = 720,
+  appearance: RenderAppearance = .dark
 ) throws {
   // The token, and it is the token because that is what was measured. This
   // used to say 640 with a note that macOS restores the Control Center wider
@@ -44,14 +64,21 @@ private func render(
     rootView:
       view
       .frame(width: size.width, height: size.height)
-      .environment(\.colorScheme, .dark))
+      .environment(\.colorScheme, appearance.scheme))
   hosting.frame = NSRect(origin: .zero, size: size)
   hosting.layoutSubtreeIfNeeded()
   hosting.displayIfNeeded()
   let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
   hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
   let png = try #require(bitmap.representation(using: .png, properties: [:]))
-  try png.write(to: url)
+  let named =
+    appearance.suffix.isEmpty
+    ? url
+    : url
+      .deletingLastPathComponent()
+      .appendingPathComponent(
+        url.deletingPathExtension().lastPathComponent + appearance.suffix + ".png")
+  try png.write(to: named)
 }
 
 /// Says yes to every prompt: these renders are about the state the window
@@ -93,6 +120,9 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   try render(
     ControlCenterView(fleet: healthyFleet),
     to: directory.appendingPathComponent("0-normal.png"))
+  try render(
+    ControlCenterView(fleet: healthyFleet),
+    to: directory.appendingPathComponent("0-normal.png"), appearance: .light)
 
   // 0b. The other window. Settings takes its own size, not the Control
   // Center's.
@@ -234,6 +264,9 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   try render(
     ControlCenterView(fleet: emptyFleet),
     to: directory.appendingPathComponent("E-sin-runners.png"))
+  try render(
+    ControlCenterView(fleet: emptyFleet),
+    to: directory.appendingPathComponent("E-sin-runners.png"), appearance: .light)
 
   // 6. An action that fails. No `svc.sh` means the controller refuses before
   // running anything, which is the honest way to stage a failed Stop.
@@ -248,6 +281,9 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   try render(
     ControlCenterView(fleet: failingFleet),
     to: directory.appendingPathComponent("F-accion-fallida.png"))
+  try render(
+    ControlCenterView(fleet: failingFleet),
+    to: directory.appendingPathComponent("F-accion-fallida.png"), appearance: .light)
 }
 
 /// A token that never leaves memory. The render harness must not read or write
