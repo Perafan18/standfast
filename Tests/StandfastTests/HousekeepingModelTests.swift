@@ -84,11 +84,14 @@ private final class HousekeepingSandbox: @unchecked Sendable {
   }
 
   @discardableResult
-  func writeLog(_ name: String, bytes: Int, ageInDays: Double) throws -> URL {
+  func writeLog(
+    _ name: String, bytes: Int, ageInDays: Double,
+    relativeTo now: Date = Date()
+  ) throws -> URL {
     let url = root.appendingPathComponent("_diag/\(name)")
     try Data(repeating: UInt8(ascii: "x"), count: bytes).write(to: url)
     try FileManager.default.setAttributes(
-      [.modificationDate: Date().addingTimeInterval(-ageInDays * 24 * 3600)],
+      [.modificationDate: now.addingTimeInterval(-ageInDays * 24 * 3600)],
       ofItemAtPath: url.path)
     return url
   }
@@ -886,9 +889,10 @@ private struct RemovingThenReportingMissingOperations: DestructiveFileOperations
 @Test func logsGoneAfterConfirmationRefreshTheirStaleOffer() async throws {
   let sandbox = try HousekeepingSandbox()
   defer { sandbox.cleanUp() }
-  let old = try sandbox.writeLog(
-    "Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 30)
   let clock = TestClock()
+  let old = try sandbox.writeLog(
+    "Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 30,
+    relativeTo: clock.read())
   let confirmation = FakeConfirmation()
   let subject = model(
     sandbox, confirmation: confirmation, clock: clock.read)
@@ -957,11 +961,13 @@ private struct RemovingThenReportingMissingOperations: DestructiveFileOperations
 @Test func aPartiallyFailedSweepRemeasuresAndDoesNotClaimNothingWasDeleted() async throws {
   let sandbox = try HousekeepingSandbox()
   defer { sandbox.cleanUp() }
-  let first = try sandbox.writeLog(
-    "Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 40)
-  let second = try sandbox.writeLog(
-    "Worker_20260201-000000-utc.log", bytes: 8192, ageInDays: 30)
   let clock = TestClock()
+  let first = try sandbox.writeLog(
+    "Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 40,
+    relativeTo: clock.read())
+  let second = try sandbox.writeLog(
+    "Worker_20260201-000000-utc.log", bytes: 8192, ageInDays: 30,
+    relativeTo: clock.read())
   let subject = HousekeepingModel(
     usage: DiskUsage(),
     housekeeper: Housekeeper(files: RemovingOneThenRefusingOperations()),
