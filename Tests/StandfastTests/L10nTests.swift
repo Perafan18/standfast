@@ -67,17 +67,20 @@ private func l10nSource() -> String {
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
     L10n.stateUnknownNoAnswer, L10n.stateUnknownNoLocalAnswer,
+    L10n.stateUnknownManagedFleetWaiting, L10n.stateUnknownManagedFleetUnavailable,
     L10n.stateUnknownNoToken, L10n.stateUnknownRateLimited,
     L10n.stateUnknownGitLabNoToken, L10n.stateUnknownGitLabNotAuthenticated,
     L10n.stateUnknownGitLabRateLimited, L10n.stateUnknownGitLabSilent,
     L10n.stateLayerGitLabNotAsked, L10n.stateLayerGitLabRefusedToken,
     L10n.stateLayerGitLabRateLimited, L10n.stateLayerGitLabSilent,
+    L10n.stateLayerManagedFleetWaiting, L10n.stateLayerManagedFleetUnavailable,
     L10n.queueWaitingOne, L10n.queueWaiting(2), L10n.queueWaitingPartial(2),
     L10n.queueEmpty, L10n.queueUnknownScope,
     L10n.settingsRunners, L10n.settingsRunnersFooter, L10n.settingsRunnersNone,
     L10n.settingsRunnersAdd, L10n.settingsRunnersRemove("a"),
     L10n.settingsGitLab, L10n.settingsGitLabFooter, L10n.settingsGitLabStored,
     L10n.settingsGitLabAbsent, L10n.settingsGitLabPlaceholder,
+    L10n.runnerManagedFleet,
     L10n.settingsGitHub, L10n.settingsGitHubFooter, L10n.settingsGitHubStored,
     L10n.settingsGitHubAbsent, L10n.settingsGitHubUnreadable,
     L10n.settingsGitHubPlaceholder, L10n.settingsGitHubSave,
@@ -96,7 +99,8 @@ private func l10nSource() -> String {
     L10n.durationHours(1), L10n.durationMinutes(1), L10n.durationSeconds(1),
     L10n.maintenance, L10n.measureDiskUse, L10n.deletingOnlyWhenIdle,
     L10n.diskWorking, L10n.diskNotMeasured, L10n.diskMeasuredJustNow,
-    L10n.diskUnavailable, L10n.diskOutsideRunner, L10n.cleanupDelete, L10n.cleanupCancel,
+    L10n.diskUnavailable, L10n.diskOutsideRunner, L10n.diskManagedFleet,
+    L10n.cleanupDelete, L10n.cleanupCancel,
     L10n.cleanupToolCacheEffect, L10n.cleanupActionCacheEffect,
     L10n.diskToolCache("a"), L10n.diskActionCache("a"), L10n.diskCheckouts("a"),
     L10n.diskTemporary("a"), L10n.diskOther("a"), L10n.diskStandfastTrash("a"),
@@ -186,10 +190,12 @@ private func l10nSource() -> String {
       "state.unknown.noCLI", "state.unknown.notAuthenticated",
       "state.unknown.noAnswer", "state.unknown.noToken",
       "state.unknown.rateLimited",
+      "state.unknown.managedFleetWaiting", "state.unknown.managedFleetUnavailable",
       "state.unknown.gitLabNoToken", "state.unknown.gitLabNotAuthenticated",
       "state.unknown.gitLabRateLimited", "state.unknown.gitLabSilent",
       "state.layer.gitLabNotAsked", "state.layer.gitLabRefusedToken",
       "state.layer.gitLabRateLimited", "state.layer.gitLabSilent",
+      "state.layer.managedFleetWaiting", "state.layer.managedFleetUnavailable",
       "queue.waiting.one", "queue.waiting", "queue.waitingPartial",
       "queue.empty", "queue.unknownScope", "state.unknown.noLocalAnswer",
       "state.checkedAgo",
@@ -207,6 +213,7 @@ private func l10nSource() -> String {
       "disk.toolCache", "disk.actionCache", "disk.checkout", "disk.temporary",
       "disk.other", "disk.standfastTrash", "disk.logs", "disk.working", "disk.notMeasured",
       "disk.measuredJustNow", "disk.measuredAgo", "disk.unavailable", "disk.outsideRunner",
+      "disk.managedFleet",
       "cleanup.confirm.title", "cleanup.confirm.body", "cleanup.confirm.delete",
       "cleanup.confirm.cancel", "cleanup.toolCache.effect",
       "cleanup.actionCache.effect", "cleanup.standfastTrash.title",
@@ -240,7 +247,7 @@ private func l10nSource() -> String {
       "controlCenter.maintenance.compact", "controlCenter.fold",
       "controlCenter.service.start", "controlCenter.service.stop",
       "controlCenter.service.restart", "state.layer.runningLocally", "runner.startedByHand",
-      "runner.gitLabService",
+      "runner.gitLabService", "runner.managedFleet",
       "state.layer.gitHubSilent", "state.layer.gitHubNotAsked",
       "state.layer.gitHubRateLimited", "state.layer.localUnreadable",
       "controlCenter.unfold", "controlCenter.action.start",
@@ -534,6 +541,12 @@ private func l10nSource() -> String {
   let noLocal = L10n.english["state.unknown.noLocalAnswer"]
   #expect(noLocal?.contains("launchctl") == true)
   #expect(noLocal?.contains(L10n.english["menu.refreshNow"] ?? "") == true)
+  #expect(
+    L10n.english["state.unknown.managedFleetWaiting"]?.contains(
+      "supervisor") == true)
+  #expect(
+    L10n.english["state.unknown.managedFleetUnavailable"]?.contains(
+      "supervisor") == true)
 }
 
 @Test func theRunnerRowFormatTakesBothOfItsArguments() throws {

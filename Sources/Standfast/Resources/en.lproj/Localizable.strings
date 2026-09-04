@@ -23,6 +23,7 @@
 "state.layer.runningLocally" = "Running locally";
 "runner.startedByHand" = "Started by hand, so Standfast can watch it but not stop or restart it";
 "runner.gitLabService" = "Runs under gitlab-runner, one service for every GitLab runner here — start or stop it from a terminal";
+"runner.managedFleet" = "Managed by the runner fleet supervisor — slots rotate automatically and Standfast watches them read-only";
 "state.layer.gitHubSilent" = "GitHub not answering";
 "state.unknown.gitLabNoToken" = "Running locally, GitLab not asked — add a GitLab token in Settings";
 "state.unknown.gitLabNotAuthenticated" = "Running locally, GitLab refused the token — replace it in Settings";
@@ -35,6 +36,8 @@
 "state.layer.gitHubNotAsked" = "GitHub not asked";
 "state.layer.gitHubRateLimited" = "GitHub rate limit reached";
 "state.layer.localUnreadable" = "Local service unreadable";
+"state.layer.managedFleetWaiting" = "Fleet slot waiting";
+"state.layer.managedFleetUnavailable" = "Fleet status unavailable";
 "controlCenter.fold" = "Fold";
 "controlCenter.unfold" = "Unfold";
 "controlCenter.action.start" = "Start %@";
@@ -123,6 +126,7 @@
 "disk.measuredAgo" = "Disk use measured %@ ago";
 "disk.unavailable" = "Disk use could not be measured";
 "disk.outsideRunner" = "The checkout lives outside the runner's folder, so maintenance leaves it alone";
+"disk.managedFleet" = "Maintenance is owned by the runner fleet supervisor";
 
 "cleanup.confirm.title" = "Delete %@?";
 "cleanup.confirm.body" = "This frees %@ on %@.";
@@ -176,6 +180,8 @@
 "state.unknown.notAuthenticated" = "Running locally, GitHub not answering — run gh auth login in a terminal";
 "state.unknown.noAnswer" = "Running locally, GitHub not answering — gh got no answer; check your network";
 "state.unknown.noLocalAnswer" = "Local service unreadable — launchctl did not answer; try Refresh now";
+"state.unknown.managedFleetWaiting" = "Fleet slot waiting — the supervisor is preparing its next ephemeral runner";
+"state.unknown.managedFleetUnavailable" = "Fleet status unavailable — check the runner fleet supervisor on this Mac";
 
 "state.checkFailed" = "Update failed · %@";
 "state.checkedAgo" = "Checked %@ ago";

@@ -84,6 +84,8 @@ public struct RunnerStateResolver: Sendable {
         // argument.
         case .gitLabService:
           gitLabRunners.blockingIsRunning()
+        case .managedFleet:
+          nil
         }
       }, github: github, gitLab: gitLab)
   }
@@ -121,6 +123,12 @@ public struct RunnerStateResolver: Sendable {
   func blockingReading(
     for runner: DiscoveredRunner, clock: @escaping @Sendable () -> Date
   ) -> Reading {
+    if runner.installation == .managedFleet, let state = runner.observedState {
+      let observedAt = runner.observedAt ?? clock()
+      return Reading(
+        state: state, readAt: observedAt, beganAt: observedAt,
+        stateReadAt: observedAt)
+    }
     // Asked first, and allowed to settle it alone. A stopped service is the
     // one thing known for certain: GitHub keeps calling a just-stopped runner
     // online for a few seconds, so trusting it here would show "idle" right
@@ -223,6 +231,9 @@ public struct RunnerStateResolver: Sendable {
   /// per click rather than once per runner per refresh, which is the whole of
   /// why the other one does it the other way round.
   public func blockingConfirmedState(for runner: DiscoveredRunner) -> RunnerState {
+    if runner.installation == .managedFleet {
+      return runner.observedState ?? .unknown(.managedFleetStatusUnavailable)
+    }
     let remote: RemoteStatus
     do {
       remote = try github.blockingRunnerStatus(id: runner.agentId, scope: runner.scope)

@@ -115,6 +115,11 @@ extension MaintenanceSection {
     _ snapshot: RunnerSnapshot, measurement: DiskMeasurement?, latest: RunnerVersion?,
     isWorking: Bool, notice: String?, now: Date
   ) -> MaintenanceSection {
+    guard snapshot.runner.installation != .managedFleet else {
+      return MaintenanceSection(
+        version: nil, usage: [], measured: L10n.diskManagedFleet,
+        offers: [], notes: notice.map { [$0] } ?? [])
+    }
     // A checkout that lives outside the runner's directory is a refusal with a
     // reason, not a failed measure: nothing broke, maintenance just does not
     // follow a symlink off the runner on purpose, and a Measure button here

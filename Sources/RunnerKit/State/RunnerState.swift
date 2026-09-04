@@ -34,6 +34,12 @@ public enum UnknownReason: Equatable, Sendable {
   /// because the other three all mean "the local half is fine and GitHub is
   /// not", and this one means the opposite — so the instruction differs too.
   case serviceStateUnreadable
+  /// The fleet supervisor is running but has not attached an ephemeral runner
+  /// registration to this stable slot yet.
+  case managedFleetWaiting
+  /// The supervisor snapshot is too old, or its remote observation could not
+  /// answer. Standfast must not keep presenting its last state as current.
+  case managedFleetStatusUnavailable
 }
 
 extension UnknownReason {

@@ -21,6 +21,14 @@ import Testing
     AggregateState.summarising([.disconnected, .unknown(.noAnswer)]) == .disconnected)
 }
 
+@Test func managedFleetRotationDoesNotOutrankAnotherReadySlot() {
+  #expect(
+    AggregateState.summarising([.unknown(.managedFleetWaiting), .idle]) == .idle)
+  #expect(
+    AggregateState.summarising([.unknown(.managedFleetWaiting)])
+      == .unknown(.managedFleetWaiting))
+}
+
 @Test func idleBeatsStopped() {
   // One runner waiting for work is the more useful headline: it says the
   // machine is available, which "stopped" would deny.

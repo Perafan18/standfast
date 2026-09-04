@@ -174,7 +174,11 @@ jobs:
       # in it and there is nothing to parse without one.
       - name: No machine-specific paths in the source
         run: |
-          if grep -rnE '/Users/|actions-runner|Perafan18/' Sources/; then
+          # `actions-runner-fleet` is a public integration name. The old leak
+          # was the local checkout directory `actions-runner/`, which remains
+          # forbidden along with absolute user paths and the owner's username.
+          private_home='/''Users/'
+          if grep -rnE "${private_home}|actions-runner([^-]|$)|Perafan18/" Sources/; then
             echo "::error::Sources must not name a specific machine, user or repository"
             exit 1
           fi

@@ -21,15 +21,22 @@ public enum AggregateState {
     if states.contains(.disconnected) { return .disconnected }
     // Kept whole rather than rebuilt as a bare `.unknown`: the reason is what
     // lets the menu name the fix, and dropping it here would waste the work
-    // done to keep it. The first one wins — with runners failing for different
+    // done to keep it. A managed slot between ephemeral registrations is a
+    // normal transition, so it waits behind another slot that is already idle.
+    // The first actionable unknown wins — with runners failing for different
     // reasons there is no single right headline.
-    if let unknown = states.first(where: { if case .unknown = $0 { true } else { false } })
-    {
+    if let unknown = states.first(where: {
+      if case .unknown(let reason) = $0 { return reason != .managedFleetWaiting }
+      return false
+    }) {
       return unknown
     }
     // Idle over stopped: "this machine is available" is the more useful
     // headline, and "stopped" would deny it.
     if states.contains(.idle) { return .idle }
+    if states.contains(.unknown(.managedFleetWaiting)) {
+      return .unknown(.managedFleetWaiting)
+    }
     return .stopped
   }
 }

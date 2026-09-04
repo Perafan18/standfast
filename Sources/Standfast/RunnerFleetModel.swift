@@ -265,7 +265,10 @@ final class RunnerFleetModel: ObservableObject {
       // The folders the operator added are read here, on every scan, rather
       // than captured once: one added while the app is open should be found by
       // the next refresh and not by the next launch.
-      RunnerDiscovery(manualDirectories: ManualRunnerDirectories.stored()).discover()
+      RunnerDiscovery(
+        manualDirectories: ManualRunnerDirectories.stored(),
+        managedFleetSnapshotFile: RunnerDiscovery.defaultManagedFleetSnapshotFile
+      ).discover()
     },
     resolver: RunnerStateResolver = RunnerStateResolver(),
     controller: ServiceController = ServiceController(),
@@ -487,6 +490,11 @@ final class RunnerFleetModel: ObservableObject {
       readBeganAt.append(state.beganAt)
       workContained.append(runner.containedWorkDirectory != nil)
       stateReadAt.append(state.stateReadAt)
+      if runner.installation == .managedFleet {
+        jobs.append(JobLogReader.Reading(history: .empty, isAvailable: false))
+        installed.append(.absent)
+        continue
+      }
       // The same rule as discovery, for the same reason: this is file I/O, and
       // the cheap path — a directory listing and a `stat` — is only the usual
       // one. A cold read is hundreds of kilobytes, off a home directory that
@@ -697,6 +705,11 @@ final class RunnerFleetModel: ObservableObject {
     // unknown — GitHub silent, or launchd not answering — means what is on
     // screen is older than this scan, so the timestamp stays where it was.
     lastAttemptFailed = snapshots.contains { snapshot in
+      if snapshot.runner.installation == .managedFleet,
+        snapshot.display == .resolved(.unknown(.managedFleetWaiting))
+      {
+        return false
+      }
       if case .resolved(.unknown) = snapshot.display { return true }
       return false
     }
@@ -837,6 +850,7 @@ final class RunnerFleetModel: ObservableObject {
 
   func performMaintenance(_ kind: MaintenanceOffer.Kind, onRunnerID id: String) {
     guard let snapshot = snapshots.first(where: { $0.id == id }) else { return }
+    guard snapshot.runner.installation != .managedFleet else { return }
     housekeeping.perform(kind, on: snapshot)
   }
 

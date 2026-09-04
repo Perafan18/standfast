@@ -111,6 +111,11 @@ public struct JobLogReader: Sendable {
   public struct Reading: Equatable, Sendable {
     public let history: JobHistory
     public let isAvailable: Bool
+
+    public init(history: JobHistory, isAvailable: Bool) {
+      self.history = history
+      self.isAvailable = isAvailable
+    }
   }
 
   /// A successful empty listing is evidence that the history is gone. A

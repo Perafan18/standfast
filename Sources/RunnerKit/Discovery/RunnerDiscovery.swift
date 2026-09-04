@@ -15,6 +15,10 @@ public enum RunnerInstallation: Equatable, Sendable {
   /// `config.toml`, which is a decision for a terminal, not for one card's
   /// button.
   case gitLabService
+  /// A stable slot owned by an external runner-fleet supervisor. Its status is
+  /// read from the supervisor's versioned snapshot; Standfast has no authority
+  /// to start, stop, restart, or maintain the worker behind the slot.
+  case managedFleet
 }
 
 public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
@@ -31,6 +35,11 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   public let agentName: String
   public let scope: RunnerScope
   public let installation: RunnerInstallation
+  /// A state already resolved by the installation's own supervisor. Nil for
+  /// installations whose state Standfast must probe itself.
+  public let observedState: RunnerState?
+  /// When the supervisor produced `observedState`.
+  public let observedAt: Date?
 
   public var id: String { label }
   public var workDirectory: URL { directory.appendingPathComponent(workFolder) }
@@ -65,7 +74,8 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   public init(
     label: String, directory: URL, agentId: Int, agentName: String,
     scope: RunnerScope, workFolder: String = "_work",
-    installation: RunnerInstallation = .launchAgent
+    installation: RunnerInstallation = .launchAgent,
+    observedState: RunnerState? = nil, observedAt: Date? = nil
   ) {
     self.label = label
     self.directory = directory
@@ -74,6 +84,8 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
     self.scope = scope
     self.workFolder = workFolder
     self.installation = installation
+    self.observedState = observedState
+    self.observedAt = observedAt
   }
 
   /// The identity of a runner launchd never heard of.
@@ -214,6 +226,12 @@ public struct DiscoveryResult: Equatable, Sendable {
 /// that plist points at the runner directory, which describes itself in
 /// `.runner`.
 public struct RunnerDiscovery: Sendable {
+  public static var defaultManagedFleetSnapshotFile: URL {
+    FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(
+        ".local/state/actions-runner-fleet/status-v1.json")
+  }
+
   private let launchAgentsDirectory: URL
   /// Runner directories the operator named. Never guessed at: walking the disk
   /// looking for `.runner` files would read directories nobody asked this app
@@ -222,13 +240,15 @@ public struct RunnerDiscovery: Sendable {
   /// Where gitlab-runner keeps its `config.toml` — a fixed, documented place,
   /// which is why GitLab runners need no pointing at.
   private let gitLabConfigFile: URL
+  private let managedFleetSnapshotFile: URL?
   private let listDirectory: @Sendable (URL) throws -> [URL]
 
   public init(
     launchAgentsDirectory: URL? = nil, manualDirectories: [URL] = [],
-    gitLabConfigFile: URL? = nil
+    gitLabConfigFile: URL? = nil, managedFleetSnapshotFile: URL? = nil
   ) {
     self.manualDirectories = manualDirectories
+    self.managedFleetSnapshotFile = managedFleetSnapshotFile
     self.gitLabConfigFile =
       gitLabConfigFile
       ?? FileManager.default.homeDirectoryForCurrentUser
@@ -247,10 +267,12 @@ public struct RunnerDiscovery: Sendable {
     launchAgentsDirectory: URL,
     manualDirectories: [URL] = [],
     gitLabConfigFile: URL? = nil,
+    managedFleetSnapshotFile: URL? = nil,
     listDirectory: @escaping @Sendable (URL) throws -> [URL]
   ) {
     self.launchAgentsDirectory = launchAgentsDirectory
     self.manualDirectories = manualDirectories
+    self.managedFleetSnapshotFile = managedFleetSnapshotFile
     self.gitLabConfigFile =
       gitLabConfigFile ?? URL(fileURLWithPath: "/nonexistent/config.toml")
     self.listDirectory = listDirectory
@@ -274,6 +296,7 @@ public struct RunnerDiscovery: Sendable {
     // any of them.
     let manual = manualRunners()
     let gitLab = gitLabRunners()
+    let managedFleet = managedFleetRunners()
 
     let entries: [URL]
     do {
@@ -281,12 +304,12 @@ public struct RunnerDiscovery: Sendable {
     } catch {
       if Self.isNoSuchFile(error) {
         return DiscoveryResult(
-          runners: manual.runners + gitLab.runners,
-          unreadable: manual.unreadable + gitLab.unreadable)
+          runners: manual.runners + gitLab.runners + managedFleet.runners,
+          unreadable: manual.unreadable + gitLab.unreadable + managedFleet.unreadable)
       }
       return DiscoveryResult(
-        runners: manual.runners + gitLab.runners,
-        unreadable: manual.unreadable + gitLab.unreadable,
+        runners: manual.runners + gitLab.runners + managedFleet.runners,
+        unreadable: manual.unreadable + gitLab.unreadable + managedFleet.unreadable,
         failure: .launchAgentsUnreadable(launchAgentsDirectory))
     }
 
@@ -298,7 +321,7 @@ public struct RunnerDiscovery: Sendable {
     var runners: [DiscoveredRunner] = []
     var unreadable: [URL] = []
     var possiblyInstalledLabels: Set<String> = []
-    var hasUnidentifiedCandidate = false
+    var hasUnidentifiedCandidate = !managedFleet.unreadable.isEmpty
     for candidate in candidates {
       let resolved = runner(fromPlistAt: candidate)
       if let runner = resolved.runner {
@@ -322,10 +345,20 @@ public struct RunnerDiscovery: Sendable {
     }
 
     return DiscoveryResult(
-      runners: deduplicatedByLabel(runners + extra + gitLab.runners),
-      unreadable: (unreadable + manual.unreadable + gitLab.unreadable)
+      runners: deduplicatedByLabel(runners + extra + gitLab.runners + managedFleet.runners),
+      unreadable: (unreadable + manual.unreadable + gitLab.unreadable
+        + managedFleet.unreadable)
         .sorted { $0.path < $1.path },
       possiblyInstalledLabels: hasUnidentifiedCandidate ? nil : possiblyInstalledLabels)
+  }
+
+  private func managedFleetRunners() -> (runners: [DiscoveredRunner], unreadable: [URL]) {
+    guard let file = managedFleetSnapshotFile else { return ([], []) }
+    guard FileManager.default.fileExists(atPath: file.path) else { return ([], []) }
+    guard let snapshot = try? ManagedFleetSnapshot(contentsOf: file) else {
+      return ([], [file])
+    }
+    return (snapshot.runners(snapshotFile: file), [])
   }
 
   /// The runners `config.toml` declares. A missing file is a Mac without

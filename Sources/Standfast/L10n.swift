@@ -41,6 +41,7 @@ enum L10n {
   static let stateLayerRunningLocally = t("state.layer.runningLocally")
   static let runnerStartedByHand = t("runner.startedByHand")
   static let runnerGitLabService = t("runner.gitLabService")
+  static let runnerManagedFleet = t("runner.managedFleet")
   static let stateLayerGitHubSilent = t("state.layer.gitHubSilent")
   static let stateUnknownGitLabNoToken = t("state.unknown.gitLabNoToken")
   static let stateUnknownGitLabNotAuthenticated = t("state.unknown.gitLabNotAuthenticated")
@@ -53,6 +54,8 @@ enum L10n {
   static let stateLayerGitHubNotAsked = t("state.layer.gitHubNotAsked")
   static let stateLayerGitHubRateLimited = t("state.layer.gitHubRateLimited")
   static let stateLayerLocalUnreadable = t("state.layer.localUnreadable")
+  static let stateLayerManagedFleetWaiting = t("state.layer.managedFleetWaiting")
+  static let stateLayerManagedFleetUnavailable = t("state.layer.managedFleetUnavailable")
   static let foldCard = t("controlCenter.fold")
   static let unfoldCard = t("controlCenter.unfold")
   static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
@@ -138,6 +141,7 @@ enum L10n {
   static let diskMeasuredJustNow = t("disk.measuredJustNow")
   static let diskUnavailable = t("disk.unavailable")
   static let diskOutsideRunner = t("disk.outsideRunner")
+  static let diskManagedFleet = t("disk.managedFleet")
 
   // The two buttons of the confirmation, and nothing else in it. Everything
   // above them names a directory, a size or a runner, which is what makes the
@@ -168,6 +172,9 @@ enum L10n {
   static let stateDisconnectedShort = t("state.short.disconnected")
   static let stateStoppedShort = t("state.short.stopped")
   static let stateStartingShort = t("state.short.starting")
+  static let stateUnknownManagedFleetWaiting = t("state.unknown.managedFleetWaiting")
+  static let stateUnknownManagedFleetUnavailable = t(
+    "state.unknown.managedFleetUnavailable")
 
   static func runnerAttention(
     _ count: Int, in bundles: [Bundle]? = nil
@@ -629,6 +636,8 @@ enum L10n {
       "Runs under gitlab-runner, one service for every GitLab runner here — start or stop it from a terminal",
     "runner.startedByHand":
       "Started by hand, so Standfast can watch it but not stop or restart it",
+    "runner.managedFleet":
+      "Managed by the runner fleet supervisor — slots rotate automatically and Standfast watches them read-only",
     "state.layer.runningLocally": "Running locally",
     "state.layer.gitHubNotAsked": "GitHub not asked",
     "state.layer.gitHubRateLimited": "GitHub rate limit reached",
@@ -650,6 +659,8 @@ enum L10n {
       "GitLab not answering",
     "state.layer.gitHubSilent": "GitHub not answering",
     "state.layer.localUnreadable": "Local service unreadable",
+    "state.layer.managedFleetWaiting": "Fleet slot waiting",
+    "state.layer.managedFleetUnavailable": "Fleet status unavailable",
     "controlCenter.fold": "Fold",
     "controlCenter.unfold": "Unfold",
     "controlCenter.action.start": "Start %@",
@@ -760,6 +771,7 @@ enum L10n {
     "disk.measuredAgo": "Disk use measured %@ ago",
     "disk.outsideRunner":
       "The checkout lives outside the runner's folder, so maintenance leaves it alone",
+    "disk.managedFleet": "Maintenance is owned by the runner fleet supervisor",
     "disk.unavailable": "Disk use could not be measured",
     "cleanup.confirm.title": "Delete %@?",
     "cleanup.confirm.body": "This frees %@ on %@.",
@@ -844,6 +856,10 @@ enum L10n {
       "Running locally, GitHub not answering — gh got no answer; check your network",
     "state.unknown.noLocalAnswer":
       "Local service unreadable — launchctl did not answer; try Refresh now",
+    "state.unknown.managedFleetWaiting":
+      "Fleet slot waiting — the supervisor is preparing its next ephemeral runner",
+    "state.unknown.managedFleetUnavailable":
+      "Fleet status unavailable — check the runner fleet supervisor on this Mac",
     "state.checkFailed": "Update failed · %@",
     "state.checkedAgo": "Checked %@ ago",
     "state.checkedJustNow": "Checked just now",

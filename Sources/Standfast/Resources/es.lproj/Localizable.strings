@@ -23,6 +23,7 @@
 "state.layer.runningLocally" = "Corriendo en local";
 "runner.startedByHand" = "Arrancado a mano, así que Standfast puede vigilarlo pero no pararlo ni reiniciarlo";
 "runner.gitLabService" = "Corre bajo gitlab-runner, un solo servicio para todos los runners de GitLab de esta Mac — arráncalo o páralo desde una terminal";
+"runner.managedFleet" = "Gestionado por el supervisor del fleet — los slots rotan automáticamente y Standfast solo los vigila";
 "state.layer.gitHubSilent" = "GitHub sin respuesta";
 "state.unknown.gitLabNoToken" = "Corriendo en local, GitLab sin consultar — añade un token de GitLab en Ajustes";
 "state.unknown.gitLabNotAuthenticated" = "Corriendo en local, GitLab rechazó el token — reemplázalo en Ajustes";
@@ -35,6 +36,8 @@
 "state.layer.gitHubNotAsked" = "GitHub sin consultar";
 "state.layer.gitHubRateLimited" = "Límite de GitHub alcanzado";
 "state.layer.localUnreadable" = "No se pudo leer el servicio local";
+"state.layer.managedFleetWaiting" = "Slot del fleet en espera";
+"state.layer.managedFleetUnavailable" = "Estado del fleet no disponible";
 "controlCenter.fold" = "Plegar";
 "controlCenter.unfold" = "Desplegar";
 "controlCenter.action.start" = "Arrancar %@";
@@ -123,6 +126,7 @@
 "disk.measuredAgo" = "Uso de disco medido hace %@";
 "disk.unavailable" = "No se pudo medir el uso de disco";
 "disk.outsideRunner" = "El checkout vive fuera de la carpeta del runner, así que el mantenimiento no lo toca";
+"disk.managedFleet" = "El mantenimiento pertenece al supervisor del fleet";
 
 "cleanup.confirm.title" = "¿Borrar %@?";
 "cleanup.confirm.body" = "Esto libera %@ en %@.";
@@ -176,6 +180,8 @@
 "state.unknown.notAuthenticated" = "Corriendo en local, GitHub sin respuesta — ejecuta gh auth login en una terminal";
 "state.unknown.noAnswer" = "Corriendo en local, GitHub sin respuesta — gh no obtuvo respuesta; revisa tu red";
 "state.unknown.noLocalAnswer" = "No se pudo leer el servicio local — launchctl no respondió; prueba Actualizar ahora";
+"state.unknown.managedFleetWaiting" = "Slot del fleet en espera — el supervisor está preparando su siguiente runner efímero";
+"state.unknown.managedFleetUnavailable" = "Estado del fleet no disponible — revisa el supervisor del fleet en esta Mac";
 
 "state.checkFailed" = "Actualización fallida · %@";
 "state.checkedAgo" = "Consultado hace %@";

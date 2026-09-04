@@ -53,6 +53,9 @@ extension DisplayState {
       L10n.stateLayerGitLabRefusedToken
     case .resolved(.unknown(.gitLabRateLimited)): L10n.stateLayerGitLabRateLimited
     case .resolved(.unknown(.gitLabSilent)): L10n.stateLayerGitLabSilent
+    case .resolved(.unknown(.managedFleetWaiting)): L10n.stateLayerManagedFleetWaiting
+    case .resolved(.unknown(.managedFleetStatusUnavailable)):
+      L10n.stateLayerManagedFleetUnavailable
     case .resolved(.unknown): L10n.stateLayerGitHubSilent
     case .starting: L10n.stateStartingShort
     }
@@ -61,7 +64,7 @@ extension DisplayState {
   var tone: StateTone {
     switch self {
     case .resolved(.idle): .healthy
-    case .resolved(.busy), .starting: .active
+    case .resolved(.busy), .resolved(.unknown(.managedFleetWaiting)), .starting: .active
     case .resolved(.disconnected), .resolved(.unknown): .attention
     case .resolved(.stopped): .stopped
     }
@@ -69,6 +72,7 @@ extension DisplayState {
 
   var needsAttention: Bool {
     switch self {
+    case .resolved(.unknown(.managedFleetWaiting)): false
     case .resolved(.disconnected), .resolved(.unknown): true
     default: false
     }
@@ -82,6 +86,7 @@ extension DisplayState {
     case .resolved(.busy): "gearshape.2.fill"
     case .resolved(.disconnected): "exclamationmark.triangle"
     case .resolved(.stopped): "moon.zzz"
+    case .resolved(.unknown(.managedFleetWaiting)): "arrow.triangle.2.circlepath"
     case .resolved(.unknown): "questionmark.circle"
     case .starting: "arrow.triangle.2.circlepath"
     }
@@ -104,6 +109,9 @@ extension DisplayState {
     case .resolved(.unknown(.gitLabRateLimited)): L10n.stateUnknownGitLabRateLimited
     case .resolved(.unknown(.gitLabSilent)): L10n.stateUnknownGitLabSilent
     case .resolved(.unknown(.serviceStateUnreadable)): L10n.stateUnknownNoLocalAnswer
+    case .resolved(.unknown(.managedFleetWaiting)): L10n.stateUnknownManagedFleetWaiting
+    case .resolved(.unknown(.managedFleetStatusUnavailable)):
+      L10n.stateUnknownManagedFleetUnavailable
     case .starting: L10n.stateStarting
     }
   }
@@ -259,6 +267,7 @@ extension RunnerSnapshot {
     case .launchAgent: nil
     case .manual: L10n.runnerStartedByHand
     case .gitLabService: L10n.runnerGitLabService
+    case .managedFleet: L10n.runnerManagedFleet
     }
   }
 
