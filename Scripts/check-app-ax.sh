@@ -382,6 +382,22 @@ echo "==> Exercising Control Center and Settings through Accessibility"
 windowsStatus=0
 windows="$(CHECK_PID="$PID" CHECK_LANGUAGE="$menuLanguage" \
   CHECK_CLICK_TOOL="$AX_CLICK_TOOL" osascript 2>"$AX_STDERR_FILE" <<'APPLESCRIPT'
+-- AXFocused can belong to a descendant instead of the window itself. The
+-- app-level focused-window pointer also survives backgrounding, so require
+-- both foreground activation and the exact scene. Missing AX data fails closed.
+on sceneIsFocused(targetProcess, targetIdentifier)
+  tell application "System Events"
+    try
+      if not (value of attribute "AXFrontmost" of targetProcess as boolean) then return false
+      set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
+      if focusedWindow is missing value then return false
+      return (value of attribute "AXIdentifier" of focusedWindow as text) is targetIdentifier
+    on error
+      return false
+    end try
+  end tell
+end sceneIsFocused
+
 on clickCentre(elementPosition, elementSize)
   set clickTool to system attribute "CHECK_CLICK_TOOL"
   if clickTool is "" then error "the lifecycle probe has no click helper"
@@ -562,7 +578,7 @@ tell application "System Events"
       if controlOpened then
         try
           set controlMainInitially to value of attribute "AXMain" of controlWindow as boolean
-          set controlFocusedInitially to value of attribute "AXFocused" of controlWindow as boolean
+          set controlFocusedInitially to my sceneIsFocused(targetProcess, controlWindowIdentifier)
         end try
       end if
       if controlOpened and settingsAbsentAfterInitialControl and controlMainInitially and controlFocusedInitially then exit repeat
@@ -575,7 +591,7 @@ tell application "System Events"
       error "Settings window appeared while opening the initial Control Center window"
     end if
     if not controlMainInitially or not controlFocusedInitially then
-      error "identified Control Center window did not become main and focused"
+      error "identified Control Center window did not become main and the focused scene of the foreground app"
     end if
 
       set menuClosedBeforePress to false
@@ -676,7 +692,7 @@ tell application "System Events"
       if settingsOpened then
         try
           set settingsMainAfterControl to value of attribute "AXMain" of settingsWindow as boolean
-          set settingsFocusedAfterControl to value of attribute "AXFocused" of settingsWindow as boolean
+          set settingsFocusedAfterControl to my sceneIsFocused(targetProcess, settingsWindowIdentifier)
         end try
       end if
       if controlRetainedForSettings and settingsOpened and settingsMainAfterControl and settingsFocusedAfterControl then exit repeat
@@ -689,7 +705,7 @@ tell application "System Events"
       error "Control Center window was lost while opening Settings"
     end if
     if not settingsMainAfterControl or not settingsFocusedAfterControl then
-      error "identified Settings window did not become main and focused after Control Center"
+      error "identified Settings window did not become main and the focused scene of the foreground app after Control Center"
     end if
 
     set requiredSettingsIdentifiers to {¬
@@ -829,7 +845,7 @@ tell application "System Events"
       if controlReturned then
         try
           set controlMainAfterSettings to value of attribute "AXMain" of controlWindow as boolean
-          set controlFocusedAfterSettings to value of attribute "AXFocused" of controlWindow as boolean
+          set controlFocusedAfterSettings to my sceneIsFocused(targetProcess, controlWindowIdentifier)
         end try
       end if
       if controlReturned and settingsRetainedForControl and controlMainAfterSettings and controlFocusedAfterSettings then exit repeat
@@ -842,7 +858,7 @@ tell application "System Events"
       error "Settings window was lost while returning to Control Center"
     end if
     if not controlMainAfterSettings or not controlFocusedAfterSettings then
-      error "identified Control Center window did not become main and focused after Settings"
+      error "identified Control Center window did not become main and the focused scene of the foreground app after Settings"
     end if
 
     set closeButtons to every button of controlWindow whose subrole is "AXCloseButton"

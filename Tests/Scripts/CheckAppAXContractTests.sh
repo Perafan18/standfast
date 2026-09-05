@@ -817,15 +817,32 @@ settings_action_resolution_count="$(grep -Fc 'set targetItemName to settingsItem
 grep -Fq 'set settingsMainAfterControl to value of attribute "AXMain" of settingsWindow as boolean' \
   "$lifecycle_script" \
   || fail "Control-to-Settings does not require Settings to become main"
-grep -Fq 'set settingsFocusedAfterControl to value of attribute "AXFocused" of settingsWindow as boolean' \
+grep -Fq 'set settingsFocusedAfterControl to my sceneIsFocused(targetProcess, settingsWindowIdentifier)' \
   "$lifecycle_script" \
   || fail "Control-to-Settings does not require Settings to become focused"
 grep -Fq 'set controlMainAfterSettings to value of attribute "AXMain" of controlWindow as boolean' \
   "$lifecycle_script" \
   || fail "Settings-to-Control does not require Control Center to become main"
-grep -Fq 'set controlFocusedAfterSettings to value of attribute "AXFocused" of controlWindow as boolean' \
+grep -Fq 'set controlFocusedAfterSettings to my sceneIsFocused(targetProcess, controlWindowIdentifier)' \
   "$lifecycle_script" \
   || fail "Settings-to-Control does not require Control Center to become focused"
+grep -Fq 'set controlFocusedInitially to my sceneIsFocused(targetProcess, controlWindowIdentifier)' \
+  "$lifecycle_script" || fail "initial Control Center does not use the foreground focus check"
+grep -Fq 'if not (value of attribute "AXFrontmost" of targetProcess as boolean) then return false' \
+  "$lifecycle_script" || fail "focus check accepts an inactive application"
+grep -Fq 'set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess' \
+  "$lifecycle_script" || fail "focus check does not read the application focused window"
+grep -Fq 'return (value of attribute "AXIdentifier" of focusedWindow as text) is targetIdentifier' \
+  "$lifecycle_script" || fail "focus check accepts the wrong scene"
+if grep -Fq 'attribute "AXFocused"' "$lifecycle_script"; then
+  fail "focus check mistakes window-level AXFocused for focus within the window"
+fi
+focus_handler="$(sed -n '/^on sceneIsFocused(/,/^end sceneIsFocused/p' "$lifecycle_script")"
+assert_contains "$focus_handler" 'if focusedWindow is missing value then return false'
+assert_contains "$focus_handler" $'on error\n      return false'
+if printf '%s\n' "$focus_handler" | grep -Eq 'set (frontmost|value of attribute)|activate|AXRaise|perform action'; then
+  fail "focus check changes focus instead of observing it"
+fi
 grep -Fq 'set settingsRetainedAfterControlClose' "$lifecycle_script" \
   || fail "targeted closure does not prove Settings survived closing Control Center"
 grep -Fq 'set settingsAbsentAfterInitialControl to settingsMatchCount is 0' "$lifecycle_script" \
