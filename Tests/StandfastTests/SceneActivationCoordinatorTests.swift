@@ -235,7 +235,7 @@ struct SceneActivationCoordinatorTests {
 
     coordinator.openAndActivate(.controlCenter, openScene: {})
 
-    #expect(activationCount == 0)
+    #expect(activationCount == 1)
     #expect(settings.makeKeyAndOrderFrontCount == 0)
     #expect(scheduled.count == 1)
   }
@@ -304,7 +304,7 @@ struct SceneActivationCoordinatorTests {
     #expect(openedTargets == [.settings, .settings])
     #expect(softTimeouts == [.settings])
     #expect(hardTimeouts == [.settings])
-    #expect(activationCount == 0)
+    #expect(activationCount == 1)
     #expect(scheduled.isEmpty)
   }
 
@@ -342,7 +342,7 @@ struct SceneActivationCoordinatorTests {
     #expect(openedTargets == [.settings, .settings])
     #expect(softTimeouts == [.settings])
     #expect(hardTimeouts == [.settings])
-    #expect(activationCount == 0)
+    #expect(activationCount == 1)
     #expect(controlCenter.makeKeyAndOrderFrontCount == 0)
     #expect(scheduled.isEmpty)
   }
@@ -389,14 +389,14 @@ struct SceneActivationCoordinatorTests {
     registry.register(controlCenter, for: .controlCenter)
     supersededPoll()
 
-    #expect(activationCount == 0)
+    #expect(activationCount == 2)
     #expect(controlCenter.makeKeyAndOrderFrontCount == 0)
 
     registry.register(settings, for: .settings)
     latestPoll()
 
     #expect(openedTargets == [.controlCenter, .settings])
-    #expect(activationCount == 1)
+    #expect(activationCount == 2)
     #expect(settings.makeKeyAndOrderFrontCount == 1)
     #expect(controlCenter.makeKeyAndOrderFrontCount == 0)
     #expect(scheduled.isEmpty)
@@ -436,13 +436,13 @@ struct SceneActivationCoordinatorTests {
     latestPoll()
     oldPoll()
 
-    #expect(activationCount == 1)
+    #expect(activationCount == 2)
     #expect(controlCenter.makeKeyAndOrderFrontCount == 1)
     #expect(scheduled.isEmpty)
   }
 
   @MainActor
-  @Test func sceneActivationFrontsTheExactWindowBeforeActivatingTheApplication() {
+  @Test func sceneActivationRequestsActivationBeforeOpeningAnExistingWindow() {
     let registry = SceneWindowRegistry()
     let controlCenter = RecordingSceneWindow()
     defer { controlCenter.close() }
@@ -458,9 +458,45 @@ struct SceneActivationCoordinatorTests {
       reportSoftTimeout: { _ in },
       reportHardTimeout: { _ in })
 
-    coordinator.openAndActivate(.controlCenter, openScene: {})
+    coordinator.openAndActivate(.controlCenter) { events.append("open") }
 
-    #expect(events == ["makeKeyAndOrderFront", "activate"])
+    #expect(events == ["activate", "open", "makeKeyAndOrderFront"])
+  }
+
+  @MainActor
+  @Test(arguments: [SceneTarget.controlCenter, .settings])
+  func sceneActivationRequestsActivationBeforeWaitingForWindowCreation(target: SceneTarget)
+  {
+    let registry = SceneWindowRegistry()
+    let window = RecordingSceneWindow()
+    defer { window.close() }
+    var events: [String] = []
+    var scheduled: [SceneActivationCoordinator.ScheduledPoll] = []
+    window.recordEvent = { events.append($0) }
+    let coordinator = SceneActivationCoordinator(
+      windowRegistry: registry,
+      pollsUntilSoftTimeout: 2,
+      pollsUntilHardTimeout: 2,
+      activateApplication: { events.append("activate") },
+      schedulePoll: { scheduled.append($0) },
+      reportSoftTimeout: { _ in },
+      reportHardTimeout: { _ in })
+
+    coordinator.openAndActivate(target) { events.append("open") }
+
+    // This assertion runs before any poll: eventual activation cannot satisfy it.
+    #expect(events == ["activate", "open"])
+    guard scheduled.count == 1 else {
+      Issue.record("Missing window did not schedule an observation")
+      return
+    }
+    let poll = scheduled.removeFirst()
+    registry.register(window, for: target)
+    poll()
+    poll()
+
+    #expect(events == ["activate", "open", "makeKeyAndOrderFront"])
+    #expect(scheduled.isEmpty)
   }
 
   @MainActor
@@ -482,7 +518,7 @@ struct SceneActivationCoordinatorTests {
 
     coordinator.openAndActivate(.controlCenter, openScene: {})
 
-    #expect(activationCount == 0)
+    #expect(activationCount == 1)
     #expect(controlCenter.makeKeyAndOrderFrontCount == 0)
     #expect(scheduled.count == 1)
   }
@@ -536,7 +572,7 @@ struct SceneActivationCoordinatorTests {
   }
 
   @MainActor
-  @Test func sceneActivationDeminiaturizesBeforeFrontingAndActivating() {
+  @Test func sceneActivationDeminiaturizesBeforeFrontingAfterRequestingActivation() {
     let registry = SceneWindowRegistry()
     let settings = RecordingSceneWindow()
     settings.reportsMiniaturized = true
@@ -554,7 +590,7 @@ struct SceneActivationCoordinatorTests {
 
     coordinator.openAndActivate(.settings, openScene: {})
 
-    #expect(events == ["deminiaturize", "makeKeyAndOrderFront", "activate"])
+    #expect(events == ["activate", "deminiaturize", "makeKeyAndOrderFront"])
   }
 
   @MainActor

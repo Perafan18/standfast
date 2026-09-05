@@ -10,6 +10,7 @@ SCENE_REGISTRY="$ROOT/Sources/Standfast/SceneWindowRegistry.swift"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/standfast-ax-contract.XXXXXX")"
 FAKE_BIN="$TEST_ROOT/bin"
 SENTINEL="$TEST_ROOT/osascript-called"
+export STANDFAST_CONTRACT_CLICK_LOG="$TEST_ROOT/click-calls"
 LIFECYCLE_SUCCESS="identified Control Center/Settings focus transitions and targeted closure passed"
 LIFECYCLE_VALID_TUPLE="true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|0|true|true"
 SETTINGS_VALID_OUTPUT='settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected\nsettings\tdev.standfast.settings.notifications.stopped\nsettings\tdev.standfast.settings.power.prevent-sleep\nsettings\tdev.standfast.settings.startup.open-at-login\nsettings\tdev.standfast.settings.version'
@@ -245,6 +246,21 @@ scene_probe_binding_is_exact() {
 }
 
 mkdir -p "$FAKE_BIN"
+# Fake both UI entry points. Faking only osascript still lets the probe's
+# reveal/restore shell calls move the operator's real pointer. Override even
+# an inherited helper; individual scenarios below may select their own fake.
+# shellcheck disable=SC2016 # Variables expand when the generated fake runs.
+printf '%s\n' \
+  '#!/bin/bash' \
+  'printf "%s\n" "$*" >> "$STANDFAST_CONTRACT_CLICK_LOG"' \
+  'case "${1:-}" in' \
+  '  where) echo "10 10" ;;' \
+  '  menu-bar-state) echo visible ;;' \
+  'esac' \
+  'exit 0' > "$FAKE_BIN/ax-click"
+chmod +x "$FAKE_BIN/ax-click"
+export STANDFAST_AX_CLICK_TOOL="$FAKE_BIN/ax-click"
+
 # shellcheck disable=SC2016 # Variables expand when the generated fake runs.
 printf '%s\n' \
   '#!/bin/bash' \
@@ -293,6 +309,13 @@ if require_output="$(
 fi
 assert_contains "$require_output" "Accessibility coverage is required"
 [ -f "$SENTINEL" ] || fail "require mode did not attempt the AX read"
+touch "$STANDFAST_CONTRACT_CLICK_LOG"
+grep -Fxq 'where' "$STANDFAST_CONTRACT_CLICK_LOG" \
+  || fail "contract probe did not use the isolated click helper"
+grep -Fxq 'reveal-menu-bar' "$STANDFAST_CONTRACT_CLICK_LOG" \
+  || fail "contract probe did not simulate revealing the menu bar"
+grep -Fxq 'move 10 10' "$STANDFAST_CONTRACT_CLICK_LOG" \
+  || fail "contract probe did not simulate restoring the pointer"
 
 rm -f "$SENTINEL"
 default_output=""
@@ -1041,7 +1064,7 @@ activation_count="$(grep -Fc 'NSApplication.shared.activate()' "$SCENE_ACTIVATIO
 [ "$activation_count" -eq 1 ] \
   || fail "condition-based scene activation must have exactly one live implementation"
 if grep -Fq 'NSApplication.shared.activate(' "$QUICK_MENU"; then
-  fail "QuickMenu must not activate synchronously before a requested scene is visible"
+  fail "QuickMenu must delegate the activation request to the scene coordinator"
 fi
 grep -Fq 'windowRegistry.window(for: request.target)' "$SCENE_ACTIVATION" \
   || fail "scene activation does not resolve the exact requested target"
@@ -1071,13 +1094,17 @@ grep -Fq 'dev.standfast.scene.control-center' "$SCENE_REGISTRY" \
   || fail "the Control Center window has no stable AX identity"
 grep -Fq 'dev.standfast.scene.settings' "$SCENE_REGISTRY" \
   || fail "the Settings window has no stable AX identity"
-front_then_activate="$(awk '
-  /window\.makeKeyAndOrderFront\(nil\)/ { stage = 1; next }
-  stage == 1 && /activateApplication\(\)/ { count += 1; stage = 0 }
+activate_before_open="$(awk '
+  /func openAndActivate\(/ { stage = 1; next }
+  stage == 1 && /activateApplication\(\)/ { stage = 2; next }
+  stage == 2 && /^    openScene\(\)/ { count += 1; stage = 0 }
   END { print count + 0 }
 ' "$SCENE_ACTIVATION")"
-[ "$front_then_activate" -eq 1 ] \
-  || fail "the exact window must be made key and front before app activation"
+[ "$activate_before_open" -eq 1 ] \
+  || fail "app activation must be requested in the menu action before opening the scene"
+activation_request_count="$(grep -Fc 'activateApplication()' "$SCENE_ACTIVATION" || true)"
+[ "$activation_request_count" -eq 1 ] \
+  || fail "window polling must not repeat the menu activation request"
 if grep -Fq 'DispatchQueue.main.async {' "$QUICK_MENU"; then
   fail "scene activation regressed to an unconditioned single queue hop"
 fi

@@ -67,6 +67,9 @@ final class SceneActivationCoordinator: ObservableObject {
       generation: latestGeneration,
       target: target,
       openScene: openScene)
+    // Keep the activation request in the menu action. Only locating and fronting
+    // the exact window may wait for SwiftUI's asynchronous scene creation.
+    activateApplication()
     openScene()
     poll(
       request,
@@ -87,7 +90,6 @@ final class SceneActivationCoordinator: ObservableObject {
         window.deminiaturize(nil)
       }
       window.makeKeyAndOrderFront(nil)
-      activateApplication()
       return
     }
 
