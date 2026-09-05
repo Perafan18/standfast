@@ -40,6 +40,7 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   public let observedState: RunnerState?
   /// When the supervisor produced `observedState`.
   public let observedAt: Date?
+  public let currentJob: ManagedFleetJob?
 
   public var id: String { label }
   public var workDirectory: URL { directory.appendingPathComponent(workFolder) }
@@ -75,7 +76,8 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
     label: String, directory: URL, agentId: Int, agentName: String,
     scope: RunnerScope, workFolder: String = "_work",
     installation: RunnerInstallation = .launchAgent,
-    observedState: RunnerState? = nil, observedAt: Date? = nil
+    observedState: RunnerState? = nil, observedAt: Date? = nil,
+    currentJob: ManagedFleetJob? = nil
   ) {
     self.label = label
     self.directory = directory
@@ -86,6 +88,7 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
     self.installation = installation
     self.observedState = observedState
     self.observedAt = observedAt
+    self.currentJob = currentJob
   }
 
   /// The identity of a runner launchd never heard of.

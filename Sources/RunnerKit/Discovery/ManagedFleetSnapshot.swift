@@ -28,10 +28,24 @@ struct ManagedFleetSnapshot: Decodable, Sendable {
     let runnerName: String?
     let workspace: String?
     let remote: Remote?
+    let currentJob: ManagedFleetJob?
 
     enum CodingKeys: String, CodingKey {
       case id, index, phase, workspace, remote
       case runnerName = "runner_name"
+      case currentJob = "current_job"
+    }
+
+    init(from decoder: Decoder) throws {
+      let values = try decoder.container(keyedBy: CodingKeys.self)
+      id = try values.decode(String.self, forKey: .id)
+      index = try values.decode(Int.self, forKey: .index)
+      phase = try values.decode(SlotPhase.self, forKey: .phase)
+      runnerName = try values.decodeIfPresent(String.self, forKey: .runnerName)
+      workspace = try values.decodeIfPresent(String.self, forKey: .workspace)
+      remote = try values.decodeIfPresent(Remote.self, forKey: .remote)
+      // An optional extension cannot make otherwise valid runner status vanish.
+      currentJob = try? values.decodeIfPresent(ManagedFleetJob.self, forKey: .currentJob)
     }
   }
 
@@ -129,10 +143,23 @@ struct ManagedFleetSnapshot: Decodable, Sendable {
         let directory =
           slot.workspace.map(URL.init(fileURLWithPath:))
           ?? snapshotFile.deletingLastPathComponent().appendingPathComponent(pool.id)
+        let currentJob = slot.currentJob.flatMap { job -> ManagedFleetJob? in
+          guard state == .busy, job.isValid,
+            job.runnerID == slot.remote?.id, job.runnerName == slot.runnerName,
+            now.timeIntervalSince(job.observedAt) >= -5,
+            now.timeIntervalSince(job.observedAt) <= 120,
+            (pool.scope == .repository
+              ? job.repository.caseInsensitiveCompare(pool.target) == .orderedSame
+              : job.repository.split(separator: "/").first.map(String.init)?
+                .caseInsensitiveCompare(pool.target) == .orderedSame)
+          else { return nil }
+          return job
+        }
         return DiscoveredRunner(
           label: "standfast.fleet:\(slot.id)", directory: directory,
           agentId: slot.remote?.id ?? 0, agentName: displayName, scope: scope,
-          installation: .managedFleet, observedState: state, observedAt: generatedAt)
+          installation: .managedFleet, observedState: state, observedAt: generatedAt,
+          currentJob: currentJob)
       }
     }
   }

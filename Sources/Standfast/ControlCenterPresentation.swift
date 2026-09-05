@@ -185,6 +185,7 @@ enum RunnerHistoryPresentation: Equatable {
 enum RunnerFocusPresentation: Equatable {
   case operation(ServiceOperationPresentation)
   case currentJob(String)
+  case managedJob(ManagedFleetJobPresentation)
   case lastJob(JobRow)
   case state(String)
 }
@@ -264,6 +265,8 @@ extension RunnerCardPresentation {
     let focus: RunnerFocusPresentation
     if let operation, operation.isInFlight {
       focus = .operation(operation)
+    } else if let job = ManagedFleetJobPresentation.building(snapshot, now: now) {
+      focus = .managedJob(job)
     } else if let progress = row.progress {
       focus = .currentJob(progress)
     } else if let lastJob = historyRows.first {

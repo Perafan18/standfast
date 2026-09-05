@@ -66,6 +66,14 @@ private struct RunnerEchoMenu: View {
     Menu {
       Text(runner.longState)
       if let progress = runner.progress { Text(progress) }
+      if let job = runner.currentJob {
+        Text(job.context)
+        Text(job.detail)
+        Text(job.association)
+        ForEach(job.links) { link in
+          Link(link.title, destination: link.url)
+        }
+      }
       if let operation = runner.operation {
         Label(operation.title, systemImage: operation.symbolName)
           .accessibilityElement(children: .combine)

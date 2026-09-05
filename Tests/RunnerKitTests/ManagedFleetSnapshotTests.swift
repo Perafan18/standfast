@@ -48,6 +48,78 @@ private struct ManagedFleetSandbox {
 private let generated = "2026-09-03T21:00:00Z"
 private let generatedDate = Date(timeIntervalSince1970: 1_788_469_200)
 
+private let currentJobJSON = """
+  {
+    "id": 456, "run_id": 123, "run_attempt": 2,
+    "runner_id": 282, "runner_name": "photo-mo-ci-a1b2c3",
+    "repository": "acme/photo-mo", "hostname": "github.com",
+    "workflow_name": "Quality Gate", "name": "Tests", "event": "pull_request",
+    "pull_request_numbers": [702], "observed_at": "2026-09-03T21:00:00Z"
+  }
+  """
+
+@Test private func managedFleetCurrentJobDecodesProducerContractAndDerivesLinks() throws {
+  let box = try ManagedFleetSandbox()
+  defer { box.cleanUp() }
+  try box.write(snapshotJSON(currentJob: currentJobJSON))
+  let snapshot = try ManagedFleetSnapshot(contentsOf: box.snapshot)
+  let runner = snapshot.runners(snapshotFile: box.snapshot, now: generatedDate)[0]
+  let job = try #require(runner.currentJob)
+  #expect(job.repository == "acme/photo-mo")
+  #expect(job.workflowName == "Quality Gate")
+  #expect(job.name == "Tests")
+  #expect(job.pullRequestNumbers == [702])
+  #expect(
+    job.jobURL?.absoluteString
+      == "https://github.com/acme/photo-mo/actions/runs/123/job/456")
+  #expect(
+    job.runURL?.absoluteString
+      == "https://github.com/acme/photo-mo/actions/runs/123/attempts/2")
+  #expect(
+    job.pullRequestURL(702)?.absoluteString == "https://github.com/acme/photo-mo/pull/702")
+  #expect(job.pullRequestURL(999) == nil)
+}
+
+@Test(arguments: [
+  "idle", "offline", "unavailable", "stopped", "stale", "oldJob", "futureJob",
+  "wrongID", "wrongName", "wrongRepo", "badHost", "badPath", "malformed",
+])
+private func managedFleetCurrentJobRejectsUnreliableEvidence(_ scenario: String) throws {
+  let box = try ManagedFleetSandbox()
+  defer { box.cleanUp() }
+  var job = currentJobJSON
+  switch scenario {
+  case "oldJob": job = job.replacingOccurrences(of: "21:00:00Z", with: "20:57:00Z")
+  case "futureJob": job = job.replacingOccurrences(of: "21:00:00Z", with: "21:03:00Z")
+  case "wrongID": job = job.replacingOccurrences(of: "282", with: "283")
+  case "wrongName": job = job.replacingOccurrences(of: "photo-mo-ci-a1b2c3", with: "other")
+  case "wrongRepo":
+    job = job.replacingOccurrences(of: "acme/photo-mo", with: "other/private")
+  case "badHost":
+    job = job.replacingOccurrences(of: "github.com", with: "github.com@evil.test")
+  case "badPath": job = job.replacingOccurrences(of: "acme/photo-mo", with: "acme/../evil")
+  case "malformed": job = #"{"id":"bad"}"#
+  default: break
+  }
+  try box.write(
+    snapshotJSON(
+      supervisorState: scenario == "stopped" ? "stopped" : "running",
+      remoteObservation: scenario == "unavailable" ? "unavailable" : "available",
+      remoteStatus: scenario == "offline" ? "offline" : "online",
+      remoteBusy: scenario != "idle", currentJob: job))
+  let snapshot = try ManagedFleetSnapshot(contentsOf: box.snapshot)
+  let runner = snapshot.runners(
+    snapshotFile: box.snapshot,
+    now: scenario == "stale" ? generatedDate.addingTimeInterval(121) : generatedDate)[0]
+  #expect(runner.currentJob == nil)
+  if [
+    "wrongID", "wrongName", "wrongRepo", "badHost", "badPath", "malformed", "oldJob",
+    "futureJob",
+  ].contains(scenario) {
+    #expect(runner.observedState == .busy)
+  }
+}
+
 private func snapshotJSON(
   schema: String = ManagedFleetSnapshot.currentSchema,
   executor: String = "native",
@@ -56,7 +128,8 @@ private func snapshotJSON(
   supervisorState: String = "running",
   remoteObservation: String = "available",
   remoteStatus: String = "online",
-  remoteBusy: Bool = true
+  remoteBusy: Bool = true,
+  currentJob: String? = nil
 ) -> String {
   let remoteMember =
     includeRemote
@@ -85,7 +158,7 @@ private func snapshotJSON(
             "job_history": false
           },
           "runner_name": "photo-mo-ci-a1b2c3",
-          "workspace": "/private/tmp/slot 0"\(remoteMember)
+          "workspace": "/private/tmp/slot 0"\(remoteMember)\(currentJob.map { ",\"current_job\":\($0)" } ?? "")
         }, {
           "id": "photo-mo:1", "index": 1, "phase": "waiting",
           "capabilities": {

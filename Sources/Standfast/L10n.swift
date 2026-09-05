@@ -42,6 +42,14 @@ enum L10n {
   static let runnerStartedByHand = t("runner.startedByHand")
   static let runnerGitLabService = t("runner.gitLabService")
   static let runnerManagedFleet = t("runner.managedFleet")
+  static let managedJobOpen = t("managedJob.open")
+  static let managedRunOpen = t("managedJob.openRun")
+  static func managedPROpen(_ number: Int) -> String {
+    String(format: t("managedJob.openPR"), number)
+  }
+  static func managedJobNoPR(_ event: String) -> String {
+    String(format: t("managedJob.noPR"), event)
+  }
   static let stateLayerGitHubSilent = t("state.layer.gitHubSilent")
   static let stateUnknownGitLabNoToken = t("state.unknown.gitLabNoToken")
   static let stateUnknownGitLabNotAuthenticated = t("state.unknown.gitLabNotAuthenticated")
@@ -636,6 +644,10 @@ enum L10n {
       "Runs under gitlab-runner, one service for every GitLab runner here — start or stop it from a terminal",
     "runner.startedByHand":
       "Started by hand, so Standfast can watch it but not stop or restart it",
+    "managedJob.open": "Open job on GitHub",
+    "managedJob.openRun": "Open workflow run on GitHub",
+    "managedJob.openPR": "Open PR #%d on GitHub",
+    "managedJob.noPR": "%@ · No PR reported by GitHub",
     "runner.managedFleet":
       "Managed by the runner fleet supervisor — slots rotate automatically and Standfast watches them read-only",
     "state.layer.runningLocally": "Running locally",

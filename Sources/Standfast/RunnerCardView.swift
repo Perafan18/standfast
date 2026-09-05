@@ -237,6 +237,14 @@ struct RunnerCardView: View {
         detail: operation.detail)
     case .currentJob(let progress):
       focusLine(symbol: "bolt.fill", title: progress)
+    case .managedJob(let job):
+      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
+        focusLine(symbol: "bolt.fill", title: job.context, detail: job.detail)
+        Text(job.association)
+        ForEach(job.links) { link in
+          Link(link.title, destination: link.url)
+        }
+      }
     case .lastJob(let job):
       focusLine(
         symbol: job.outcome.symbolName, title: job.text,

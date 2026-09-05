@@ -235,3 +235,7 @@
 "duration.hours" = "%dh";
 "duration.minutes" = "%dm";
 "duration.seconds" = "%ds";
+"managedJob.open" = "Abrir job en GitHub";
+"managedJob.openRun" = "Abrir ejecución del workflow en GitHub";
+"managedJob.openPR" = "Abrir PR #%d en GitHub";
+"managedJob.noPR" = "%@ · GitHub no informa un PR";

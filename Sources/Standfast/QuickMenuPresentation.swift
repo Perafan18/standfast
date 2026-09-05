@@ -30,6 +30,7 @@ struct QuickMenuPresentation: Equatable {
     let progress: String?
     let operation: ServiceOperationPresentation?
     let canStart: Bool
+    var currentJob: ManagedFleetJobPresentation? = nil
   }
 
   struct RunnerIdentityFormatting: Sendable {
@@ -99,7 +100,7 @@ extension QuickMenuPresentation {
       Item.runner(
         runnerEcho(
           for: snapshot, identity: identity,
-          identityFormatting: identityFormatting))
+          identityFormatting: identityFormatting, now: now))
     }
     if let discovery = overview.quickMenuDiscoveryLine {
       items.append(.discovery(discovery))
@@ -116,7 +117,7 @@ extension QuickMenuPresentation {
   }
 
   private struct RunnerIdentity {
-    let name: String
+    var name: String
     var qualifier: String?
     var discriminators: [Int] = []
 
@@ -195,16 +196,21 @@ extension QuickMenuPresentation {
 
   private static func runnerEcho(
     for snapshot: RunnerSnapshot, identity: RunnerIdentity,
-    identityFormatting: RunnerIdentityFormatting
+    identityFormatting: RunnerIdentityFormatting, now: Date
   ) -> RunnerEcho {
+    let currentJob = ManagedFleetJobPresentation.building(snapshot, now: now)
+    var jobIdentity = identity
+    if let currentJob { jobIdentity.name += " — \(currentJob.context)" }
     return RunnerEcho(
       id: snapshot.id,
-      title: identity.rendered(
+      title: jobIdentity.rendered(
         state: snapshot.display.shortSummary,
         identityFormatting: identityFormatting),
       longState: snapshot.display.summary,
       progress: snapshot.jobProgress?.line, operation: snapshot.operation?.presentation,
-      canStart: snapshot.display == .resolved(.stopped) && !snapshot.isServiceActionReserved
+      canStart: snapshot.display == .resolved(.stopped)
+        && !snapshot.isServiceActionReserved,
+      currentJob: currentJob
     )
   }
 
