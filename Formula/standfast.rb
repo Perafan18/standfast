@@ -1,13 +1,6 @@
-# Building from source is the point, not a limitation.
-#
-# A downloaded binary carries a quarantine attribute, and Gatekeeper refuses to
-# open one that is not signed with a Developer ID and notarised — which is a
-# paid account, a CI signing identity and a submission step, all before anyone
-# can try the app. Built on the machine that runs it, the binary is never
-# downloaded, never quarantined, and none of that applies.
-#
-# The cost is a toolchain: Xcode, because SwiftUI's own macros ship only inside
-# Xcode.app (see `depends_on xcode` below).
+# Builds Standfast from source. The signed, notarised download is the cask:
+# `brew install --cask perafan18/tap/standfast`. Building needs Xcode, because
+# SwiftUI's macros ship only inside Xcode.app (see `depends_on xcode`).
 class Standfast < Formula
   desc "Menu bar app for self-hosted GitHub Actions runners on macOS"
   homepage "https://github.com/Perafan18/standfast"

@@ -8,9 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.5.0] — 2026-10-09
 
-The first public release, published as source: `brew install perafan18/tap/standfast`
-builds it on your Mac. A signed and notarized download is not available yet; it needs a
-Developer ID certificate.
+The first public release. `brew install --cask perafan18/tap/standfast` installs the app
+signed with a Developer ID and notarized by Apple, and `brew install perafan18/tap/standfast`
+builds it from source on your Mac.
 
 ### Added
 
