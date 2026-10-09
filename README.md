@@ -169,7 +169,21 @@ and the app still will not launch.
 
 ## Install
 
-With Homebrew, which builds Standfast on your Mac and so needs Xcode 16 or later:
+With Homebrew:
+
+```sh
+brew install --cask perafan18/tap/standfast
+```
+
+That puts the app, signed with a Developer ID and notarized by Apple, in Applications. Or
+download `Standfast.zip` from the
+[latest release](https://github.com/Perafan18/standfast/releases/latest), unzip it, and
+move Standfast.app to Applications.
+
+### Building it on your Mac instead
+
+The same tap has a formula that builds Standfast from source, and so needs Xcode 16 or
+later:
 
 ```sh
 brew install perafan18/tap/standfast
@@ -185,9 +199,8 @@ open /Applications/Standfast.app
 ```
 
 Each upgrade is a new build, so macOS asks once whether it may read the token the previous
-build stored in your Keychain; choose Always Allow. There is no signed, notarized download
-yet: that needs a Developer ID certificate. You can also
-[build it from source](#building-from-source).
+build stored in your Keychain; choose Always Allow. You can also
+[build it from source](#building-from-source) with `git`.
 
 ### Requirements
 
