@@ -4,11 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] — Unreleased
+## [Unreleased]
 
-This section describes the current source tree, not a published release. Tagging, signing,
-notarization, the final Homebrew formula SHA, and release publication remain pending work
-owned by the release manager.
+## [0.5.0] — 2026-10-09
+
+The first public release, published as source: `brew install perafan18/tap/standfast`
+builds it on your Mac. A signed and notarized download is not available yet; it needs a
+Developer ID certificate.
 
 ### Added
 

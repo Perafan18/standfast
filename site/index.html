@@ -374,7 +374,7 @@
         <p class="lede">Standfast is a free menu bar app for Macs that host GitHub Actions runners. It asks launchd whether each runner is alive, asks GitHub whether it still counts on it, and never mixes up the two answers.</p>
         <div class="act">
           <a class="button" href="https://github.com/Perafan18/standfast">View on GitHub</a>
-          <small>For macOS 14 or later. Free and open source. Not released yet; you can build it from source today.</small>
+          <small>For macOS 14 or later. Free and open source. Install it with Homebrew, which builds it on your Mac.</small>
         </div>
       </div>
 
@@ -583,12 +583,12 @@ status actions.runner.acme-widget.build-mac:
 
   <section id="install" aria-labelledby="install-title">
     <div class="wrap">
-      <h2 id="install-title">Not released yet. You can build it today.</h2>
-      <p class="prose">Version 0.5.0 has not been tagged, signed or published, so there is no download or Homebrew formula to install yet. With Xcode 16 or later on the Mac, build it from source:</p>
-<pre class="build" aria-label="Commands to build Standfast from source">git clone https://github.com/Perafan18/standfast.git
-cd standfast
-make run</pre>
-      <p class="prose">That assembles the app in <code>.build/Standfast.app</code> and opens it. Watch the repository to hear about the first release.</p>
+      <h2 id="install-title">Install it with Homebrew</h2>
+      <p class="prose">Homebrew builds Standfast on your Mac, so it needs Xcode 16 or later. There is no signed download yet.</p>
+<pre class="build" aria-label="Commands to install Standfast with Homebrew">brew install perafan18/tap/standfast
+ditto "$(brew --prefix standfast)/Standfast.app" /Applications/Standfast.app
+open /Applications/Standfast.app</pre>
+      <p class="prose">Copy the app again after every upgrade: Spotlight and Launchpad do not look inside Homebrew's folders. Or build it from source with <code>git clone https://github.com/Perafan18/standfast.git</code>, then <code>make run</code>.</p>
       <p class="act"><a class="button" href="https://github.com/Perafan18/standfast">View on GitHub</a></p>
     </div>
   </section>
