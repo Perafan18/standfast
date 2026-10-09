@@ -209,7 +209,12 @@ final class HousekeepingModel: ObservableObject {
       return
     }
     switch kind {
-    case .measure: measure(snapshot.runner)
+    case .measure:
+      // Fresh numbers the user asked for retire whatever the last action said,
+      // unless `measure` ignores the click: the one already running may be the
+      // re-measure behind a refusal still worth reading.
+      if !working.contains(snapshot.runner.label) { reports[snapshot.runner.label] = nil }
+      measure(snapshot.runner)
     case .cleanStandfastTrash: cleanStandfastTrash(on: snapshot)
     case .trimLogs: trimLogs(on: snapshot)
     // Handled above, by the one place that knows which directory each is.
@@ -266,7 +271,10 @@ final class HousekeepingModel: ObservableObject {
       measuredAgo: clock().timeIntervalSince(measurement.readAt))
     switch confirmation.confirm(prompt) {
     case .accepted: break
-    case .cancelled: return
+    // What the previous attempt said is no longer about the last thing done.
+    case .cancelled:
+      reports[runner.label] = nil
+      return
     // Said where it was asked, in the same place a failed cleanup reports
     // itself. Somebody who pressed Cancel already knows what they did; only
     // the case where the app could not ask gets a sentence.
@@ -278,11 +286,15 @@ final class HousekeepingModel: ObservableObject {
     let housekeeper = housekeeper
     let probe = probe
     perform(on: runner, failurePath: target.directory(in: runner)) {
+      var verdict: RunnerState?
       // Everything up to the rename happens before the check inside
       // `blockingClean`, and the check is the last thing before it.
-      try housekeeper.blockingClean(target, in: runner) {
-        probe(runner).allowsHousekeeping
+      let outcome = try housekeeper.blockingClean(target, in: runner) {
+        let state = probe(runner)
+        verdict = state
+        return state.allowsHousekeeping
       }
+      return (outcome, verdict)
     }
   }
 
@@ -295,7 +307,9 @@ final class HousekeepingModel: ObservableObject {
     else { return }
     switch confirmation.confirm(.trimmingLogs(in: runner, plan: plan)) {
     case .accepted: break
-    case .cancelled: return
+    case .cancelled:
+      reports[runner.label] = nil
+      return
     case .unavailable:
       reports[runner.label] = L10n.cleanupConfirmationUnavailable
       return
@@ -306,14 +320,20 @@ final class HousekeepingModel: ObservableObject {
     let probe = probe
     let now = clock()
     perform(on: runner, failurePath: runner.diagnosticsDirectory) {
+      var verdict: RunnerState?
       // Re-planned in there against the directory as it is at that moment, and
       // held to what the user agreed to. Re-planning is what keeps a file that
       // has since become the active log out of the sweep; the plan going in is
       // what keeps the sweep from taking more than the number in the dialogue,
       // which was drawn from a measurement of any age at all.
-      try housekeeper.blockingRotateDiagnostics(
+      let outcome = try housekeeper.blockingRotateDiagnostics(
         in: runner, retention: retention, now: now, agreedTo: plan,
-        isStillSafe: { probe(runner).allowsHousekeeping })
+        isStillSafe: {
+          let state = probe(runner)
+          verdict = state
+          return state.allowsHousekeeping
+        })
+      return (outcome, verdict)
     }
   }
 
@@ -331,7 +351,9 @@ final class HousekeepingModel: ObservableObject {
         measuredAgo: clock().timeIntervalSince(measurement.readAt)))
     {
     case .accepted: break
-    case .cancelled: return
+    case .cancelled:
+      reports[runner.label] = nil
+      return
     case .unavailable:
       reports[runner.label] = L10n.cleanupConfirmationUnavailable
       return
@@ -340,17 +362,18 @@ final class HousekeepingModel: ObservableObject {
     let housekeeper = housekeeper
     let trash = runner.workDirectory.appendingPathComponent(Housekeeper.trashFolder)
     perform(on: runner, failurePath: trash) {
-      try housekeeper.blockingCleanLegacyTrash(in: runner)
+      (try housekeeper.blockingCleanLegacyTrash(in: runner), nil)
     }
   }
 
   /// - Parameters:
-  ///   - work: blocking, and run off both pools.
+  ///   - work: blocking, and run off both pools. Returns what the safety probe
+  ///     answered, if it was asked, so a refusal can say why.
   ///   - failurePath: what to name in the menu when it did not work and did not
   ///     say which directory it was about.
   private func perform(
     on runner: DiscoveredRunner, failurePath: URL,
-    _ work: @escaping @Sendable () throws -> HousekeepingOutcome
+    _ work: @escaping @Sendable () throws -> (HousekeepingOutcome, RunnerState?)
   ) {
     let label = runner.label
     reports[label] = nil
@@ -358,22 +381,26 @@ final class HousekeepingModel: ObservableObject {
     let name = runner.displayName
     run {
       let answer = await offCooperativePool {
-        () -> (outcome: HousekeepingOutcome?, path: URL, didModify: Bool) in
+        () -> (
+          outcome: HousekeepingOutcome?, verdict: RunnerState?, path: URL,
+          didModify: Bool
+        ) in
         do {
-          return (try work(), failurePath, false)
+          let (outcome, verdict) = try work()
+          return (outcome, verdict, failurePath, false)
         } catch let failure as HousekeepingFailure {
           // The operation knows which directory the failed write was about and
           // whether an earlier write may have changed it; neither can be
           // recovered from the generic path at this boundary.
-          return (nil, failure.directory, failure.didModify)
+          return (nil, nil, failure.directory, failure.didModify)
         } catch {
-          return (nil, failurePath, false)
+          return (nil, nil, failurePath, false)
         }
       }
       self.working.remove(label)
       self.reports[label] = Self.notice(
         for: answer.outcome, runner: name, path: answer.path,
-        didModify: answer.didModify)
+        didModify: answer.didModify, verdict: answer.verdict)
       // A success changed the disk. `nothingToDo` proves the measurement that
       // justified the confirmation was stale: the named bytes disappeared
       // before this reached them. Either way the next thing the user does is
@@ -386,17 +413,22 @@ final class HousekeepingModel: ObservableObject {
     }
   }
 
+  /// - Parameter verdict: what the safety probe answered, and nil when it was
+  ///   never asked.
   static func notice(
     for outcome: HousekeepingOutcome?, runner: String, path: URL,
-    didModify: Bool = false
+    didModify: Bool = false, verdict: RunnerState? = nil
   ) -> String? {
     switch outcome {
     // Nothing to say. What was asked for happened, and the rows underneath are
     // about to redraw with the new numbers, which is the report.
     case .done, .nothingToDo: return nil
     // The one outcome that has to be reported: the user asked for something,
-    // agreed to it, and did not get it.
-    case .refused, .refusedAfterChange: return L10n.cleanupRefused(runner)
+    // agreed to it, and did not get it. Only GitHub saying busy is evidence
+    // of a job; any other refusing verdict is a state nobody could confirm.
+    case .refused, .refusedAfterChange:
+      return verdict == .busy
+        ? L10n.cleanupRefused(runner) : L10n.cleanupUnconfirmed(runner)
     // By the time anything can throw, the only thing left that can go wrong is
     // the filesystem saying no.
     case nil:

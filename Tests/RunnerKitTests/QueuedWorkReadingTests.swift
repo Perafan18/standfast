@@ -115,6 +115,30 @@ private func read(
   #expect(!(try read(http).isPartial))
 }
 
+@Test func saysWhenARunHadMoreJobsThanOnePageHolds() throws {
+  // A matrix can queue far more jobs in one run than one page holds. Fifty
+  // shown as the whole count is the same silent truncation as a capped list
+  // of runs.
+  let page = (0..<50).map { queuedJob(700 + $0) }.joined(separator: ",")
+  let http = FakeHTTPClient([
+    runsURL: [.ok(runs([7]))],
+    jobsURL(7): [.ok(#"{"total_count":64,"jobs":[\#(page)]}"#)],
+  ])
+
+  let work = try read(http)
+  #expect(work.jobs.count == 50)
+  #expect(work.isPartial)
+}
+
+@Test func aRunWhoseJobsAllFitOnOnePageIsComplete() throws {
+  let http = FakeHTTPClient([
+    runsURL: [.ok(runs([7]))],
+    jobsURL(7): [.ok(#"{"total_count":1,"jobs":[\#(queuedJob(70))]}"#)],
+  ])
+
+  #expect(!(try read(http).isPartial))
+}
+
 @Test func aRunWhoseJobsCannotBeReadIsNotSilentlyCountedAsZero() throws {
   // Undercounting is the failure that matters here: "nothing is waiting" over
   // a queue nobody could read is the app sounding confident where it knows
@@ -125,6 +149,12 @@ private func read(
   ])
 
   #expect(throws: GitHubError.noAnswer) { try read(http) }
+}
+
+@Test func aRefusedTokenIsNamedRatherThanReadAsAnEmptyQueue() throws {
+  let http = FakeHTTPClient([runsURL: [.status(401)]])
+
+  #expect(throws: GitHubError.tokenRefused) { try read(http) }
 }
 
 // MARK: - Where GitHub has no answer to give

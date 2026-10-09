@@ -206,10 +206,11 @@ extension QuickMenuPresentation {
       title: jobIdentity.rendered(
         state: snapshot.display.shortSummary,
         identityFormatting: identityFormatting),
-      longState: snapshot.display.summary,
+      longState: snapshot.display.summary(for: snapshot.runner),
       progress: snapshot.jobProgress?.line, operation: snapshot.operation?.presentation,
-      canStart: snapshot.display == .resolved(.stopped)
-        && !snapshot.isServiceActionReserved,
+      // The row's own Start, which the model checks again on the click: read
+      // anywhere else, the menu could offer a Start that is then refused.
+      canStart: snapshot.row.action(.start)?.isEnabled == true,
       currentJob: currentJob
     )
   }

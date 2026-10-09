@@ -1,4 +1,5 @@
 import Foundation
+import RunnerKit
 
 struct SettingsSectionPresentation: Equatable {
   let footer: String
@@ -19,6 +20,8 @@ struct GitHubSettingsPresentation: Equatable {
   let currentState: String
   let footer: String
   let notice: String?
+  /// False where a token would never be sent, so nothing invites one.
+  let canSave: Bool
   /// False when there is nothing stored. A Remove button over an empty
   /// Keychain is a question the user has to answer about their own machine.
   let canRemove: Bool
@@ -37,15 +40,10 @@ struct SettingsPresentation: Equatable {
   /// lives here; see `DockVisibility`.
   let appearance: SettingsSectionPresentation
   let github: GitHubSettingsPresentation
-  /// Nil on a Mac with no gitlab-runner configured, which is most Macs: a
-  /// token field for a provider with nothing on the machine is a question the
-  /// user cannot act on.
-  let gitLab: GitHubSettingsPresentation?
   let version: String
 
   init(
     githubState: GitHubAccessState = .absent, githubNotice: String? = nil,
-    gitLabState: GitHubAccessState? = nil, gitLabNotice: String? = nil,
     notificationNotice: String?, loginItemNotice: String?,
     infoDictionary: [String: Any]?
   ) {
@@ -65,18 +63,30 @@ struct SettingsPresentation: Equatable {
       currentState: Self.currentState(githubState),
       footer: L10n.settingsGitHubFooter,
       notice: githubNotice,
+      canSave: true,
       // Removal stays available when the Keychain would not answer: it is the
       // recovery from an item this app can no longer read, and withholding it
       // would leave the user hunting for the entry in Keychain Access.
       canRemove: githubState != .absent)
-    gitLab = gitLabState.map { state in
-      GitHubSettingsPresentation(
-        currentState: Self.gitLabCurrentState(state),
-        footer: L10n.settingsGitLabFooter,
-        notice: gitLabNotice,
-        canRemove: state != .absent)
-    }
     version = Self.version(infoDictionary: infoDictionary)
+  }
+
+  /// One GitLab instance's card. There is one per instance, so it is asked for
+  /// per instance rather than built with the rest.
+  static func gitLab(
+    _ state: GitHubAccessState, notice: String?, isServedOverHTTPS: Bool
+  ) -> GitHubSettingsPresentation {
+    GitHubSettingsPresentation(
+      // The stored and absent lines both describe an instance a token would
+      // reach, and the client sends none over http.
+      currentState: isServedOverHTTPS
+        ? gitLabCurrentState(state) : L10n.settingsGitLabInsecure,
+      footer: L10n.settingsGitLabFooter,
+      notice: notice,
+      canSave: isServedOverHTTPS,
+      // Still offered over http: a token saved before Standfast stopped
+      // asking there would otherwise have to be found in Keychain Access.
+      canRemove: state != .absent)
   }
 
   private static func gitLabCurrentState(_ state: GitHubAccessState) -> String {
@@ -131,9 +141,6 @@ enum SettingsAccessibility {
   static let githubToken = "dev.standfast.settings.github.token"
   static let githubSave = "dev.standfast.settings.github.save"
   static let githubRemove = "dev.standfast.settings.github.remove"
-  static let gitlabToken = "dev.standfast.settings.gitlab.token"
-  static let gitlabSave = "dev.standfast.settings.gitlab.save"
-  static let gitlabRemove = "dev.standfast.settings.gitlab.remove"
   static let runnersAdd = "dev.standfast.settings.runners.add"
 
   /// One per row, so a probe can name the folder it means.
@@ -144,6 +151,14 @@ enum SettingsAccessibility {
   static func runnerRow(_ path: String) -> String {
     "dev.standfast.settings.runners.row"
       + path.replacingOccurrences(of: "/", with: ".")
+  }
+
+  /// One set per GitLab card, named by the instance it holds a token for.
+  static func gitlab(
+    _ instance: GitLabInstance
+  ) -> (token: String, save: String, remove: String) {
+    let card = "dev.standfast.settings.gitlab." + instance.name
+    return (token: card + ".token", save: card + ".save", remove: card + ".remove")
   }
 
   static func notification(_ kind: NotificationKind) -> String {

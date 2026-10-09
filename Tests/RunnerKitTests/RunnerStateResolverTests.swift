@@ -400,6 +400,33 @@ private func confirm(
   #expect(UnknownReason(GitHubError.noToken) == .noToken)
 }
 
+@Test func aRefusedTokenIsNotGhWantingALogin() {
+  // `.notAuthenticated` says to run `gh auth login`, which cannot repair a
+  // token this app stored: once one exists, `gh` is never asked.
+  #expect(UnknownReason(GitHubError.tokenRefused) == .tokenRefused)
+  #expect(UnknownReason(GitHubError.notAuthenticated) == .notAuthenticated)
+}
+
+@Test func aKeychainThatWouldNotAnswerIsItsOwnReason() {
+  // Neither "add a token", which is already there, nor GitHub going quiet,
+  // when nothing was asked. Each provider keeps its own, so the line names
+  // the right one.
+  #expect(UnknownReason(GitHubError.tokenUnreadable) == .tokenUnreadable)
+  #expect(UnknownReason(GitLabError.tokenUnreadable) == .gitLabTokenUnreadable)
+}
+
+@Test func aRunnerPausedInGitLabIsItsOwnReason() {
+  // GitLab answered, and the answer was "paused": not GitLab going quiet, and
+  // not a connection GitLab lost.
+  #expect(UnknownReason(GitLabError.paused) == .gitLabPaused)
+}
+
+@Test func anInstanceServedOverHTTPIsItsOwnReason() {
+  // Not `.gitLabSilent`: nothing was asked, and "check the network, or the
+  // token" sends the user after a fault that is not there.
+  #expect(UnknownReason(GitLabError.insecureInstance) == .gitLabInsecure)
+}
+
 @Test func runningOutOfBudgetIsItsOwnReason() {
   // Folding it into `.noAnswer` would tell a user whose only problem is
   // impatience that GitHub is unreachable.
@@ -504,7 +531,7 @@ private final class Ticker: @unchecked Sendable {
   ).blockingReading(for: manual, clock: Date.init)
 
   #expect(asked.launchctl.invocations.isEmpty)
-  #expect(asked.ps.invocations.map(\.executable) == ["/bin/ps"])
+  #expect(asked.ps.invocations.map(\.executable) == ["/usr/bin/env"])
 }
 
 @Test func aServicedRunnerIsStillAskedAboutLaunchd() {
@@ -533,7 +560,7 @@ private struct LocalProbeRecorder {
   // API, wrong token, wrong instructions when it fails).
   let asked = LocalProbeRecorder()
   asked.ps.respond(
-    to: ["/bin/ps", "-Awwo", "command="],
+    to: gitLabPS,
     with:
       "/opt/homebrew/bin/gitlab-runner run --config /Users/ci/.gitlab-runner/config.toml\n")
   let gitLabURL = URL(string: "https://gitlab.example.com/api/v4/runners/91")!
@@ -549,9 +576,9 @@ private struct LocalProbeRecorder {
   let reading = RunnerStateResolver(
     probe: LaunchctlProbe(commandRunner: asked.launchctl),
     listeners: ListenerProcessProbe(commandRunner: asked.ps),
-    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps),
+    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps, userID: 501),
     github: gitHub,
-    gitLab: GitLabAPIClient(token: FakeTokenStore("glpat-x"), http: http)
+    gitLab: GitLabAPIClient(tokens: { _ in FakeTokenStore("glpat-x") }, http: http)
   ).blockingReading(for: gitLabRunner, clock: Date.init)
 
   #expect(reading.state == .busy)
@@ -563,38 +590,64 @@ private struct LocalProbeRecorder {
 @Test func aGitLabRunnerWithoutATokenSaysSoInGitLabsWords() {
   let asked = LocalProbeRecorder()
   asked.ps.respond(
-    to: ["/bin/ps", "-Awwo", "command="],
+    to: gitLabPS,
     with: "/opt/homebrew/bin/gitlab-runner run\n")
 
   let reading = RunnerStateResolver(
     probe: LaunchctlProbe(commandRunner: asked.launchctl),
     listeners: ListenerProcessProbe(commandRunner: asked.ps),
-    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps),
+    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps, userID: 501),
     github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()),
-    gitLab: GitLabAPIClient(token: FakeTokenStore(nil), http: FakeHTTPClient())
+    gitLab: GitLabAPIClient(tokens: { _ in FakeTokenStore(nil) }, http: FakeHTTPClient())
   ).blockingReading(for: gitLabRunner, clock: Date.init)
 
   #expect(reading.state == .unknown(.gitLabNoToken))
 }
 
-@Test func aGitLabServiceThatIsNotRunningIsStopped() {
+@Test func aGitLabRunnerPausedInGitLabIsNotCalledDisconnected() {
+  // The resolver turns "not online" into `.disconnected`, which says GitLab
+  // cannot see the runner and, thirty seconds on, posts a banner saying so.
+  // Somebody who paused it in GitLab gets neither.
   let asked = LocalProbeRecorder()
-  asked.ps.respond(to: ["/bin/ps", "-Awwo", "command="], with: "/usr/sbin/cfprefsd\n")
+  asked.ps.respond(to: gitLabPS, with: "/opt/homebrew/bin/gitlab-runner run\n")
+  let gitLabURL = URL(string: "https://gitlab.example.com/api/v4/runners/91")!
+  let http = FakeHTTPClient([
+    gitLabURL: [.ok(#"{"id":91,"status":"online","paused":true,"tag_list":["macos"]}"#)]
+  ])
 
   let reading = RunnerStateResolver(
     probe: LaunchctlProbe(commandRunner: asked.launchctl),
     listeners: ListenerProcessProbe(commandRunner: asked.ps),
-    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps),
+    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps, userID: 501),
     github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()),
-    gitLab: GitLabAPIClient(token: FakeTokenStore("glpat-x"), http: FakeHTTPClient())
+    gitLab: GitLabAPIClient(tokens: { _ in FakeTokenStore("glpat-x") }, http: http)
+  ).blockingReading(for: gitLabRunner, clock: Date.init)
+
+  #expect(reading.state == .unknown(.gitLabPaused))
+}
+
+@Test func aGitLabServiceThatIsNotRunningIsStopped() {
+  let asked = LocalProbeRecorder()
+  asked.ps.respond(to: gitLabPS, with: "/usr/sbin/cfprefsd\n")
+
+  let reading = RunnerStateResolver(
+    probe: LaunchctlProbe(commandRunner: asked.launchctl),
+    listeners: ListenerProcessProbe(commandRunner: asked.ps),
+    gitLabRunners: GitLabRunnerProcessProbe(commandRunner: asked.ps, userID: 501),
+    github: StubGitHub(result: .success(online), asked: StubGitHub.Recorder()),
+    gitLab: GitLabAPIClient(
+      tokens: { _ in FakeTokenStore("glpat-x") }, http: FakeHTTPClient())
   ).blockingReading(for: gitLabRunner, clock: Date.init)
 
   #expect(reading.state == .stopped)
 }
 
+/// This user's processes, which is all the GitLab probe lists.
+private let gitLabPS = ["/bin/ps", "-wwo", "command=", "-U", "501"]
+
 private let gitLabRunner = DiscoveredRunner(
   label: "standfast.gitlab:gitlab.example.com:91",
   directory: URL(fileURLWithPath: "/Users/ci/.gitlab-runner"),
   agentId: 91, agentName: "mac-gitlab",
-  scope: .gitLab(instanceHost: "gitlab.example.com"),
+  scope: .gitLab(instance: GitLabInstance(url: "https://gitlab.example.com")!),
   installation: .gitLabService)

@@ -20,12 +20,17 @@ struct ListenerLogSandbox {
 
   func cleanUp() { try? FileManager.default.removeItem(at: root) }
 
-  /// - Parameter startedAt: the UTC instant in the file name, which is how the
-  ///   runner records when this listener started — `20260805-215453`.
+  /// - Parameters:
+  ///   - startedAt: the UTC instant in the file name — `20260805-215453`.
+  ///   - continuing: a page the listener rolled over into mid-life. It has no
+  ///     header, which a listener writes once, when its process starts.
   @discardableResult
-  func writeLog(startedAt: String, _ lines: [String]) throws -> URL {
+  func writeLog(
+    startedAt: String, continuing: Bool = false, _ lines: [String]
+  ) throws -> URL {
     let url = diagnostics.appendingPathComponent("Runner_\(startedAt)-utc.log")
-    try write(lines.map { $0 + "\n" }.joined(), to: url)
+    let header = continuing ? [] : [listenerHeader(at: traceStamp(startedAt))]
+    try write((header + lines).map { $0 + "\n" }.joined(), to: url)
     return url
   }
 
@@ -77,10 +82,23 @@ func finishedJob(_ name: String, _ result: String, at stamp: String) -> String {
   terminalLine(stamp, "Job \(name) completed with result: \(result)")
 }
 
+/// The line a listener writes once, when its process starts.
+func listenerHeader(at stamp: String) -> String {
+  "[\(stamp) INFO Listener] Version: 2.336.0"
+}
+
+/// `20260805-215453`, as a file name spells it, the way a trace line does.
+private func traceStamp(_ fileStamp: String) -> String {
+  let digits = Array(fileStamp)
+  func part(_ range: Range<Int>) -> String { String(digits[range]) }
+  return "\(part(0..<4))-\(part(4..<6))-\(part(6..<8)) "
+    + "\(part(9..<11)):\(part(11..<13)):\(part(13..<15))Z"
+}
+
 /// The rest of what a listener says, and the overwhelming majority of the file.
 func listenerChatter(at stamp: String) -> [String] {
   [
-    "[\(stamp) INFO Listener] Version: 2.336.0",
+    listenerHeader(at: stamp),
     "[\(stamp) INFO HostContext] Well known directory 'Root': '/Users/x/actions-runner'",
     terminalLine(stamp, "Listening for Jobs"),
     "[\(stamp) INFO JobDispatcher] Set runner/worker IPC timeout to 30 seconds.",

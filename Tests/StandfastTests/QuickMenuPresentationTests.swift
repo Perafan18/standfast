@@ -8,23 +8,24 @@ private let quickMenuNow = Date(timeIntervalSince1970: 1_785_962_174)
 
 private func quickRunner(
   _ name: String, scope: RunnerScope = .repository(owner: "acme", name: "widget"),
-  label: String? = nil, agentId: Int = 7
+  label: String? = nil, agentId: Int = 7, installation: RunnerInstallation = .launchAgent
 ) -> DiscoveredRunner {
   DiscoveredRunner(
     label: label ?? "actions.runner.test.\(name)",
     directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: agentId,
-    agentName: name, scope: scope)
+    agentName: name, scope: scope, installation: installation)
 }
 
 private func quickSnapshot(
   _ name: String, _ display: DisplayState, scope: RunnerScope? = nil,
   label: String? = nil, agentId: Int = 7, jobs: JobHistory = .empty,
-  operation: ServiceOperation? = nil, isServiceActionReserved: Bool = false
+  operation: ServiceOperation? = nil, isServiceActionReserved: Bool = false,
+  installation: RunnerInstallation = .launchAgent
 ) -> RunnerSnapshot {
   RunnerSnapshot(
     runner: quickRunner(
       name, scope: scope ?? .repository(owner: "acme", name: "widget"),
-      label: label, agentId: agentId),
+      label: label, agentId: agentId, installation: installation),
     display: display, jobs: jobs, readAt: quickMenuNow,
     isServiceActionReserved: isServiceActionReserved, operation: operation)
 }
@@ -289,6 +290,23 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
       if case .runnerMenu = $0 { return true }
       return false
     }.count == 3)
+}
+
+@Test func startIsOfferedOnlyOnARunnerStandfastCanStart() {
+  // Start is `svc.sh start`, and only a LaunchAgent has one. Offered anywhere
+  // else, the click is refused without a word while the Control Center shows
+  // the same runner's Start disabled.
+  let menu = quickMenu([
+    quickSnapshot("service", .resolved(.stopped)),
+    quickSnapshot("by-hand", .resolved(.stopped), installation: .manual),
+    quickSnapshot(
+      "gitlab", .resolved(.stopped),
+      scope: .gitLab(instance: GitLabInstance(url: "https://gitlab.example.com")!),
+      installation: .gitLabService),
+    quickSnapshot("fleet", .resolved(.stopped), installation: .managedFleet),
+  ])
+
+  #expect(echoes(in: menu).map(\.canStart) == [true, false, false, false])
 }
 
 // MARK: - Discovery summaries

@@ -56,6 +56,11 @@ extension DisplayState {
     case .resolved(.unknown(.managedFleetWaiting)): L10n.stateLayerManagedFleetWaiting
     case .resolved(.unknown(.managedFleetStatusUnavailable)):
       L10n.stateLayerManagedFleetUnavailable
+    case .resolved(.unknown(.tokenRefused)): L10n.stateLayerGitHubRefusedToken
+    case .resolved(.unknown(.tokenUnreadable)): L10n.stateLayerGitHubNotAsked
+    case .resolved(.unknown(.gitLabTokenUnreadable)): L10n.stateLayerGitLabNotAsked
+    case .resolved(.unknown(.gitLabInsecure)): L10n.stateLayerGitLabNotAsked
+    case .resolved(.unknown(.gitLabPaused)): L10n.stateLayerGitLabPaused
     case .resolved(.unknown): L10n.stateLayerGitHubSilent
     case .starting: L10n.stateStartingShort
     }
@@ -112,8 +117,31 @@ extension DisplayState {
     case .resolved(.unknown(.managedFleetWaiting)): L10n.stateUnknownManagedFleetWaiting
     case .resolved(.unknown(.managedFleetStatusUnavailable)):
       L10n.stateUnknownManagedFleetUnavailable
+    case .resolved(.unknown(.tokenRefused)): L10n.stateUnknownTokenRefused
+    case .resolved(.unknown(.tokenUnreadable)): L10n.stateUnknownTokenUnreadable
+    case .resolved(.unknown(.gitLabTokenUnreadable)):
+      L10n.stateUnknownGitLabTokenUnreadable
+    case .resolved(.unknown(.gitLabInsecure)): L10n.stateUnknownGitLabInsecure
+    case .resolved(.unknown(.gitLabPaused)): L10n.stateUnknownGitLabPaused
     case .starting: L10n.stateStarting
     }
+  }
+
+  /// `summary` for one runner, where the sentence names who was asked: GitLab
+  /// rather than GitHub for the remote half, and `ps` rather than `launchctl`
+  /// for a local half read from the process list.
+  func summary(for runner: DiscoveredRunner) -> String {
+    switch self {
+    case .resolved(.disconnected):
+      if case .gitLab = runner.scope { return L10n.stateDisconnectedGitLab }
+    case .resolved(.unknown(.serviceStateUnreadable)):
+      switch runner.installation {
+      case .manual, .gitLabService: return L10n.stateUnknownNoLocalAnswerProcess
+      case .launchAgent, .managedFleet: break
+      }
+    default: break
+    }
+    return summary
   }
 
   /// Whether GitHub can hand this runner work right now.
@@ -230,14 +258,29 @@ extension RunnerSnapshot {
     return Set(counts.filter { $0.value > 1 }.keys)
   }
 
+  /// What each runner's name is qualified with, in the order given: nil where
+  /// the name alone is unique, else where it is registered, and the runner's
+  /// id as well where two share a name and a scope.
+  static func qualifiers(among runners: [DiscoveredRunner]) -> [String?] {
+    let repeated = repeatedNames(among: runners)
+    let sharedScopes = runners.reduce(into: [[String]: Int]()) { counts, runner in
+      counts[[runner.displayName, runner.scope.displayName], default: 0] += 1
+    }
+    return runners.map { runner in
+      guard repeated.contains(runner.displayName) else { return nil }
+      let scope = runner.scope.displayName
+      guard sharedScopes[[runner.displayName, scope], default: 0] > 1 else { return scope }
+      return L10n.quickMenuScopeWithID(scope, runner.agentId)
+    }
+  }
+
   /// The name this row leads with: the runner's own, plus where it is
   /// registered when that is what tells it apart from another runner here.
   ///
   /// Only when it is needed. `acme/widget-factory` is most of a menu bar
   /// row's width, and a Mac with one runner gains nothing from carrying it —
   /// there is nothing to disambiguate it from. GitHub will not accept two
-  /// runners with the same name in the same scope, so the scope is always
-  /// enough to separate the runners that collide.
+  /// runners with one name in one scope; GitLab will, hence the id.
   var name: String {
     guard let qualifier else { return runner.displayName }
     return L10n.runnerInScope(runner.displayName, qualifier)
@@ -271,12 +314,19 @@ extension RunnerSnapshot {
     }
   }
 
+  /// Whether GitLab, not GitHub, is the service this runner's remote half
+  /// was asked of, and so the one a sentence about it has to name.
+  var isOnGitLab: Bool {
+    if case .gitLab = runner.scope { return true }
+    return false
+  }
+
   var row: RunnerRow {
     RunnerRow(
       // `displayName`, not `agentName`: the `.runner` file does not always
       // carry a name, and that runner would render as a blank row followed by
       // four buttons belonging to nobody.
-      title: L10n.runnerRow(name, display.summary),
+      title: L10n.runnerRow(name, display.summary(for: runner)),
       progress: jobProgress?.line,
       operation: operation?.presentation,
       // Every action reads this runner's own state. Nothing here consults the
@@ -298,7 +348,7 @@ extension RunnerSnapshot {
       recentJobs: jobs.records
         // The running job already has a line of its own, with the one thing
         // this list cannot give it: how long it has been going.
-        .filter { $0 != jobs.running }
+        .filter { $0 != liveJob }
         .prefix(RunnerRow.recentJobsShown)
         .map { RunnerRow.RecentJob(id: $0.startedAt, text: $0.historyLine) })
   }

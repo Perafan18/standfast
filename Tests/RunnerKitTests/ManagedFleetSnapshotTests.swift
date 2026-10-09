@@ -80,6 +80,41 @@ private let currentJobJSON = """
   #expect(job.pullRequestURL(999) == nil)
 }
 
+@Test private func managedFleetCurrentJobKeepsARepositoryNamedWithALeadingDot() throws {
+  // `.github` is the organisation-wide repository GitHub itself defines, and its
+  // workflows run on pools like any other. Dropping the job there leaves the
+  // card saying "busy" with nothing to say what at.
+  let box = try ManagedFleetSandbox()
+  defer { box.cleanUp() }
+  try box.write(
+    snapshotJSON(currentJob: currentJobJSON)
+      .replacingOccurrences(of: "acme/photo-mo", with: "acme/.github"))
+  let snapshot = try ManagedFleetSnapshot(contentsOf: box.snapshot)
+  let runner = snapshot.runners(snapshotFile: box.snapshot, now: generatedDate)[0]
+  let job = try #require(runner.currentJob)
+  #expect(
+    job.jobURL?.absoluteString
+      == "https://github.com/acme/.github/actions/runs/123/job/456")
+}
+
+@Test(arguments: ["acme/.", "acme/..", ".acme/widget"])
+private func managedFleetCurrentJobRefusesARepositoryThatIsAPathTrick(
+  _ repository: String
+) throws {
+  // Through the snapshot, with the pool claiming the same repository, so the
+  // only thing standing between `..` and a link one directory up is the
+  // job's own check.
+  let box = try ManagedFleetSandbox()
+  defer { box.cleanUp() }
+  try box.write(
+    snapshotJSON(currentJob: currentJobJSON)
+      .replacingOccurrences(of: "acme/photo-mo", with: repository))
+  let snapshot = try ManagedFleetSnapshot(contentsOf: box.snapshot)
+  let runner = snapshot.runners(snapshotFile: box.snapshot, now: generatedDate)[0]
+  #expect(runner.observedState == .busy)
+  #expect(runner.currentJob == nil)
+}
+
 @Test(arguments: [
   "idle", "offline", "unavailable", "stopped", "stale", "oldJob", "futureJob",
   "wrongID", "wrongName", "wrongRepo", "badHost", "badPath", "malformed",

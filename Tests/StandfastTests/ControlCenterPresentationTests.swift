@@ -89,13 +89,14 @@ private func controlCenterSnapshot(
   scope: RunnerScope = .repository(owner: "acme", name: "widget"),
   jobs: JobHistory = .empty, operation: ServiceOperation? = nil,
   version: InstalledRunnerVersion = .absent, qualifier: String? = nil,
-  isJobHistoryAvailable: Bool = true, isServiceActionReserved: Bool = false
+  isJobHistoryAvailable: Bool = true, isServiceActionReserved: Bool = false,
+  installation: RunnerInstallation = .launchAgent
 ) -> RunnerSnapshot {
   RunnerSnapshot(
     runner: DiscoveredRunner(
       label: "actions.runner.acme-widget.build-mac",
       directory: URL(fileURLWithPath: "/tmp/build-mac"), agentId: 7,
-      agentName: "build-mac", scope: scope),
+      agentName: "build-mac", scope: scope, installation: installation),
     display: display, qualifier: qualifier, jobs: jobs, readAt: controlCenterNow,
     isJobHistoryAvailable: isJobHistoryAvailable, version: version,
     isServiceActionReserved: isServiceActionReserved, operation: operation)
@@ -443,9 +444,86 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(compact.components(separatedBy: "foreground:nil").count - 1 == 2)
   #expect(
     compact.components(separatedBy: foregroundInsideLabel).count - 1 == 2)
+  // The render below reaches only Start; View runs takes the same gate.
+  #expect(compact.components(separatedBy: "ifdrawsProminent(action){").count - 1 == 2)
   #expect(
     !compact.contains(
       "ButtonLabel(action).foregroundStyle(palette.primaryButtonText.color)"))
+}
+
+@MainActor
+private func renderedCard(
+  _ card: RunnerCardPresentation, controlActiveState: ControlActiveState
+) throws -> NSBitmapImageRep {
+  let size = NSSize(width: StandfastTheme.controlCenterDefaultWidth, height: 420)
+  let hosting = NSHostingView(
+    rootView: RunnerCardView(
+      card: card, isCollapsed: false, toggleCollapsed: {},
+      performAction: { _ in }, performMaintenance: { _ in }
+    )
+    .frame(width: size.width, height: size.height)
+    .environment(\.colorScheme, .light)
+    .environment(\.controlActiveState, controlActiveState))
+  hosting.frame = NSRect(origin: .zero, size: size)
+  hosting.layoutSubtreeIfNeeded()
+  hosting.displayIfNeeded()
+  let bitmap = try #require(
+    hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+  hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+  return bitmap
+}
+
+private func srgb(_ bitmap: NSBitmapImageRep, _ x: Int, _ y: Int) -> NSColor? {
+  bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+}
+
+/// A window left open beside an editor is not key, and macOS draws a prominent
+/// button there as a grey pill. Every earlier render was taken outside a
+/// window, where the tint is always drawn.
+@Test @MainActor func aProminentActionStaysReadableWhenTheWindowIsNotActive() throws {
+  let stopped = card(controlCenterSnapshot(.resolved(.stopped)))
+  #expect(stopped.actions.contains { $0.kind == .start && $0.emphasis == .prominent })
+
+  // Where the button is, found from the one place the tint is drawn: the
+  // stopped badge and every other control on this card are neutral.
+  let key = try renderedCard(stopped, controlActiveState: .key)
+  var minX = Int.max
+  var minY = Int.max
+  var maxX = Int.min
+  var maxY = Int.min
+  for x in 0..<key.pixelsWide {
+    for y in 0..<key.pixelsHigh {
+      guard let color = srgb(key, x, y),
+        color.blueComponent > 0.7, color.redComponent < 0.35
+      else { continue }
+      minX = min(minX, x)
+      minY = min(minY, y)
+      maxX = max(maxX, x)
+      maxY = max(maxY, y)
+    }
+  }
+  try #require(maxX - minX > 40 && maxY - minY > 10)
+
+  let inactive = try renderedCard(stopped, controlActiveState: .inactive)
+  var luminances: [Double] = []
+  for x in minX...maxX {
+    for y in minY...maxY {
+      guard let color = srgb(inactive, x, y) else { continue }
+      let hex =
+        UInt32((color.redComponent * 255).rounded()) << 16
+        | UInt32((color.greenComponent * 255).rounded()) << 8
+        | UInt32((color.blueComponent * 255).rounded())
+      luminances.append(
+        StandfastSRGBColor(hex: hex).contrastRatio(
+          against: StandfastSRGBColor(hex: 0x000000)))
+    }
+  }
+  let lightest = try #require(luminances.max())
+  let darkest = try #require(luminances.min())
+
+  // Ratios against black, so their quotient is the contrast between the
+  // darkest and the lightest pixel inside the button: label against bezel.
+  #expect(lightest / darkest >= 4.5)
 }
 
 // MARK: - Card projection
@@ -527,6 +605,37 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(subject.title == "build-mac")
   #expect(subject.scope == "acme/widget")
   #expect(subject.title != "build-mac (acme/widget)")
+}
+
+@Test func twoGitLabRunnersWithOneNameOnOneInstanceDrawTwoCards() throws {
+  // GitLab accepts two runners with one name on one instance. Title and
+  // scope were the same on both cards, and so was every button VoiceOver
+  // reads out of the card's context.
+  let gitLab = try #require(GitLabInstance(url: "https://gitlab.com"))
+  let runners = [101, 102].map { id in
+    DiscoveredRunner(
+      label: "standfast.gitlab:gitlab.com:\(id)",
+      directory: URL(fileURLWithPath: "/tmp/gitlab-runner"),
+      agentId: id, agentName: "mac-mini", scope: .gitLab(instance: gitLab),
+      installation: .gitLabService)
+  }
+  let qualifiers = RunnerSnapshot.qualifiers(among: runners)
+  let cards = zip(runners, qualifiers).map { runner, qualifier in
+    card(
+      RunnerSnapshot(
+        runner: runner, display: .resolved(.idle), qualifier: qualifier,
+        readAt: controlCenterNow))
+  }
+  let serviceKinds: [RunnerRow.Action.Kind] = [.start, .stop, .restart]
+
+  #expect(cards.map(\.title) == ["mac-mini", "mac-mini"])
+  #expect(cards[0].scope != cards[1].scope)
+  #expect(cards.allSatisfy { $0.scope.contains("gitlab.com") })
+  for kind in serviceKinds {
+    let labels = cards.compactMap { $0.action(kind)?.accessibilityLabel }
+    #expect(labels.count == 2, "\(kind)")
+    #expect(labels[0] != labels[1], "\(kind)")
+  }
 }
 
 @Test func everyCardKeepsCompactStateSeparateFromItsLongStateDetail() {
@@ -672,6 +781,38 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
     controlCenterSnapshot(jobs: JobHistory(records: [finished])))
 
   #expect(subject.focus == .lastJob(JobRow.building(finished, now: controlCenterNow)))
+}
+
+/// A job whose start line no completion followed, and the one before it.
+private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory) {
+  let lost = JobRecord(
+    name: "testflight", startedAt: controlCenterNow.addingTimeInterval(-7_200))
+  let before = JobRecord(
+    name: "deploy", startedAt: controlCenterNow.addingTimeInterval(-10_800),
+    finishedAt: controlCenterNow.addingTimeInterval(-10_633), result: .succeeded)
+  return (lost, before, JobHistory(records: [lost, before], running: lost))
+}
+
+@Test func aHandStartedRunnerStoppedMidJobShowsTheJobItLost() {
+  // Stopped, for a hand-started runner, means no listener is left in its
+  // directory, so nothing can still be running the job its log left open.
+  let (lost, _, history) = cutOffHistory()
+  let subject = card(
+    controlCenterSnapshot(.resolved(.stopped), jobs: history, installation: .manual))
+
+  #expect(subject.focus == .lastJob(JobRow.building(lost, now: controlCenterNow)))
+  #expect(subject.recentJobs.first?.text == lost.historyLine)
+  #expect(lost.outcomePresentation.label == L10n.jobInterrupted)
+}
+
+@Test func aServiceStoppedMidJobLeavesItsJobUnjudged() {
+  // `svc.sh stop; ./run.sh` keeps a build going behind a LaunchAgent launchd
+  // calls stopped, so its open job is not called Interrupted from here.
+  let (lost, before, history) = cutOffHistory()
+  let subject = card(controlCenterSnapshot(.resolved(.stopped), jobs: history))
+
+  #expect(subject.focus == .lastJob(JobRow.building(before, now: controlCenterNow)))
+  #expect(!subject.recentJobs.contains { $0.text == lost.historyLine })
 }
 
 @Test func longStateIsTheFallbackWhenThereIsNoOperationOrJob() {

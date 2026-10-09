@@ -25,19 +25,21 @@ owned by the release manager.
   cards. Each card keeps the complete operational picture together: local and GitHub state,
   current work, service controls, the latest operation outcome, recent jobs, runner version,
   manual disk measurement and safe cleanup, logs, and the appropriate GitHub destination.
-- **A bounded quick menu** for a three-second glance. It shows the aggregate fleet state;
-  up to three runners needing attention, doing work or starting, or retaining an operation
-  receipt even while otherwise idle; discovery and thermal alerts; freshness; Refresh;
-  Open Standfast; Settings; and Quit. A conclusively stopped runner may offer Start; Stop,
-  Restart, history, maintenance, preferences, and confirmations stay out of the quick
-  surface.
-- **A separate Settings scene** for notification choices, SleepGuard, and Open at Login,
-  using the same long-lived preference state as the rest of the app.
+- **A slim quick menu** for a three-second glance. It shows one row per runner, in
+  discovery order, each opening a submenu with that runner's state, progress, current
+  managed job and latest operation receipt; discovery and thermal alerts; freshness;
+  Refresh; Open Standfast; Settings; and Quit. A conclusively stopped runner may offer
+  Start; Stop, Restart, history, maintenance, preferences, and confirmations stay out of
+  the quick surface.
+- **A separate Settings scene** for notification choices, SleepGuard, Open at Login, the
+  optional Dock tile, the GitHub and GitLab tokens, and the folders of runners started by
+  hand, using the same long-lived preference state as the rest of the app.
 - **Accessibility semantics for the new surfaces.** The menu-bar item exposes the product
   name and aggregate state, runner cards and operation feedback expose names and values,
   decorative duplicate text is hidden from assistive technology, and native controls keep
-  keyboard order and focus. State is never conveyed by color or motion alone; v0.5 adds no
-  state animation that needs a Reduce Motion alternative.
+  keyboard order and focus. State is never conveyed by color or motion alone, and the
+  only two animations — a card folding and a receipt appearing — become an immediate
+  change under Reduce Motion.
 - **An original Standfast app icon:** a text-free sentinel/beacon, compiled into every macOS
   icon size and included inside the signed resource seal. Live status remains the job of
   semantic SF Symbols in the menu bar rather than the product icon.
@@ -61,8 +63,10 @@ owned by the release manager.
 - **GitLab runners, beside the GitHub ones,** scoped to what the product already promises:
   whether the runners on this machine will get work. Discovery reads the fixed, documented
   `~/.gitlab-runner/config.toml`; the runner token stays in that file, and self-managed
-  GitLab works because the host travels from each runner's config. GitLab states are phrased
-  in GitLab's own words, since "run gh auth login" is the wrong advice for a GitLab token.
+  GitLab works because the instance address — scheme, host, port and path — travels from
+  each runner's config. Each instance has its own token in Settings, sent only to that
+  instance and only over https. GitLab states are phrased in GitLab's own words, since
+  "run gh auth login" is the wrong advice for a GitLab token.
 - **An optional Dock tile.** Standfast lives in the menu bar and still starts without one;
   a switch in Settings promotes it at launch for anybody who wants it in the Dock and in
   ⌘-Tab.
@@ -128,6 +132,69 @@ owned by the release manager.
 - The four places that promise a minimum macOS — `Package.swift`, `Info.plist`, the README
   and the landing page — are held equal by a contract. Bumping one used to leave the others
   promising a version macOS would still install on a system where the app cannot run.
+
+Fixed in the pre-launch review, before anything was published:
+
+- **Building and releasing.** `make app` and the release failed on a clean checkout with
+  Xcode 27, whose Swift Build backend nests the localisation catalogues one level deeper in
+  the resource bundle. The Homebrew formula could not build inside Homebrew's own sandbox,
+  and could not build with the Command Line Tools alone, which lack SwiftUI's macro plugin;
+  it now asks for Xcode. The release is universal, so Intel Macs can open the download; a
+  tag that does not match the app's version is refused; `make check` passes on a Mac that
+  holds a Developer ID certificate; and the Homebrew caveat copies the app into
+  /Applications instead of linking it, which Spotlight ignores.
+- **CI on a public repository.** The jobs on the self-hosted Mac skip a fork's pull request
+  that leaves the workflows untouched, and the workflow token is read-only. A fork brings its
+  own copy of the workflow and can remove that guard, so the control is the repository
+  setting that requires approval for every outside contributor; CONTRIBUTING says so.
+- **GitHub reasons that send you to the right fix.** A token GitHub refuses says to replace
+  the token, not to run `gh auth login`; no token and no `gh` says to add a token; a
+  Keychain that will not hand the token over, and a secondary rate limit, each say what
+  they are. A request that trickles bytes is bounded at 30 seconds in total, and a queue
+  count capped by GitHub says it is partial.
+- **Keychain reads never freeze the app.** Tokens are read off the main thread, one read per
+  item at a time, so a locked Keychain or an upgraded build asking for access raises one
+  dialog instead of one per runner, and a refusal is not asked again every refresh. `gh`
+  installed through MacPorts, nix, mise or asdf is found when Standfast is opened from
+  Finder or at login.
+- **GitLab.** Each instance keeps its own token, sent only to that instance, only over
+  https, and never along a redirect to another origin. Instances on another port, under a
+  path or at an IPv6 address are asked where they are, instead of crashing the Control
+  Center or asking the wrong server. A runner paused in GitLab reads as paused and is not
+  announced as disconnected; the card of an instance served over http says it is not
+  asked and offers no token field, keeping Remove; a hand-edited
+  `config.toml` with CRLF, a BOM or commented-out sections keeps its runners; same-named
+  runners on one instance are two cards; a GitLab runner GitLab cannot see says GitLab,
+  links to GitLab, offers no disk measurement of folders it never uses, and Settings
+  offers a token card for a gitlab-runner registered after launch.
+- **Runners started by hand.** They are found in folders with accented names, under /tmp
+  or /var, or behind a symlink; they no longer read as stopped, or announce a crash, while
+  they update or restart themselves; Standfast looks for them among your own processes
+  only, so another account's process never makes it touch a remote path; and the menu no
+  longer offers Start for runners Standfast cannot start.
+- **Job history.** A job left without a result stops counting as running, and stops
+  keeping the Mac awake. A job that spans the listener's log rollover keeps its result and
+  its failure notification, the runner version survives the rollover, a runner started by
+  hand that stops mid-job shows that job as interrupted, and a managed-fleet job from a
+  `.github` repository keeps its links.
+- **Discovery and maintenance.** A runner whose work folder is configured outside its
+  directory is watched again, with maintenance abstaining. Pool slots are listed in
+  numeric order. A symlinked tool or action cache is left in place rather than deleted,
+  and a `.github` checkout counts as a checkout.
+- **Notifications.** "Disconnected" is announced once the disconnection has lasted 30
+  seconds, so a runner still registering at login, after a wake or after a restart is not
+  a false alarm, and that wait starts again after a sleep or a clock step; an unreadable reading no longer makes the next real one look new; two
+  runners with the same name get their own banners; and the permission notice is re-read
+  whenever Settings is shown.
+- **The model and its surfaces.** Automatic refresh survives a clock set backwards. A
+  maintenance refusal says why it refused instead of always blaming new work, and its
+  notices clear on Measure or Cancel. A capped queue with no matches no longer claims
+  nothing is waiting. The prominent buttons stay legible in a window that is not in front,
+  turning the Dock tile off keeps Settings in front, Open at Login reflects changes made in
+  System Settings, and the login-items pane is named as macOS 15 names it.
+- **Copy.** Enterprise runners are named when GitHub cannot show their queue, and several
+  Spanish lines were corrected: "1 o más trabajos", consistent gender for "Mac", and
+  sentences that had lost their subject.
 
 No Standfast version has been published yet. The 0.1.0 through 0.4.0 sections below are
 integrated development milestones that were built and reviewed in sequence, never tags or

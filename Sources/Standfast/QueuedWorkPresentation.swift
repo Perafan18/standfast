@@ -55,7 +55,10 @@ struct QueuedWorkPresentation: Equatable {
       guard !labels.isEmpty else { return nil }
       let waiting = queue.waiting(forRunnerLabelled: labels)
       guard !waiting.isEmpty else {
-        return asking ? Self(line: L10n.queueEmpty, tone: .neutral) : nil
+        // A capped reading left runs unread, and any of them may be this
+        // runner's: an empty match there is not an empty queue.
+        return asking && !queue.isPartial
+          ? Self(line: L10n.queueEmpty, tone: .neutral) : nil
       }
       return Self(
         line: text(waiting.count, isPartial: queue.isPartial),

@@ -7,13 +7,14 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # 623 tests, ~1s
+make test      # about 1,000 tests, a few seconds
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
 
-No dependencies, no `.xcodeproj`. Plain SwiftPM. You need Xcode 16 or its command line
-tools for a Swift 6 toolchain.
+No dependencies, no `.xcodeproj`. Plain SwiftPM. You need Xcode 16 or later. The Command
+Line Tools alone are not enough: from the macOS 27 SDK on, SwiftUI's `@State` is a macro whose
+plugin ships only inside Xcode.app.
 
 The test suite runs on a machine with **no runner installed** — that is deliberate, since
 CI has none. Every external command goes through the `CommandRunning` protocol so it can be
@@ -87,8 +88,9 @@ Each of these looks like a cleanup and is a regression.
 app — stops working *silently*: an empty menu, no error, because as far as the app can
 tell this Mac simply has no runners. There is no entitlement that buys the directory
 back either; LaunchAgents is not one of the user-selected or well-known locations a
-sandboxed app may reach. The same reasoning is in `Resources/Info.plist`, next to the
-key that would have to be added.
+sandboxed app may reach. The sandbox is an entitlement, not an `Info.plist` key: it would
+arrive as an `--entitlements` file on the `codesign` lines of `Scripts/build-app.sh`, which
+deliberately pass none.
 
 **Do not send `stderr` to a `Pipe()`** in `ProcessCommandRunner`. A pipe nobody drains
 blocks the child forever once it writes more than the buffer holds, which a `gh` with a
@@ -343,6 +345,22 @@ There is no `.nojekyll` either, and none is needed. Jekyll never runs on this pa
 underscore rules that file exists to fight belong to the branch publishing source this
 repository does not use.
 
+## Pull requests from forks
+
+Every CI job runs on the release manager's own Mac, as the account that also signs releases.
+A pull request from a fork runs the workflow files it brings with it, so the `if:` guard on
+each job keeps a fork off that Mac only while the fork leaves the workflows alone; one that
+edits them can delete the guard.
+
+**The control is a repository setting, and it must be on before the repository is public:**
+Settings › Actions › General › approval for fork pull request workflows → *Require approval
+for all external contributors*. GitHub's default only asks for a contributor's first pull
+request, which lets anybody with one merged change run code on the signing Mac without
+anyone looking.
+
+Approving a run is reviewing its code. Never approve a fork run that touches `.github/`,
+`Package.swift`, `Scripts/` or `Tests/Scripts/` without reading every line of it first.
+
 ## Releasing
 
 **Pushing the tag is the release.** `.github/workflows/release.yml` signs, notarises,
@@ -366,8 +384,10 @@ So a release is, in order:
    Gatekeeper accepts the result, **creates the GitHub Release** and attaches
    `Standfast.zip`. It does not create a release that already exists, and it does not
    upload without one.
-5. **sha256**: take it from the published asset and replace `REPLACE_ON_RELEASE` in the
-   formula.
+5. **sha256**: the formula builds from the tag's *source* archive, not from the attached
+   `Standfast.zip`, so the checksum is of that archive:
+   `curl -sL https://github.com/Perafan18/standfast/archive/refs/tags/v<version>.tar.gz | shasum -a 256`.
+   Replace `REPLACE_ON_RELEASE` in the formula with it.
 6. **Formula**: copy it into the tap.
 
 **A tag with any signing secret missing fails.** It does not skip. A green check over a

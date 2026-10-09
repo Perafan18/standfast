@@ -6,10 +6,14 @@ import RunnerKit
 enum GitHubDestination: Equatable {
   case workflowRuns(URL)
   case runnerSettings(URL)
+  /// A GitLab instance's home page. `config.toml` does not say which project
+  /// or group a runner belongs to, so this is as deep as an honest link goes,
+  /// and the button must not promise the runner's settings.
+  case instance(URL)
 
   var url: URL {
     switch self {
-    case .workflowRuns(let url), .runnerSettings(let url): url
+    case .workflowRuns(let url), .runnerSettings(let url), .instance(let url): url
     }
   }
 
@@ -17,10 +21,12 @@ enum GitHubDestination: Equatable {
     switch self {
     case .workflowRuns: L10n.openWorkflowRuns
     case .runnerSettings: L10n.openRunnerSettings
+    case .instance: L10n.openGitLab
     }
   }
 
   static func forScope(_ scope: RunnerScope) -> Self {
+    if case .gitLab = scope { return .instance(scope.settingsURL) }
     if let runs = scope.workflowRunsURL { return .workflowRuns(runs) }
     return .runnerSettings(scope.settingsURL)
   }
@@ -249,6 +255,16 @@ extension RunnerCardPresentation {
   }
 }
 
+extension RunnerSnapshot {
+  /// The open job this runner could still be working on. Stopped settles it
+  /// only for a hand-started runner, where it means no listener is left; a
+  /// LaunchAgent's stopped is launchd's word alone.
+  var liveJob: JobRecord? {
+    display == .resolved(.stopped) && runner.installation == .manual
+      ? nil : jobs.running
+  }
+}
+
 extension RunnerCardPresentation {
   static func building(
     _ snapshot: RunnerSnapshot, measurement: DiskMeasurement?,
@@ -257,7 +273,7 @@ extension RunnerCardPresentation {
   ) -> Self {
     let row = snapshot.row
     let destination = GitHubDestination.forScope(snapshot.runner.scope)
-    let pastRecords = snapshot.jobs.records.filter { $0 != snapshot.jobs.running }
+    let pastRecords = snapshot.jobs.records.filter { $0 != snapshot.liveJob }
     let visibleRecords = Array(pastRecords.prefix(RunnerRow.recentJobsShown))
     let historyRows = JobRow.building(visibleRecords, now: now)
     let isHistoryTruncated = pastRecords.count > RunnerRow.recentJobsShown
@@ -272,15 +288,18 @@ extension RunnerCardPresentation {
     } else if let lastJob = historyRows.first {
       focus = .lastJob(lastJob)
     } else {
-      focus = .state(snapshot.display.summary)
+      focus = .state(snapshot.display.summary(for: snapshot.runner))
     }
     return Self(
       id: snapshot.id,
       title: snapshot.runner.displayName,
       compactState: snapshot.display.shortSummary,
-      state: snapshot.display.summary,
+      state: snapshot.display.summary(for: snapshot.runner),
       stateSymbolName: snapshot.display.symbolName,
-      scope: snapshot.runner.scope.displayName,
+      // The qualifier, where there is one, is this scope plus whatever still
+      // tells two runners in it apart: GitLab accepts one name twice on one
+      // instance, and the title alone is the raw name.
+      scope: snapshot.qualifier ?? snapshot.runner.scope.displayName,
       tone: snapshot.display.tone,
       focus: focus,
       queued: QueuedWorkPresentation.building(
@@ -294,7 +313,7 @@ extension RunnerCardPresentation {
       operation: operation,
       actions: row.actions.map {
         cardAction(
-          $0, runnerName: snapshot.runner.displayName,
+          $0, runnerName: snapshot.name,
           display: snapshot.display, destination: destination)
       },
       recentJobs: row.recentJobs,
@@ -337,6 +356,7 @@ extension RunnerCardPresentation {
         switch destination {
         case .workflowRuns: L10n.viewRuns()
         case .runnerSettings: L10n.viewSettings()
+        case .instance: L10n.openGitLab
         }
       accessibilityLabel = destination.label
       symbolName = "arrow.up.right.square"

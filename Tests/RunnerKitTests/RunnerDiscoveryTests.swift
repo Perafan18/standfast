@@ -153,6 +153,90 @@ private struct DirectoryListingFailure: Error {}
     ])
 }
 
+@Test func numbersInLabelsAreOrderedAsNumbers() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  for number in [10, 2, 1] {
+    try box.addRunner(
+      label: "actions.runner.acme-widget.mac-\(number)", agentId: number,
+      gitHubUrl: "https://github.com/acme/widget")
+  }
+
+  let found = discovery(in: box).discover()
+
+  #expect(found.runners.map(\.agentId) == [1, 2, 10])
+}
+
+@Test func aManagedPoolListsItsSlotsInTheOrderItNumbersThem() throws {
+  // Slot labels end in the slot's offset, and the name shown is that offset
+  // plus one, so a pool of twelve read as text came out #1, #2, #11, #12, #3.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let slots = (0..<12).map { #"{"id":"ci:\#($0)","index":\#($0),"phase":"waiting"}"# }
+  let snapshot = box.root.appendingPathComponent("status-v1.json")
+  try Data(
+    """
+    {"schema":"\(ManagedFleetSnapshot.currentSchema)",
+     "generated_at":"2026-09-03T21:00:00Z","supervisor_state":"running",
+     "pools":[{"id":"ci","label":"CI","scope":"repository","target":"acme/widget",
+       "capacity":12,"remote_observation":"available",
+       "slots":[\(slots.joined(separator: ","))]}]}
+    """.utf8
+  ).write(to: snapshot)
+
+  let found = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents,
+    gitLabConfigFile: box.root.appendingPathComponent("no-gitlab-config.toml"),
+    managedFleetSnapshotFile: snapshot
+  ).discover()
+
+  #expect(found.runners.map(\.agentName) == (1...12).map { "CI #\($0)" })
+}
+
+@Test func labelsThatOnlyReadAlikeDoNotSplitADuplicate() throws {
+  // `mac-1` and `mac-01` compare equal as numbers. If that were the whole
+  // ordering, a copy of `mac-1` pointing elsewhere could sort to the far side
+  // of `mac-01` and escape the sweep, repeating an id in the menu's ForEach.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let first = try box.addManualRunner(
+    named: "a", agentId: 1, gitHubUrl: "https://github.com/acme/widget")
+  let between = try box.addManualRunner(
+    named: "b", agentId: 2, gitHubUrl: "https://github.com/acme/widget")
+  let last = try box.addManualRunner(
+    named: "c", agentId: 3, gitHubUrl: "https://github.com/acme/widget")
+  try box.addLaunchAgentFile(
+    named: "actions.runner.acme-widget.mac-1.plist",
+    label: "actions.runner.acme-widget.mac-1", workingDirectory: first)
+  try box.addLaunchAgentFile(
+    named: "actions.runner.acme-widget.mac-01.plist",
+    label: "actions.runner.acme-widget.mac-01", workingDirectory: between)
+  try box.addLaunchAgentFile(
+    named: "actions.runner.acme-widget.mac-1 copy.plist",
+    label: "actions.runner.acme-widget.mac-1", workingDirectory: last)
+  // APFS and HFS+ both list the two copies side by side, and a stable sort
+  // keeps them there whatever the tie-break says. Only an order with `mac-01`
+  // between them can tell a sound ordering from one that ignores the tie.
+  let agents = box.launchAgents
+  let straddling = [
+    "actions.runner.acme-widget.mac-1.plist",
+    "actions.runner.acme-widget.mac-01.plist",
+    "actions.runner.acme-widget.mac-1 copy.plist",
+  ].map { agents.appendingPathComponent($0) }
+
+  let found = RunnerDiscovery(
+    launchAgentsDirectory: agents,
+    gitLabConfigFile: box.root.appendingPathComponent("no-gitlab-config.toml"),
+    listDirectory: { _ in straddling }
+  ).discover()
+
+  #expect(
+    Set(found.runners.map(\.label)) == [
+      "actions.runner.acme-widget.mac-1", "actions.runner.acme-widget.mac-01",
+    ])
+  #expect(Set(found.runners.map(\.id)).count == found.runners.count)
+}
+
 @Test func reportsEachRunnerOnceEvenIfItsPlistWasDuplicated() throws {
   // "name copy.plist" is what Finder produces, and it keeps both the prefix
   // and the extension while describing the same runner. Identifiable exists
@@ -221,24 +305,44 @@ private struct DirectoryListingFailure: Error {}
   #expect(found.runners[0].workDirectory.path.hasPrefix(dir.path + "/"))
 }
 
-@Test func reportsRunnersWithEscapingWorkFoldersAsUnreadable() throws {
+@Test func aWorkFolderDeclaredOutsideTheRunnerStillYieldsTheRunner() throws {
+  // `--work /Volumes/Builds/_work` and `--work ../_work` both make a runner
+  // that takes jobs. Rejecting the file erased the row exactly as INV-006 did
+  // for a symlink: no state, no jobs, no Stop button.
   let box = try Sandbox()
   defer { box.cleanUp() }
+  let outside = box.root.appendingPathComponent("outside-work")
+  try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
   try box.addRunner(
     label: "actions.runner.acme-widget.relative", agentId: 1,
-    gitHubUrl: "https://github.com/acme/widget", workFolder: "../outside")
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "../outside-work")
   try box.addRunner(
     label: "actions.runner.acme-widget.absolute", agentId: 2,
-    gitHubUrl: "https://github.com/acme/widget", workFolder: "/tmp/outside")
+    gitHubUrl: "https://github.com/acme/widget", workFolder: outside.path)
 
   let found = discovery(in: box).discover()
 
-  #expect(found.runners.isEmpty)
-  #expect(
-    found.unreadable.map(\.lastPathComponent) == [
-      "actions.runner.acme-widget.absolute.plist",
-      "actions.runner.acme-widget.relative.plist",
-    ])
+  #expect(found.runners.map(\.agentId) == [2, 1])
+  #expect(found.unreadable.isEmpty)
+  // Joined as the runner joins it: an absolute folder replaces the runner
+  // directory rather than being appended to it.
+  #expect(found.runners.map(\.workDirectory.path) == [outside.path, outside.path])
+  #expect(found.runners.allSatisfy { $0.containedWorkDirectory == nil })
+}
+
+@Test func aWorkFolderSpelledWithADotIsTheOrdinaryOne() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let dir = try box.addRunner(
+    label: "actions.runner.acme-widget.dotted", agentId: 1,
+    gitHubUrl: "https://github.com/acme/widget", workFolder: "./_work")
+
+  let found = discovery(in: box).discover()
+
+  #expect(found.unreadable.isEmpty)
+  let runner = try #require(found.runners.first)
+  #expect(runner.workDirectory.path == dir.appendingPathComponent("_work").path)
+  #expect(runner.containedWorkDirectory != nil)
 }
 
 @Test func aWorkFolderSymlinkedOutsideTheRunnerStillYieldsTheRunner() throws {
@@ -249,11 +353,6 @@ private struct DirectoryListingFailure: Error {}
   // `Housekeeper` and `DiskUsage` each re-derive it themselves, failing closed
   // without any help from here. What discovery owes the operator is the
   // runner; what maintenance owes them is restraint, said out loud.
-  //
-  // Deliberately unlike `reportsRunnersWithEscapingWorkFoldersAsUnreadable`
-  // above: a `.runner` that *declares* an escaping path is a malformed file
-  // and stays rejected. This one declares "builds" and the filesystem points
-  // it elsewhere, which is not the file's fault.
   let box = try Sandbox()
   defer { box.cleanUp() }
   let directory = try box.addRunner(
@@ -570,13 +669,42 @@ private struct DirectoryListingFailure: Error {}
   let runner = try #require(result.runners.first)
   #expect(runner.agentId == 91)
   #expect(runner.agentName == "mac-gitlab")
-  #expect(runner.scope == .gitLab(instanceHost: "gitlab.example.com"))
+  #expect(
+    runner.scope == .gitLab(instance: GitLabInstance(url: "https://gitlab.example.com")!))
   #expect(runner.installation == .gitLabService)
   // Identity carries the instance and the id: two runners with the same name
   // on two instances are two runners, and nothing else tells them apart.
   #expect(runner.label == "standfast.gitlab:gitlab.example.com:91")
   // Where the service keeps its own files, for the measure that reads it.
   #expect(runner.directory.path == config.deletingLastPathComponent().path)
+}
+
+@Test func twoInstancesOnOneHostAreTwoRunners() throws {
+  // Same host, same id, different ports: two GitLab installations. A label
+  // built from the host alone made them one, and deduplication kept one.
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let config = box.root.appendingPathComponent("config.toml")
+  try """
+  [[runners]]
+    id = 7
+    name = "mac"
+    url = "https://gitlab.corp.example:8443/"
+  [[runners]]
+    id = 7
+    name = "mac"
+    url = "https://gitlab.corp.example:9443/"
+  """.write(to: config, atomically: true, encoding: .utf8)
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, gitLabConfigFile: config
+  ).discover()
+
+  #expect(
+    result.runners.map(\.label) == [
+      "standfast.gitlab:gitlab.corp.example:8443:7",
+      "standfast.gitlab:gitlab.corp.example:9443:7",
+    ])
 }
 
 @Test func aMacWithoutGitLabIsUndisturbed() throws {

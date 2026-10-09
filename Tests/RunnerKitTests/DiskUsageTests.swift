@@ -72,6 +72,23 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
   #expect(runner.invocations.isEmpty)
 }
 
+@Test func duIsNotRunWhenTheWorkFolderIsDeclaredOutsideTheRunner() throws {
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeOutsideFolder("_tool", kilobytes: 4)
+  let base = sandbox.runner
+  let runner = DiscoveredRunner(
+    label: base.label, directory: base.directory, agentId: base.agentId,
+    agentName: base.agentName, scope: base.scope, workFolder: sandbox.outside.path)
+  let commands = FakeCommandRunner()
+
+  let report = DiskUsage(commandRunner: commands).blockingReport(
+    for: runner, retention: .standard, now: Date())
+
+  #expect(report == nil)
+  #expect(commands.invocations.isEmpty)
+}
+
 @Test func anOutsideDiagnosticsSymlinkIsNotMeasuredOrPlanned() throws {
   let sandbox = try RunnerDirectorySandbox()
   defer { sandbox.cleanUp() }
@@ -190,6 +207,32 @@ private func duLine(_ kilobytes: Int, _ url: URL) -> String {
       for: sandbox.runner, retention: .standard, now: Date()))
 
   #expect(report.bytes(of: .checkout) == (420_724 + 102_400) * 1024)
+}
+
+@Test func aRepositoryWhoseNameStartsWithADotIsStillACheckout() throws {
+  // `<org>/.github` is a conventional repository, and the runner checks it out
+  // into `_work/.github`. Finder's litter beside it is not one.
+  #expect(DiskEntryKind(folderName: ".github") == .checkout)
+  #expect(DiskEntryKind(folderName: ".DS_Store") == .other)
+
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  for folder in [".github", "widget"] { try sandbox.makeWorkFolder(folder) }
+  let work = sandbox.work
+  let runner = FakeCommandRunner([
+    [
+      "/usr/bin/du", "-sk", work.appendingPathComponent(".github").path,
+      work.appendingPathComponent("widget").path,
+    ]:
+      duLine(307_200, work.appendingPathComponent(".github"))
+      + duLine(102_400, work.appendingPathComponent("widget"))
+  ])
+  let report = try #require(
+    DiskUsage(commandRunner: runner).blockingReport(
+      for: sandbox.runner, retention: .standard, now: Date()))
+
+  #expect(report.bytes(of: .checkout) == (307_200 + 102_400) * 1024)
+  #expect(report.bytes(of: .other) == 0)
 }
 
 @Test func pendingCacheGravesKeepTheirKindsAndAddUp() throws {

@@ -61,7 +61,7 @@ struct SettlingWindow: Sendable {
 
   /// Reads one runner's state as the menu should show it.
   ///
-  /// Only `.disconnected` is held back, and only until anything else arrives.
+  /// Only `.disconnected` is held back, and only until an answer arrives.
   /// `.stopped` in particular goes straight through: `svc.sh start` exits 0
   /// even when the `launchctl load` underneath it failed, so a re-probe
   /// finding the service down is the only report a failed start will ever
@@ -84,6 +84,10 @@ struct SettlingWindow: Sendable {
   ) -> DisplayState {
     guard let window = windows[label] else { return .resolved(state) }
     guard readBeganAt >= window.openedAt else { return .starting }
+    // Nothing answered, which is none of the three below: the runner is as far
+    // through its handshake as it was, and a later `.disconnected` before the
+    // deadline is still that handshake.
+    if case .unknown = state, readBeganAt < window.deadline { return .resolved(state) }
     guard state == .disconnected, readBeganAt < window.deadline else {
       // Either the handshake finished, or it failed, or it has had long
       // enough. All three end the benefit of the doubt.

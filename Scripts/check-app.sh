@@ -70,12 +70,23 @@ source_icon_dimensions="$(sips -g pixelWidth -g pixelHeight "$SOURCE_ICON" 2>/de
   || fail "Resources/AppIcon.png is $source_icon_dimensions, not 1024x1024"
 
 echo "==> Assembling the bundle"
-"$ROOT/Scripts/build-app.sh" >/dev/null
+# Universal, the shape the release ships, so a slice that stops building fails
+# here on every pull request rather than on a release tag.
+ARCHS="arm64 x86_64" "$ROOT/Scripts/build-app.sh" >/dev/null
 cp -R "$ROOT/.build/Standfast.app" "$APP"
 
 echo "==> Checking the bundle's shape"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist does not lint"
 [ -x "$APP/Contents/MacOS/Standfast" ] || fail "no executable in Contents/MacOS"
+# A missing slice is invisible on the Mac that built it and fatal on the other
+# kind, and the release is built on Apple silicon.
+executable_archs="$(lipo -archs "$APP/Contents/MacOS/Standfast" 2>/dev/null || true)"
+for arch in arm64 x86_64; do
+  case " $executable_archs " in
+    *" $arch "*) ;;
+    *) fail "the executable has no $arch slice (has: ${executable_archs:-none})" ;;
+  esac
+done
 [ "$(plist CFBundleIdentifier)" = "dev.standfast.app" ] || fail "wrong bundle identifier"
 [ "$(plist CFBundleIconFile)" = "Standfast" ] || fail "wrong bundle icon name"
 [ "$(plist LSUIElement)" = "true" ] || fail "LSUIElement is not set: this app would take a Dock tile"
@@ -141,23 +152,8 @@ case "$flags" in
   *) fail "the bundle is not signed with the hardened runtime (flags=$flags)" ;;
 esac
 
-# Gatekeeper's verdict, reported rather than asserted, because the right answer
-# depends on the certificate this machine happens to have. An ad-hoc build is
-# *supposed* to be rejected — that is what unsigned distribution means — so
-# failing on it would break every contributor and all of CI. A Developer ID
-# build that is rejected is a real problem, and that one does fail.
 echo "==> Gatekeeper's assessment"
-assessment="$(spctl --assess --type install -vv "$APP" 2>&1 || true)"
-printf '    %s\n' "${assessment//$'\n'/$'\n    '}"
-case "$signature" in
-  *"Authority=Developer ID Application:"*)
-    case "$assessment" in
-      *accepted*) ;;
-      *) fail "signed with a Developer ID and still rejected by Gatekeeper" ;;
-    esac ;;
-  *)
-    echo "    (ad-hoc build: rejection here is expected)" ;;
-esac
+"$ROOT/Scripts/check-gatekeeper.sh" "$APP"
 for language in en es; do
   [ -d "$APP/Contents/Resources/$language.lproj" ] || fail "$language.lproj is missing"
   plist "CFBundleLocalizations" | grep -qx "    $language" \

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import RunnerKit
@@ -23,6 +24,12 @@ private func atHomebrew(_ path: String = runnerPath) -> [String] {
 
 private func atIntelHomebrew(_ path: String = runnerPath) -> [String] {
   ["/usr/local/bin/gh"] + ghArguments(path)
+}
+
+/// Every absolute path the client may try, so a test of "nothing anywhere"
+/// stays one when the list grows.
+private func installPrefixes() -> Set<String> {
+  Set(GHCommandLineClient.standardLocations.map(\.executable)).subtracting(["/usr/bin/env"])
 }
 
 private func ask(
@@ -121,6 +128,50 @@ func refusesBusyValuesOtherThanTheBooleanTokens(busy: String) {
       == ["/usr/bin/env", "/opt/homebrew/bin/gh", "/usr/local/bin/gh"])
 }
 
+@Test func findsAGhMacPortsInstalledWhenLaunchedFromFinder() throws {
+  // A Finder or login launch has no MacPorts on its PATH either, and the
+  // menu's answer to a gh it cannot find is "install gh", which this user
+  // already did.
+  let macPorts = ["/opt/local/bin/gh"] + ghArguments(runnerPath)
+  let fake = FakeCommandRunner([macPorts: "online false\n"])
+  fake.exitCodes = [onPath(): 127]
+  fake.failingExecutables = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]
+  let client = GHCommandLineClient(commandRunner: fake)
+
+  #expect(
+    try client.blockingRunnerStatus(id: 21, scope: repositoryScope)
+      == RemoteStatus(online: true, busy: false))
+  _ = try client.blockingRunnerStatus(id: 21, scope: repositoryScope)
+
+  #expect(
+    Array(fake.invocations.map(\.executable).suffix(2))
+      == ["/opt/local/bin/gh", "/opt/local/bin/gh"])
+}
+
+@Test func looksWhereNixMiseAndAsdfPutGhWithoutAShellToSayWhere() {
+  // These live outside anything a Finder launch puts on PATH: nix's per-user
+  // and system profiles, and the shims mise and asdf leave in the home folder.
+  // Pinned as literals rather than read back from the list under test.
+  let home = FileManager.default.homeDirectoryForCurrentUser.path
+  let searched = GHCommandLineClient.standardLocations.map(\.executable)
+
+  for expected in [
+    "/opt/local/bin/gh",
+    "/etc/profiles/per-user/\(NSUserName())/bin/gh",
+    "/run/current-system/sw/bin/gh",
+    home + "/.nix-profile/bin/gh",
+    home + "/.local/share/mise/shims/gh",
+    home + "/.asdf/shims/gh",
+  ] {
+    #expect(searched.contains(expected), "\(expected) is never tried")
+  }
+  // Fallbacks, never overrides: a gh on PATH or from Homebrew still wins.
+  #expect(
+    Array(searched.prefix(3)) == [
+      "/usr/bin/env", "/opt/homebrew/bin/gh", "/usr/local/bin/gh",
+    ])
+}
+
 @Test func prefersWhateverIsOnPathOverTheKnownPrefixes() throws {
   // A gh from mise, nix or asdf is on PATH and nowhere near Homebrew. The
   // known prefixes are a fallback, never an override.
@@ -136,10 +187,10 @@ func refusesBusyValuesOtherThanTheBooleanTokens(busy: String) {
 @Test func reportsGhMissingOnlyAfterEveryCandidateHasBeenTried() {
   let fake = FakeCommandRunner()
   fake.exitCodes = [onPath(): 127]
-  fake.failingExecutables = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]
+  fake.failingExecutables = installPrefixes()
 
   #expect(throws: GitHubError.cliUnavailable) { try ask(fake) }
-  #expect(fake.invocations.count == 3)
+  #expect(fake.invocations.count == GHCommandLineClient.standardLocations.count)
 }
 
 @Test func aTimedOutGhIsNotRetriedAtEveryOtherPath() {
@@ -335,9 +386,7 @@ private func releaseArguments() -> [String] {
 
 @Test func aReleaseCheckWithNoGhAnywhereSaysSoRatherThanGuessing() throws {
   let fake = FakeCommandRunner()
-  fake.failingExecutables = [
-    "/usr/bin/env", "/opt/homebrew/bin/gh", "/usr/local/bin/gh",
-  ]
+  fake.failingExecutables = installPrefixes().union(["/usr/bin/env"])
   #expect(throws: GitHubError.cliUnavailable) {
     try GHCommandLineClient(commandRunner: fake).blockingLatestRunnerRelease()
   }

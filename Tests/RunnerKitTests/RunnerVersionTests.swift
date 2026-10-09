@@ -51,7 +51,7 @@ private func installedReading(
 ) -> InstalledRunnerVersion {
   var reader = JobLogReader()
   _ = reader.read(diagnosticsIn: sandbox.diagnostics)
-  guard let log = reader.activeLog else { return .absent }
+  guard let log = reader.headerLog else { return .absent }
   return RunnerVersionReader().blockingVersion(inLog: log)
 }
 
@@ -212,4 +212,57 @@ private func installedReading(
   #expect(
     RunnerVersionReader().blockingVersion(
       inLog: sandbox.diagnostics.appendingPathComponent(name)) == .absent)
+}
+
+@Test func anEmptyLogIsAbsentRatherThanUnreadable() throws {
+  // What a listener's log is for the instant after it is created, and what a
+  // page it rolls over into is until its next line. The file opened and read
+  // fine; there was simply nothing in it yet, which is not a fact about this
+  // Mac worth a line in the menu.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let log = try sandbox.makeLog("Runner_20260805-000000-utc.log", bytes: 0, modified: now)
+
+  #expect(RunnerVersionReader().blockingVersion(inLog: log) == .absent)
+}
+
+// MARK: - A listener that has turned the page
+
+/// The header a listener writes once, when its process starts.
+private func header(_ version: String) -> String {
+  "[2026-08-01 00:00:00Z INFO Listener] Version: \(version)"
+}
+
+@Test func aListenerThatRolledItsLogOverIsStillTheVersionItStartedAs() throws {
+  // Past its page size the listener carries on in a newer file with no header.
+  // Reading only the newest one loses the version, and the update notice with
+  // it, until the listener next restarts.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeLog(
+    "Runner_20260801-000000-utc.log",
+    lines: [header("2.330.0"), startedJob("deploy", at: "2026-08-05 10:00:00Z")],
+    modified: now)
+  try sandbox.makeLog(
+    "Runner_20260805-100031-utc.log",
+    lines: [finishedJob("deploy", "Succeeded", at: "2026-08-05 10:04:00Z")],
+    modified: now)
+
+  #expect(installedReading(in: sandbox) == .known(RunnerVersion(2, 330, 0)))
+}
+
+@Test func aPageWithAFullHistoryOfItsOwnStillLeadsBackToTheHeader() throws {
+  // Enough jobs on the page that the history needs nothing older. The header
+  // is still in the file before it, and still the only place the version is.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeLog(
+    "Runner_20260801-000000-utc.log", lines: [header("2.330.0")], modified: now)
+  let jobs = (0..<JobLogReader.maxRecords).flatMap { index in
+    let stamp = String(format: "2026-08-05 10:%02d:00Z", index)
+    return [startedJob("build", at: stamp), finishedJob("build", "Succeeded", at: stamp)]
+  }
+  try sandbox.makeLog("Runner_20260805-100000-utc.log", lines: jobs, modified: now)
+
+  #expect(installedReading(in: sandbox) == .known(RunnerVersion(2, 330, 0)))
 }

@@ -32,15 +32,51 @@ final class GitHubAccess: ObservableObject {
   @Published private(set) var notice: String?
 
   private let store: any GitHubTokenStoring
+  /// The refresh loop's gate on the same item. It stops asking once somebody
+  /// refuses, and only Save or Remove here says to ask again.
+  private let unattended: UnattendedTokenStore?
+  private var pendingRead: Task<Void, Never>?
 
-  init(store: any GitHubTokenStoring = KeychainTokenStore()) {
+  init(
+    store: any GitHubTokenStoring = KeychainTokenStore(),
+    unattended: UnattendedTokenStore? = nil
+  ) {
     self.store = store
-    state = Self.reading(store)
+    self.unattended = unattended
+    // Until the Keychain answers it has not said, and calling that `.absent`
+    // would claim nothing is stored.
+    state = .unreadable
+    reread()
   }
 
-  private static func reading(_ store: any GitHubTokenStoring) -> GitHubAccessState {
+  /// Waits for the Keychain read in flight. Nothing in the app needs this; a
+  /// test does.
+  func quiesce() async { await pendingRead?.value }
+
+  /// Off the main actor, because a read can wait on a Keychain dialog for as
+  /// long as nobody answers it, and the menu bar would freeze behind it.
+  private func reread() {
+    pendingRead?.cancel()
+    let store = store
+    let unattended = unattended
+    pendingRead = Task {
+      let found = await offCooperativePool { Self.reading(store, through: unattended) }
+      // Superseded by a write that finished first, or by a later read.
+      guard !Task.isCancelled else { return }
+      state = found
+    }
+  }
+
+  nonisolated private static func reading(
+    _ store: any GitHubTokenStoring, through unattended: UnattendedTokenStore?
+  ) -> GitHubAccessState {
     do {
-      return try store.token() == nil ? .absent : .stored
+      // Through the refresh loop's read where there is one: after an upgrade
+      // each read raises its own dialog, and Always Allow on one does not
+      // dismiss the other.
+      let token =
+        if let unattended { try unattended.tokenOnceAnswered() } else { try store.token() }
+      return token == nil ? .absent : .stored
     } catch {
       return .unreadable
     }
@@ -54,23 +90,29 @@ final class GitHubAccess: ObservableObject {
     let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
     // An empty field is not an instruction to erase a working credential.
     guard !trimmed.isEmpty else { return }
+    // Whether or not the write lands: whoever pressed the button can answer a
+    // new dialog, and after an upgrade the Keychain may refuse this binary the
+    // write too, leaving nothing else to lift a Deny.
+    unattended?.forgetRefusal()
     do {
       try store.store(trimmed)
+      pendingRead?.cancel()
       notice = nil
       state = .stored
     } catch {
       notice = L10n.settingsGitHubKeychainFailed
-      state = Self.reading(store)
+      reread()
     }
   }
 
   func remove() {
+    unattended?.forgetRefusal()
     do {
       try store.clear()
       notice = nil
     } catch {
-      notice = L10n.settingsGitHubKeychainFailed
+      notice = L10n.settingsGitHubKeychainRemoveFailed
     }
-    state = Self.reading(store)
+    reread()
   }
 }

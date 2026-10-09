@@ -50,6 +50,14 @@ private final class FakeRegistrar: LoginItemRegistering, @unchecked Sendable {
     lock.unlock()
     if refuses { throw CocoaError(.fileWriteNoPermission) }
   }
+
+  /// The user flipping the switch in System Settings, which this app hears
+  /// nothing about.
+  func changeInSystemSettings(to status: LoginItemStatus) {
+    lock.lock()
+    defer { lock.unlock() }
+    current = status
+  }
 }
 
 // MARK: - Opt in
@@ -144,6 +152,72 @@ private final class FakeRegistrar: LoginItemRegistering, @unchecked Sendable {
   #expect(item.notice == L10n.openAtLoginUnavailable)
   // Not the failure line: nothing was attempted, so nothing failed.
   #expect(item.notice != L10n.openAtLoginFailed)
+}
+
+// MARK: - Changed somewhere else
+
+@Test @MainActor func approvingItInSystemSettingsShowsOnTheNextRead() {
+  // The notice sends the user to System Settings. Doing what it says has to
+  // clear it without a relaunch.
+  let registrar = FakeRegistrar(.requiresApproval)
+  let item = LoginItem(registrar: registrar)
+  #expect(item.notice == L10n.openAtLoginNeedsApproval)
+
+  registrar.changeInSystemSettings(to: .enabled)
+  item.refresh()
+
+  #expect(item.isEnabled)
+  #expect(item.notice == nil)
+}
+
+@Test @MainActor func switchingItOffInSystemSettingsTurnsTheToggleOff() {
+  let registrar = FakeRegistrar(.enabled)
+  let item = LoginItem(registrar: registrar)
+
+  registrar.changeInSystemSettings(to: .requiresApproval)
+  item.refresh()
+
+  #expect(item.isEnabled == false)
+  #expect(item.notice == L10n.openAtLoginNeedsApproval)
+}
+
+@Test @MainActor func switchingItOffInSystemSettingsIsNotReportedAsAFailure() {
+  // Turned on here, then removed from Open at Login in System Settings. The
+  // toggle goes off, and nothing failed: the user did it, somewhere else.
+  let registrar = FakeRegistrar(.disabled)
+  let item = LoginItem(registrar: registrar)
+  item.setEnabled(true)
+
+  registrar.changeInSystemSettings(to: .disabled)
+  item.refresh()
+
+  #expect(item.isEnabled == false)
+  #expect(item.notice == nil)
+}
+
+@Test @MainActor func aRegistrationThatFailedStillSaysSoAfterARefresh() {
+  // Settings rereads every time the app comes back to the front. A turn-on
+  // that did not take has not taken any more since.
+  let registrar = FakeRegistrar(.disabled, failing: true)
+  let item = LoginItem(registrar: registrar)
+  item.setEnabled(true)
+
+  item.refresh()
+  item.refresh()
+
+  #expect(item.notice == L10n.openAtLoginFailed)
+}
+
+@Test func settingsRereadsWhatMacOSDecidesWhenTheAppComesBack() {
+  let source = standfastSource("SettingsView.swift")
+  let compact = source.filter { !$0.isWhitespace }
+
+  // Leaving System Settings hands focus back to this app, and reopening
+  // Settings may reuse a view that never went away.
+  #expect(compact.contains("NSApplication.didBecomeActiveNotification"))
+  #expect(compact.contains(".onAppear{rereadWhatMacOSDecides()}"))
+  #expect(compact.contains("loginItem.refresh()"))
+  #expect(compact.contains("notifications.refreshAuthorizationIfEnabled()"))
 }
 
 // MARK: - What macOS can answer

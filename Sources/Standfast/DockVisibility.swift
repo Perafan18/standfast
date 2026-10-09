@@ -19,12 +19,39 @@ protocol ActivationPolicySetting: AnyObject {
   func apply(_ presence: DockPresence)
 }
 
+/// What `AppActivationPolicy` needs from `NSApplication`, so the order of its
+/// calls can be tested without touching the process the tests run in.
+@MainActor
+protocol ActivationPolicyApplying: AnyObject {
+  var isActive: Bool { get }
+  @discardableResult
+  func setActivationPolicy(_ policy: NSApplication.ActivationPolicy) -> Bool
+  func activate()
+}
+
+extension NSApplication: ActivationPolicyApplying {}
+
 @MainActor
 final class AppActivationPolicy: ActivationPolicySetting {
+  private let application: @MainActor () -> (any ActivationPolicyApplying)?
+
+  init(
+    application: @escaping @MainActor () -> (any ActivationPolicyApplying)? = { NSApp }
+  ) {
+    self.application = application
+  }
+
   func apply(_ presence: DockPresence) {
+    guard let app = application() else { return }
     switch presence {
-    case .dock: NSApp?.setActivationPolicy(.regular)
-    case .menuBarOnly: NSApp?.setActivationPolicy(.accessory)
+    case .dock: app.setActivationPolicy(.regular)
+    case .menuBarOnly:
+      // Leaving `.regular` deactivates the app, dropping the Settings window
+      // the switch lives in behind the previous app. Read first, so the apply
+      // at launch never takes focus from whatever the user is in.
+      let wasActive = app.isActive
+      app.setActivationPolicy(.accessory)
+      if wasActive { app.activate() }
     }
   }
 }

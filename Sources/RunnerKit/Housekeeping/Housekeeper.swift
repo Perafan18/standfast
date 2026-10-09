@@ -152,7 +152,11 @@ public struct Housekeeper: Sendable {
     let sweptLeftovers = try sweepLeftovers(in: trash, matching: .cache(target))
 
     let victim = workDirectory.appendingPathComponent(target.folderName)
-    guard FileManager.default.fileExists(atPath: victim.path) else {
+    // A linked cache is somebody's deliberate setup, usually a cache kept on
+    // another disk. Renaming the link frees nothing and only undoes that.
+    guard !Self.isSymbolicLink(at: victim),
+      FileManager.default.fileExists(atPath: victim.path)
+    else {
       removeIfEmpty(trash)
       return sweptLeftovers ? .done : .nothingToDo
     }

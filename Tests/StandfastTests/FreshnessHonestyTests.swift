@@ -107,6 +107,65 @@ private let noon = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(fleet.lastReadAt != nil)
 }
 
+@Test @MainActor func aGitLabRunnerWithNoTokenIsNotAFailedReading() async throws {
+  // No token is a setting, not a failed read: nothing was asked. Counting it
+  // froze the line at "Update failed · Not checked yet" while the GitHub
+  // runner beside it was read on schedule.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  try box.addGitLabRunner()
+  let fleet = freshnessModel(box)
+  await fleet.quiesce()
+  #expect(
+    fleet.snapshots.map(\.display).contains(.resolved(.unknown(.gitLabNoToken))))
+
+  #expect(!fleet.lastAttemptFailed)
+  #expect(fleet.lastReadAt != nil)
+}
+
+@Test @MainActor func aGitLabRunnerPausedInGitLabIsNotAFailedReading() async throws {
+  // GitLab answered, and the answer was "paused". That is a reading, so the
+  // line beside it must not say the update failed.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addGitLabRunner()
+  box.set(gitLabAnswer: #"{"id":91,"status":"online","paused":true,"tag_list":[]}"#)
+  let fleet = freshnessModel(box)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.unknown(.gitLabPaused))])
+}
+
+@Test @MainActor func aGitLabInstanceServedOverHTTPIsNotAFailedReading() async throws {
+  // Not asked on purpose, because a token goes only over https. Like no token,
+  // that is a setting of the instance, and counting it would hold the line at
+  // "Update failed" for as long as config.toml names an http address.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  try box.addGitLabRunner(url: "http://gitlab.lan:8080")
+  let fleet = freshnessModel(box)
+  await fleet.quiesce()
+  #expect(
+    fleet.snapshots.map(\.display).contains(.resolved(.unknown(.gitLabInsecure))))
+
+  #expect(!fleet.lastAttemptFailed)
+  #expect(fleet.lastReadAt != nil)
+}
+
+@Test @MainActor func aGitHubRunnerWithNoTokenIsNotAFailedReadingEither() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(remote: .failure(.noToken))
+  let fleet = freshnessModel(box)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.unknown(.noToken))])
+
+  #expect(!fleet.lastAttemptFailed)
+  #expect(fleet.lastReadAt != nil)
+}
+
 @MainActor
 private func freshnessModel(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   RunnerFleetModel(

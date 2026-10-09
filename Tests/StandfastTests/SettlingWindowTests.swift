@@ -48,6 +48,32 @@ private let label = "actions.runner.acme-widget.build-mac"
     window.display(.stopped, for: label, readBeganAt: epoch + 1) == .resolved(.stopped))
 }
 
+@Test func aReadingNobodyAnsweredLeavesTheWindowWhereItWas() {
+  // GitHub rate limited, the network down, `launchctl` timing out: none of
+  // them says the handshake finished or failed, so the registration that is
+  // still under way a scan later is still the one being waited for.
+  for reason: UnknownReason in [.rateLimited, .noAnswer, .serviceStateUnreadable] {
+    var window = SettlingWindow(duration: 30)
+    window.open(for: label, at: epoch)
+
+    #expect(
+      window.display(.unknown(reason), for: label, readBeganAt: epoch + 2)
+        == .resolved(.unknown(reason)))
+    #expect(window.display(.disconnected, for: label, readBeganAt: epoch + 17) == .starting)
+    #expect(window.settlingLabels == [label])
+  }
+}
+
+@Test func anUnansweredReadingPastTheDeadlineStillSpendsTheWindow() {
+  var window = SettlingWindow(duration: 30)
+  window.open(for: label, at: epoch)
+
+  #expect(
+    window.display(.unknown(.noAnswer), for: label, readBeganAt: epoch + 30)
+      == .resolved(.unknown(.noAnswer)))
+  #expect(window.settlingLabels.isEmpty)
+}
+
 @Test func theWindowClosesAsSoonAsTheRunnerRegisters() {
   var window = SettlingWindow(duration: 30)
   window.open(for: label, at: epoch)

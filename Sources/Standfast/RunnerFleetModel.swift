@@ -146,6 +146,10 @@ final class RunnerFleetModel: ObservableObject {
   /// the window is showing, and a scan nobody could complete did not make that
   /// any newer.
   @Published private(set) var lastReadAt: Date?
+  /// The same instant as `lastReadAt`, on a clock nobody can set. Only the
+  /// ticker reads it: a wall clock stepped back dates the last reading in the
+  /// future, and a negative age is younger than any interval.
+  private var lastReadInstant: ContinuousClock.Instant?
   /// Whether the most recent scan left any runner unresolved.
   ///
   /// Fleet-wide on purpose, because the freshness line speaks for the fleet:
@@ -176,6 +180,7 @@ final class RunnerFleetModel: ObservableObject {
   private let resolver: RunnerStateResolver
   private let controller: ServiceController
   private let clock: @Sendable () -> Date
+  private let monotonicClock: @Sendable () -> ContinuousClock.Instant
   private let probeDelay: TimeInterval
   private let refreshInterval: TimeInterval?
   private let versions: any RunnerVersionReading
@@ -245,6 +250,24 @@ final class RunnerFleetModel: ObservableObject {
   /// busy — and a broken file stops costing electricity the same afternoon.
   static let retainedBusyEvidenceLifetime: TimeInterval = 30 * 60
 
+  /// How long the log may claim a job GitHub calls idle: a refresh or two of
+  /// lag. Past it, the job was dropped without a completion line: cancelled
+  /// before its first lease renewal, or never taken by its worker.
+  static let idleAnswerGrace: TimeInterval = 2 * 60
+
+  /// GitHub's answer, with the log standing in where GitHub cannot say.
+  private static func isDoingWork(_ snapshot: RunnerSnapshot) -> Bool {
+    switch snapshot.display.resolvedState {
+    case .busy?: true
+    case .stopped?: false
+    case .idle?:
+      snapshot.jobs.running.map {
+        snapshot.stateReadAt.timeIntervalSince($0.startedAt) < idleAnswerGrace
+      } ?? false
+    default: snapshot.jobs.running != nil
+    }
+  }
+
   private enum ExpectedStopResult {
     case none
     case completed(ExpectedStopOutcome)
@@ -283,6 +306,7 @@ final class RunnerFleetModel: ObservableObject {
     opener: any URLOpening = WorkspaceURLOpener(),
     serviceConfirmation: any ServiceActionConfirming,
     clock: @escaping @Sendable () -> Date = Date.init,
+    monotonicClock: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
     probeDelay: TimeInterval = 2,
     // 15s: fast enough that "did my build start?" is answered by looking up,
     // slow enough not to spend a GitHub API call every second all day.
@@ -307,6 +331,7 @@ final class RunnerFleetModel: ObservableObject {
     self.opener = opener
     self.serviceConfirmation = serviceConfirmation
     self.clock = clock
+    self.monotonicClock = monotonicClock
     self.probeDelay = probeDelay
     self.refreshInterval = refreshInterval
     self.releaseInterval = releaseInterval
@@ -346,6 +371,7 @@ final class RunnerFleetModel: ObservableObject {
     // exact stamp when its own launchd probe answers; action ordering uses that
     // probe stamp rather than this scan-level one.
     let startedAt = clock()
+    let startedInstant = monotonicClock()
     // Asked at most once a day, and beside the scan rather than inside it: see
     // `checkForNewRelease`.
     if lastReleaseCheck.map({ startedAt.timeIntervalSince($0) >= releaseInterval })
@@ -358,7 +384,7 @@ final class RunnerFleetModel: ObservableObject {
       let scan = await Self.scan(
         discover: discover, resolver: resolver, readers: jobLogs, versions: versions,
         queues: queues, clock: clock)
-      apply(scan, startedAt: startedAt)
+      apply(scan, startedAt: startedAt, startedInstant: startedInstant)
       inFlight = nil
       isScanning = false
       if refreshRequested {
@@ -390,8 +416,8 @@ final class RunnerFleetModel: ObservableObject {
     // same loop by a slower route. It also means a Refresh now pushes the next
     // automatic reading out, which is what a user who has just refreshed
     // wanted.
-    if let refreshInterval, let lastReadAt,
-      clock().timeIntervalSince(lastReadAt) < refreshInterval
+    if let refreshInterval, let lastReadInstant,
+      lastReadInstant.duration(to: monotonicClock()) < .seconds(refreshInterval)
     {
       return
     }
@@ -488,11 +514,12 @@ final class RunnerFleetModel: ObservableObject {
         await queuedWork(for: runner, reading: state, through: queues))
       readAt.append(state.readAt)
       readBeganAt.append(state.beganAt)
-      workContained.append(runner.containedWorkDirectory != nil)
       stateReadAt.append(state.stateReadAt)
       if runner.installation == .managedFleet {
         jobs.append(JobLogReader.Reading(history: .empty, isAvailable: false))
         installed.append(.absent)
+        // Unproved, and never asked: maintenance of a slot is its supervisor's.
+        workContained.append(false)
         continue
       }
       // The same rule as discovery, for the same reason: this is file I/O, and
@@ -515,11 +542,15 @@ final class RunnerFleetModel: ObservableObject {
           // `_diag` holds nothing yet has not written a version anywhere for
           // this to fail to read.
           version: history.isAvailable
-            ? (reader.activeLog.map(versions.blockingVersion) ?? .absent) : .absent)
+            ? (reader.headerLog.map(versions.blockingVersion) ?? .absent) : .absent,
+          // Resolves symlinks under `_work`, which INV-006 says may be on an
+          // external disk or a share: a `realpath` that waits on the volume.
+          workContained: runner.containedWorkDirectory != nil)
       }
       jobs.append(read.jobs)
       readers[runner.label] = read.reader
       installed.append(read.version)
+      workContained.append(read.workContained)
     }
     return Scan(
       found: found, states: states, labels: labels, queued: queued,
@@ -572,7 +603,7 @@ final class RunnerFleetModel: ObservableObject {
     }
   }
 
-  /// Everything one hop off the pool reads about one runner's `_diag`.
+  /// Everything one hop off the pool reads about one runner's directory.
   ///
   /// A named type for the same reason `Scan` is: it crosses a thread boundary.
   /// One hop rather than two because both halves come out of the same directory
@@ -581,6 +612,7 @@ final class RunnerFleetModel: ObservableObject {
     let jobs: JobLogReader.Reading
     let reader: JobLogReader
     let version: InstalledRunnerVersion
+    let workContained: Bool
   }
 
   /// One scan's answer. A named type rather than a tuple because it crosses a
@@ -608,7 +640,9 @@ final class RunnerFleetModel: ObservableObject {
   /// - Parameter startedAt: when this scan began. This is the fleet-level
   ///   freshness stamp; each snapshot uses its corresponding per-runner probe
   ///   time from `Scan.readAt` for action ordering and elapsed job time.
-  private func apply(_ scan: Scan, startedAt: Date) {
+  private func apply(
+    _ scan: Scan, startedAt: Date, startedInstant: ContinuousClock.Instant
+  ) {
     let resolvedLabels = Set(scan.found.runners.map(\.label))
     // An action is direct evidence that its label still belongs to this
     // lifecycle. Absence whose conservative stamp is no later than completion
@@ -646,7 +680,7 @@ final class RunnerFleetModel: ObservableObject {
     // app, describing a directory that may well have been deleted with it.
     housekeeping.keepOnly(retainedLabels)
     releaseServiceActionsObserved(in: scan, retainedLabels: retainedLabels)
-    let repeated = RunnerSnapshot.repeatedNames(among: scan.found.runners)
+    let qualifiers = RunnerSnapshot.qualifiers(among: scan.found.runners)
     // Only a version actually read is worth carrying forward. Remembering
     // `.unreadable` would keep reporting a failure that may already be over,
     // and remembering `.absent` says nothing the fresh reading does not.
@@ -671,8 +705,7 @@ final class RunnerFleetModel: ObservableObject {
         queued: scan.queued[index],
         isWorkDirectoryContained: scan.workContained[index],
         // Only where the name alone would not say which runner this is.
-        qualifier: repeated.contains(runner.displayName)
-          ? runner.scope.displayName : nil,
+        qualifier: qualifiers[index],
         jobs: jobReading.history,
         readAt: readAt,
         isJobHistoryAvailable: jobReading.isAvailable,
@@ -693,9 +726,7 @@ final class RunnerFleetModel: ObservableObject {
     }
     for snapshot in snapshots {
       activityEvidence[snapshot.runner.label] = (
-        busy: snapshot.display.resolvedState == .busy
-          || (snapshot.display.resolvedState != .stopped && snapshot.jobs.running != nil),
-        observedAt: startedAt
+        busy: Self.isDoingWork(snapshot), observedAt: startedAt
       )
     }
     notice = FleetNotice.resolving(
@@ -710,10 +741,19 @@ final class RunnerFleetModel: ObservableObject {
       {
         return false
       }
+      // Not asked is a setting rather than a read that failed, so it cannot
+      // make the reading older than this scan; paused is GitLab's answer.
+      if case .resolved(.unknown(.gitLabNoToken)) = snapshot.display { return false }
+      if case .resolved(.unknown(.gitLabInsecure)) = snapshot.display { return false }
+      if case .resolved(.unknown(.gitLabPaused)) = snapshot.display { return false }
+      if case .resolved(.unknown(.noToken)) = snapshot.display { return false }
       if case .resolved(.unknown) = snapshot.display { return true }
       return false
     }
-    if !lastAttemptFailed { lastReadAt = startedAt }
+    if !lastAttemptFailed {
+      lastReadAt = startedAt
+      lastReadInstant = startedInstant
+    }
     // Read from what the menu is about to show rather than from the scan, so a
     // runner the settling window is covering for cannot be announced as
     // disconnected while the menu says it is starting.
@@ -850,7 +890,8 @@ final class RunnerFleetModel: ObservableObject {
 
   func performMaintenance(_ kind: MaintenanceOffer.Kind, onRunnerID id: String) {
     guard let snapshot = snapshots.first(where: { $0.id == id }) else { return }
-    guard snapshot.runner.installation != .managedFleet else { return }
+    let installation = snapshot.runner.installation
+    guard installation != .managedFleet, installation != .gitLabService else { return }
     housekeeping.perform(kind, on: snapshot)
   }
 
@@ -1125,9 +1166,11 @@ final class RunnerFleetModel: ObservableObject {
       guard snapshot.runner.label == label else { return snapshot }
       return RunnerSnapshot(
         runner: snapshot.runner, display: snapshot.display,
+        labels: snapshot.labels, queued: snapshot.queued,
+        isWorkDirectoryContained: snapshot.isWorkDirectoryContained,
         qualifier: snapshot.qualifier, jobs: snapshot.jobs, readAt: snapshot.readAt,
         isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
-        stateReadAt: snapshot.stateReadAt,
+        readBeganAt: snapshot.readBeganAt, stateReadAt: snapshot.stateReadAt,
         version: snapshot.version,
         isServiceActionReserved: snapshot.isServiceActionReserved,
         operation: operation)

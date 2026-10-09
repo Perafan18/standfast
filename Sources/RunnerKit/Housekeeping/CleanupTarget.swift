@@ -122,10 +122,11 @@ extension DiskEntryKind {
     } else if folderName == "_temp" {
       self = .temporary
     } else {
-      // Every directory the runner owns starts with an underscore, and the
-      // trash this app deletes through starts with a dot. What is left is named
-      // after a repository, and a repository name can be neither.
-      self = folderName.hasPrefix("_") || folderName.hasPrefix(".") ? .other : .checkout
+      // Every directory the runner owns starts with an underscore. A leading
+      // dot proves nothing, since `<org>/.github` checks out as `.github`, so
+      // only the names this app and Finder leave here are singled out.
+      let notARepository = [Housekeeper.trashFolder, ".DS_Store"].contains(folderName)
+      self = folderName.hasPrefix("_") || notARepository ? .other : .checkout
     }
   }
 }

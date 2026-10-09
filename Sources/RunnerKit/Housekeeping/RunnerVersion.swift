@@ -44,7 +44,7 @@ public struct RunnerVersion: Equatable, Comparable, Sendable, CustomStringConver
 /// The version is not recorded anywhere a runner is documented to publish it.
 /// `.runner` does not carry it, and the only two places on disk that do are
 /// `bin/Runner.Listener.deps.json` — a hundred kilobytes of .NET dependency
-/// graph — and the header the listener writes at the top of every log it opens.
+/// graph — and the header the listener writes when its process starts.
 /// The log wins on both counts: it is four kilobytes into a file this app
 /// already knows how to find, and it says which runner *ran*, where the
 /// dependency file only says which one is unpacked.
@@ -58,7 +58,7 @@ public protocol RunnerVersionReading: Sendable {
   /// is yours to block; see `offCooperativePool`.
   ///
   /// - Parameter log: a listener log, which the caller already has: see
-  ///   `JobLogReader.activeLog`.
+  ///   `JobLogReader.headerLog`.
   func blockingVersion(inLog log: URL) -> InstalledRunnerVersion
 }
 
@@ -96,7 +96,10 @@ public struct RunnerVersionReader: RunnerVersionReading {
   public func blockingVersion(inLog log: URL) -> InstalledRunnerVersion {
     guard let handle = try? FileHandle(forReadingFrom: log) else { return .unreadable }
     defer { try? handle.close() }
-    guard let data = try? handle.read(upToCount: Self.headWindow) else {
+    let data: Data
+    // Nil is how `read(upToCount:)` reports end of file, which for an empty log
+    // is the first byte. Only a thrown error is a read that failed.
+    do { data = try handle.read(upToCount: Self.headWindow) ?? Data() } catch {
       return .unreadable
     }
     for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {

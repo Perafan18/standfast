@@ -86,3 +86,22 @@ import Testing
     enterprise.preferredGitHubURL.absoluteString
       == "https://github.com/enterprises/acme-corp/settings/actions/runners")
 }
+
+@Test func aGitLabInstanceOpensWhereItLivesEvenAtAnIPv6Literal() throws {
+  // `URL.host` drops the brackets and `https://fd00::10` is no URL at all, so
+  // the link this used to rebuild from the host trapped the Control Center.
+  let ipv6 = try #require(GitLabInstance(url: "https://[fd00::10]/"))
+  let subPath = try #require(GitLabInstance(url: "https://gitlab.corp:8443/gitlab/"))
+  let plain = try #require(GitLabInstance(url: "http://10.0.0.5:8080/"))
+
+  #expect(
+    RunnerScope.gitLab(instance: ipv6).settingsURL.absoluteString == "https://[fd00::10]")
+  #expect(
+    RunnerScope.gitLab(instance: subPath).settingsURL.absoluteString
+      == "https://gitlab.corp:8443/gitlab")
+  // The name spells the scheme out for http, so a link rebuilt from it with
+  // https in front would point at no server at all.
+  #expect(
+    RunnerScope.gitLab(instance: plain).settingsURL.absoluteString
+      == "http://10.0.0.5:8080")
+}

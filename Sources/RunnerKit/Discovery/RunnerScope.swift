@@ -6,12 +6,11 @@ public enum RunnerScope: Equatable, Sendable {
   case repository(owner: String, name: String)
   case organization(String)
   case enterprise(String)
-  /// A GitLab instance, named by host. Deliberately no project/group split:
-  /// `config.toml` does not say which a runner is — only the API does, with a
-  /// token — and inventing one here would be a guess wearing a type. The host
-  /// alone is enough to ask `GET /api/v4/runners/{id}` and to open the
-  /// instance in a browser.
-  case gitLab(instanceHost: String)
+  /// A GitLab instance. Deliberately no project/group split: `config.toml`
+  /// does not say which a runner is — only the API does, with a token — and
+  /// inventing one here would be a guess wearing a type. The instance alone is
+  /// enough to ask `GET /api/v4/runners/{id}` and to open it in a browser.
+  case gitLab(instance: GitLabInstance)
 }
 
 extension RunnerScope {
@@ -42,7 +41,7 @@ extension RunnerScope {
     // the GitLab client before any path is built, and if that routing ever
     // broke, a fatalError here would take the whole fleet down over one
     // runner. An impossible path fails as one unresolvable runner instead.
-    case .gitLab(let host): "unreachable/gitlab/\(host)/runners/\(id)"
+    case .gitLab(let instance): "unreachable/gitlab/\(instance.name)/runners/\(id)"
     }
   }
 
@@ -72,8 +71,8 @@ extension RunnerScope {
     // The instance itself. Which project or group this runner belongs to is
     // exactly what `config.toml` does not say, so any deeper page would be a
     // guess dressed as a link.
-    case .gitLab(let host):
-      URL(string: "https://\(host)")!
+    case .gitLab(let instance):
+      instance.baseURL
     }
   }
 
@@ -97,7 +96,7 @@ extension RunnerScope {
     case .repository(let owner, let name): "\(owner)/\(name)"
     case .organization(let org): org
     case .enterprise(let slug): slug
-    case .gitLab(let host): host
+    case .gitLab(let instance): instance.name
     }
   }
 }

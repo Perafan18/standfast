@@ -47,7 +47,7 @@
 "settings.power" = "Energía";
 "settings.startup" = "Inicio";
 "settings.notifications.footer" = "Las alertas usan las notificaciones del sistema.";
-"settings.power.footer" = "Cerrar la tapa la sigue durmiendo.";
+"settings.power.footer" = "Aun así, cerrar la tapa pone esta Mac en reposo.";
 "settings.github" = "Acceso a GitHub";
 "settings.gitlab" = "Acceso a GitLab";
 "settings.gitlab.footer" = "Con un token de acceso personal, Standfast le pregunta a tu instancia de GitLab por sus runners. La instancia sale de la configuración de cada runner.";
@@ -92,7 +92,7 @@
 "menu.notify.stopped" = "Cuando un runner se pare solo";
 "menu.notify.blocked" = "Las notificaciones de Standfast están desactivadas en Ajustes del Sistema › Notificaciones";
 "menu.preventSleep" = "Mantener esta Mac despierta mientras corre un job";
-"menu.preventSleep.lid" = "Cerrar la tapa la sigue durmiendo";
+"menu.preventSleep.lid" = "Aun así, cerrar la tapa la pone en reposo";
 
 "menu.maintenance" = "Mantenimiento";
 "menu.maintenance.measure" = "Medir el uso de disco";
@@ -139,7 +139,7 @@
 "service.confirm.stop.uncertain" = "%@ en %@ puede tener trabajo en curso. Pararlo puede interrumpir ese trabajo.";
 "service.confirm.restart.uncertain" = "%@ en %@ puede tener trabajo en curso. Reiniciarlo puede interrumpir ese trabajo. Si Arrancar falla después de Parar, el runner puede quedar detenido.";
 "service.confirm.cancel" = "Cancelar";
-"cleanup.toolCache.effect" = "La caché de herramientas guarda lo que descargaron los pasos de setup. El siguiente job que necesite una la vuelve a descargar.";
+"cleanup.toolCache.effect" = "La caché de herramientas guarda las toolchains que descargaron los pasos de setup. El siguiente job que necesite una la vuelve a descargar.";
 "cleanup.actionCache.effect" = "Son las acciones que usan tus workflows, clonadas aquí. El runner recupera las que no encuentre.";
 "cleanup.standfastTrash.title" = "¿Borrar los restos de limpieza de Standfast de %@?";
 "cleanup.standfastTrash.effect" = "Estos directorios de caché fueron apartados por una limpieza anterior de Standfast. Sus nombres antiguos ya no indican qué caché contenían. Solo se borran restos con nombre UUID en la papelera privada de Standfast; las cachés actuales y los demás archivos permanecen.";
@@ -147,7 +147,7 @@
 "cleanup.logs.title" = "¿Borrar %d archivos de log antiguos de %@?";
 "cleanup.logs.effect.one" = "%d archivo en el que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra el Centro de control de Standfast.";
 "cleanup.logs.effect" = "%d archivos en los que nadie escribe desde hace más de una semana. El log que el runner está escribiendo ahora nunca se borra, ni tampoco el historial que muestra el Centro de control de Standfast.";
-"cleanup.confirmationUnavailable" = "No se pudo pedir confirmación: la pantalla está bloqueada. Desbloquea este Mac y vuelve a intentarlo.";
+"cleanup.confirmationUnavailable" = "No se pudo pedir confirmación: la pantalla está bloqueada. Desbloquea esta Mac y vuelve a intentarlo.";
 "cleanup.refused" = "La limpieza se detuvo: %@ tomó trabajo";
 "cleanup.failed" = "No se pudo borrar nada; comprueba que se puede escribir en %@";
 "cleanup.partiallyFailed" = "Es posible que se hayan borrado algunos archivos, pero la limpieza no terminó; comprueba que se puede escribir en %@";
@@ -171,14 +171,14 @@
 
 "queue.waiting.one" = "1 trabajo esperando a esta máquina";
 "queue.waiting" = "%d trabajos esperando a esta máquina";
-"queue.waitingPartial" = "%d trabajos o más esperando a esta máquina";
+"queue.waitingPartial" = "%d o más trabajos esperando a esta máquina";
 "queue.empty" = "No hay trabajo en cola esperando a esta máquina";
-"queue.unknownScope" = "GitHub no puede decir qué hay en cola para un runner de organización";
+"queue.unknownScope" = "GitHub no puede decir qué hay en cola para un runner de organización o de empresa";
 "state.unknown.noCLI" = "Corriendo en local, GitHub sin respuesta — instala la CLI de GitHub (gh)";
 "state.unknown.noToken" = "Corriendo en local, GitHub sin consultar — añade un token de GitHub en Ajustes";
 "state.unknown.rateLimited" = "Corriendo en local, límite de GitHub alcanzado — responde de nuevo en un rato";
 "state.unknown.notAuthenticated" = "Corriendo en local, GitHub sin respuesta — ejecuta gh auth login en una terminal";
-"state.unknown.noAnswer" = "Corriendo en local, GitHub sin respuesta — gh no obtuvo respuesta; revisa tu red";
+"state.unknown.noAnswer" = "Corriendo en local, GitHub sin respuesta — revisa tu red, o el acceso del token a este runner";
 "state.unknown.noLocalAnswer" = "No se pudo leer el servicio local — launchctl no respondió; prueba Actualizar ahora";
 "state.unknown.managedFleetWaiting" = "Slot del fleet en espera — el supervisor está preparando su siguiente runner efímero";
 "state.unknown.managedFleetUnavailable" = "Estado del fleet no disponible — revisa el supervisor del fleet en esta Mac";
@@ -202,9 +202,9 @@
 "operation.inFlight.title" = "Solicitud de %@ en curso";
 "operation.inFlight.detail" = "Espera a que termine %@.";
 "operation.accepted.title" = "Solicitud de %@ enviada";
-"operation.accepted.detail" = "%@ terminó, pero el estado del runner no está confirmado. Actualizar ahora.";
+"operation.accepted.detail" = "%@ terminó, pero el estado del runner no está confirmado. Selecciona Actualizar ahora.";
 "operation.timedOut.title" = "La solicitud de %@ agotó el tiempo";
-"operation.timedOut.detail" = "%@ podría haberse ejecutado. Espera y luego Actualizar ahora.";
+"operation.timedOut.detail" = "%@ podría haberse ejecutado. Espera y luego selecciona Actualizar ahora.";
 "operation.scriptMissing.title" = "No se pudo ejecutar la solicitud de %@";
 "operation.scriptMissing.detail" = "Falta svc.sh. Reinstala el runner y luego prueba %@ otra vez.";
 "operation.couldNotLaunch.title" = "No se pudo iniciar la solicitud de %@";
@@ -216,7 +216,7 @@
 "operation.restartStartFailed.title" = "Reiniciar detuvo el runner, pero no pudo arrancarlo";
 "operation.restartStartFailed.detail" = "Revisa los archivos del runner y luego prueba Arrancar.";
 "operation.restartStartTimedOut.title" = "Reiniciar detuvo el runner, pero arrancar agotó el tiempo";
-"operation.restartStartTimedOut.detail" = "Arrancar podría haberse ejecutado. Espera y luego Actualizar ahora.";
+"operation.restartStartTimedOut.detail" = "Arrancar podría haberse ejecutado. Espera y luego selecciona Actualizar ahora.";
 
 "thermal.serious" = "Esta Mac está caliente y macOS la está ralentizando";
 "thermal.critical" = "Esta Mac está muy caliente y macOS la está ralentizando al máximo";
@@ -239,3 +239,20 @@
 "managedJob.openRun" = "Abrir ejecución del workflow en GitHub";
 "managedJob.openPR" = "Abrir PR #%d en GitHub";
 "managedJob.noPR" = "%@ · GitHub no informa un PR";
+"state.unknown.tokenRefused" = "Corriendo en local, GitHub rechazó el token — reemplázalo en Ajustes";
+"state.layer.gitHubRefusedToken" = "GitHub rechazó el token";
+"state.unknown.tokenUnreadable" = "Corriendo en local, GitHub sin consultar — el llavero no entregó el token; desbloquéalo, o deja que Standfast lo lea";
+"state.unknown.gitLabTokenUnreadable" = "Corriendo en local, GitLab sin consultar — el llavero no entregó el token; desbloquéalo, o deja que Standfast lo lea";
+"cleanup.unconfirmed" = "La limpieza se detuvo: no se pudo confirmar que %@ esté inactivo o detenido";
+"menu.openAtLogin.needsApproval.extensions" = "Permite Standfast en Ajustes del Sistema › General › Ítems de inicio y extensiones";
+"menu.openAtLogin.unavailable.extensions" = "Estado del ítem de inicio desconocido; revisa Ajustes del Sistema › General › Ítems de inicio y extensiones";
+"settings.github.keychainRemoveFailed" = "El llavero se negó a quitarlo. Sigue guardado.";
+"disk.gitLabService" = "El mantenimiento solo cubre las carpetas de runners de GitHub Actions";
+"controlCenter.openGitLab" = "Abrir GitLab";
+"state.disconnected.gitLab" = "Corriendo en local, pero GitLab no lo ve";
+"notification.disconnected.body.gitLab" = "%@ está corriendo aquí, pero GitLab no lo ve";
+"state.unknown.noLocalAnswer.process" = "No se pudo leer el servicio local — ps no respondió; prueba Actualizar ahora";
+"state.unknown.gitLabInsecure" = "Corriendo en local, GitLab sin consultar — su dirección es http y Standfast solo envía tokens por https";
+"state.unknown.gitLabPaused" = "Corriendo en local, pausado en GitLab — no recibirá trabajo hasta que lo reanudes";
+"state.layer.gitLabPaused" = "Pausado en GitLab";
+"settings.gitlab.insecure" = "Se sirve por http. Standfast solo envía tokens por https, así que esta instancia no se consulta.";

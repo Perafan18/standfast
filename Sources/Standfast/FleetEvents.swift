@@ -15,7 +15,8 @@ enum FleetEvent: Equatable {
   case jobFailed(runner: String, job: String)
   /// The service is up and GitHub cannot see it. The silent failure this whole
   /// app exists for: nothing on the machine looks wrong and no work arrives.
-  case runnerDisconnected(runner: String)
+  /// `onGitLab` names GitLab instead, the service that was actually asked.
+  case runnerDisconnected(runner: String, onGitLab: Bool = false)
   /// The LaunchAgent went down, and not because anybody here asked it to.
   case runnerStoppedUnexpectedly(runner: String)
 }
@@ -122,8 +123,36 @@ struct FleetWatcher {
 
   private let expectedStopLifetime: TimeInterval
 
-  init(expectedStopLifetime: TimeInterval = 30) {
+  /// When each runner's current disconnection was first read, until it is
+  /// announced. A runner started at login, after a wake or from a terminal is
+  /// up before GitHub has heard from it, and that gap reads as `.disconnected`.
+  private var unannouncedDisconnections: [String: UnannouncedDisconnection] = [:]
+  private let disconnectionGrace: TimeInterval
+
+  /// Time since the first reading shows a disconnection lasting only if this
+  /// app kept reading in between, which is what the last reading is kept for.
+  private struct UnannouncedDisconnection {
+    var since: Date
+    var lastReadAt: Date
+
+    init(at readAt: Date) {
+      since = readAt
+      lastReadAt = readAt
+    }
+  }
+
+  /// A silence longer than this between two readings of one runner is the Mac
+  /// asleep, not a slow scan. Far longer than the tick, because a scan that
+  /// waits out other runners' timeouts is still watching, and a limit it can
+  /// reach would start the grace over on every reading and never announce.
+  private static let longestScanGap: TimeInterval = 5 * 60
+
+  init(
+    expectedStopLifetime: TimeInterval = 30,
+    disconnectionGrace: TimeInterval = SettlingWindow.defaultDuration
+  ) {
     self.expectedStopLifetime = expectedStopLifetime
+    self.disconnectionGrace = disconnectionGrace
   }
 
   /// Runners this app has asked to stop and has not yet watched stop.
@@ -186,6 +215,9 @@ struct FleetWatcher {
   mutating func keepOnly(_ labels: Set<String>) {
     seen = seen.filter { labels.contains($0.key) }
     expectedStops = expectedStops.filter { labels.contains($0.key) }
+    unannouncedDisconnections = unannouncedDisconnections.filter {
+      labels.contains($0.key)
+    }
   }
 
   /// Reads one scan and reports what changed since the last one.
@@ -197,6 +229,7 @@ struct FleetWatcher {
     hasScanned = true
     for snapshot in snapshots {
       let label = snapshot.runner.label
+      carryGrace(for: label, to: snapshot.stateReadAt)
       let newestFinish = Self.mark(of: snapshot)
       guard let before = seen[label] else {
         // First sight of this runner baselines its state immediately, but its
@@ -207,11 +240,13 @@ struct FleetWatcher {
           display: snapshot.display,
           hasJobBaseline: snapshot.isJobHistoryAvailable,
           newestFinish: snapshot.isJobHistoryAvailable ? newestFinish : nil)
-        // D-R19. The state is still baselined either way, so the next scan
-        // says nothing: one announcement per launch, not one per reading.
-        if isFirstScan, snapshot.display == .resolved(.disconnected) {
-          events.append(.runnerDisconnected(runner: snapshot.runner.displayName))
-        }
+        // D-R19: one announcement per launch, not one per reading, and owed
+        // rather than made, because a runner still coming up at login reads
+        // exactly like one that is down.
+        unannouncedDisconnections[label] =
+          isFirstScan && snapshot.display == .resolved(.disconnected)
+          ? UnannouncedDisconnection(at: snapshot.stateReadAt) : nil
+        events += announceDisconnection(of: snapshot)
         continue
       }
       let hasJobBaseline: Bool
@@ -343,7 +378,11 @@ struct FleetWatcher {
       // Keep the previous display baseline until the command outcome can
       // either confirm and spend it or cancel intent and expose it next scan.
       let advancesBaseline = hasCompletedIntent || !expected
-      guard changed, !expected else { return ([], advancesBaseline) }
+      // A launchd that has never answered for this runner is no evidence it
+      // was ever up, so this is a first sighting of a stopped runner.
+      guard changed, !expected, !Self.carriesNoFact(before) else {
+        return ([], advancesBaseline)
+      }
       return ([.runnerStoppedUnexpectedly(runner: snapshot.name)], true)
     case .idle, .busy:
       // Up and taking work, so whatever stop was expected has been and gone —
@@ -367,10 +406,11 @@ struct FleetWatcher {
       stops.removeAll { maySpend($0) && !defersDisconnection($0) }
       storeExpectedStops(stops, for: label)
       if deferred { return ([], false) }
-      return (
-        changed ? [.runnerDisconnected(runner: snapshot.name)] : [],
-        true
-      )
+      if changed {
+        unannouncedDisconnections[label] = UnannouncedDisconnection(
+          at: snapshot.stateReadAt)
+      }
+      return (announceDisconnection(of: snapshot), true)
     // `.unknown` is this app failing to read the machine, not the machine
     // failing, and `.starting` is a runner in the middle of the handshake. Both
     // are states with nothing to report yet.
@@ -385,7 +425,7 @@ struct FleetWatcher {
         }
         storeExpectedStops(stops, for: label)
       }
-      return ([], true)
+      return ([], Self.unknownAdvancesBaseline(reason, from: before))
     case nil:
       // Settling only covers `.disconnected`, whose launchd evidence is
       // likewise conclusive even though the presentation hides it.
@@ -397,6 +437,64 @@ struct FleetWatcher {
       storeExpectedStops(stops, for: label)
       return ([], true)
     }
+  }
+
+  /// Once a disconnection has outlasted the handshake gap, and once only.
+  /// Measured on GitHub's own answers, the settling window's thirty seconds.
+  private mutating func announceDisconnection(
+    of snapshot: RunnerSnapshot
+  ) -> [FleetEvent] {
+    let label = snapshot.runner.label
+    guard let pending = unannouncedDisconnections[label],
+      snapshot.stateReadAt.timeIntervalSince(pending.since) >= disconnectionGrace
+    else { return [] }
+    unannouncedDisconnections[label] = nil
+    return [.runnerDisconnected(runner: snapshot.name, onGitLab: snapshot.isOnGitLab)]
+  }
+
+  /// Starts a pending grace over when the readings around this one cannot
+  /// show one continuous disconnection: the clock went back past where it
+  /// began, or the Mac slept since the last reading. A dark-wake reading
+  /// followed by a night's sleep would otherwise have its grace long run out
+  /// by the first scan after the wake, which lands in the registration gap.
+  /// Every reading counts, unknown ones too: they are this app still watching.
+  private mutating func carryGrace(for label: String, to readAt: Date) {
+    guard var pending = unannouncedDisconnections[label] else { return }
+    if readAt < pending.since
+      || readAt.timeIntervalSince(pending.lastReadAt) > Self.longestScanGap
+    {
+      pending.since = readAt
+    }
+    pending.lastReadAt = readAt
+    unannouncedDisconnections[label] = pending
+  }
+
+  /// Whether an unknown reading may replace what was last read. Mostly not: as
+  /// a baseline it makes the next real reading of an unchanged state look like
+  /// news, announcing a disconnection twice or a stopped runner as a crash.
+  private static func unknownAdvancesBaseline(
+    _ reason: UnknownReason, from before: DisplayState
+  ) -> Bool {
+    switch reason {
+    case .managedFleetWaiting:
+      return true
+    case .serviceStateUnreadable, .managedFleetStatusUnavailable:
+      return false
+    case .cliUnavailable, .notAuthenticated, .noAnswer, .noToken, .rateLimited,
+      .tokenRefused, .tokenUnreadable, .gitLabNoToken, .gitLabNotAuthenticated,
+      .gitLabRateLimited, .gitLabSilent, .gitLabTokenUnreadable, .gitLabInsecure,
+      .gitLabPaused:
+      // launchd did answer "running". That is news only to a baseline that had
+      // the service down or had nothing, and it makes a later stop a new one.
+      return before.resolvedState == .stopped || carriesNoFact(before)
+    }
+  }
+
+  /// The two readings that cannot tell a running runner from a stopped one.
+  /// Every other unknown sits behind a launchd, or a supervisor, that answered.
+  private static func carriesNoFact(_ display: DisplayState) -> Bool {
+    display == .resolved(.unknown(.serviceStateUnreadable))
+      || display == .resolved(.unknown(.managedFleetStatusUnavailable))
   }
 
   private mutating func storeExpectedStops(_ stops: [ExpectedStop], for label: String) {
@@ -420,7 +518,10 @@ extension FleetEvent {
   var body: String {
     switch self {
     case .jobFailed(let runner, let job): L10n.notificationJobFailedBody(job, runner)
-    case .runnerDisconnected(let runner): L10n.notificationDisconnectedBody(runner)
+    case .runnerDisconnected(let runner, onGitLab: false):
+      L10n.notificationDisconnectedBody(runner)
+    case .runnerDisconnected(let runner, onGitLab: true):
+      L10n.notificationDisconnectedGitLabBody(runner)
     case .runnerStoppedUnexpectedly(let runner): L10n.notificationStoppedBody(runner)
     }
   }

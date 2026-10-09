@@ -119,7 +119,15 @@ public struct GitHubAPIClient: GitHubClient {
   }
 
   private func get(_ url: URL, ifNoneMatch etag: String?) throws -> HTTPResponse {
-    guard let token = try tokens.token() else { throw GitHubError.noToken }
+    let stored: String?
+    do {
+      stored = try tokens.token()
+    } catch {
+      // Not "no token": something is stored, and the fallback to `gh` that
+      // `noToken` triggers would quietly ignore it.
+      throw GitHubError.tokenUnreadable
+    }
+    guard let token = stored else { throw GitHubError.noToken }
     var headers = [
       // Bearer rather than the older `token` scheme: that one still works
       // for classic PATs and fails for the fine-grained tokens GitHub issues
@@ -157,19 +165,34 @@ public struct GitHubAPIClient: GitHubClient {
     // A rejected token has a fix a person can act on. "Could not tell" does
     // not, and collapsing the two leaves the user with nothing to try.
     guard response.statusCode != Self.unauthorized else {
-      throw GitHubError.notAuthenticated
+      throw GitHubError.tokenRefused
     }
-    // Running out of budget is not silence, and the difference matters: the fix
-    // is time, or fewer runners. GitHub says it two ways — 429 for a secondary
-    // limit, and 403 with the remaining count at zero for the primary one. A
-    // 403 with budget left is something else entirely: a token whose scopes do
-    // not cover this endpoint, which no amount of waiting repairs.
+    // Running out of budget is not silence; the fix is time. A primary limit is
+    // 403 at zero remaining, a secondary one 429, or 403 with `retry-after` or
+    // a message naming it. Any other 403 is a token lacking scope, which
+    // waiting never repairs.
     if response.statusCode == Self.tooManyRequests
       || (response.statusCode == Self.forbidden
-        && response.header("x-ratelimit-remaining") == "0")
+        && (response.header("x-ratelimit-remaining") == "0"
+          || response.header("retry-after") != nil
+          || Self.namesSecondaryLimit(response.body)))
     {
       throw GitHubError.rateLimited
     }
+  }
+
+  private struct ErrorPayload: Decodable {
+    let message: String
+  }
+
+  /// GitHub sends `retry-after` with a secondary limit only "if present", and
+  /// otherwise says so in the message alone, which is what Octokit reads too.
+  private static func namesSecondaryLimit(_ body: Data) -> Bool {
+    guard let payload = try? JSONDecoder().decode(ErrorPayload.self, from: body) else {
+      return false
+    }
+    return payload.message.range(of: "secondary rate limit", options: .caseInsensitive)
+      != nil
   }
 
   private func status(from response: HTTPResponse) throws -> RemoteStatus {
@@ -246,6 +269,9 @@ extension GitHubAPIClient: QueuedWorkReading {
     }
 
     let jobs: [Job]
+    /// Every job in the run, not only this page. Optional so a payload without
+    /// it still reads; nil is taken as "the page is all of it".
+    let totalCount: Int?
   }
 
   public func blockingQueuedWork(in scope: RunnerScope) throws -> QueuedWork {
@@ -272,16 +298,20 @@ extension GitHubAPIClient: QueuedWorkReading {
     let listing: RunsPayload = try decoded(from: response)
 
     var waiting: [QueuedJob] = []
+    var pageCutOffJobs = false
     for run in listing.workflowRuns {
       let payload: JobsPayload = try decoded(
         from: get(
           url("\(runsPath)/\(run.id)/jobs", query: [("per_page", "\(Self.jobsPerRun)")]),
           ifNoneMatch: nil))
       waiting += payload.jobs.filter { $0.status == "queued" }.map(Self.queued)
+      pageCutOffJobs =
+        pageCutOffJobs || (payload.totalCount ?? payload.jobs.count) > payload.jobs.count
     }
 
     let work = QueuedWork(
-      jobs: waiting, isPartial: listing.totalCount > listing.workflowRuns.count)
+      jobs: waiting,
+      isPartial: listing.totalCount > listing.workflowRuns.count || pageCutOffJobs)
     if let etag = response.header("Etag") {
       queues.remember(listingURL, QueueCache.Entry(etag: etag, work: work))
     }

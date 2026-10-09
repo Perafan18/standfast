@@ -78,14 +78,48 @@ private let stale = RemoteStatus(online: false, busy: false)
   #expect(try ask(TokenFirstGitHubClient(token: token, cli: cli)) == working)
 }
 
+@Test func withNeitherATokenNorGhItPointsAtSettings() throws {
+  // The person the token exists for has no `gh` either. "Install the GitHub
+  // CLI" would send them to the dependency this app was built to remove.
+  let token = SpyClient(.failure(.noToken), release: .failure(.noToken))
+  let cli = SpyClient(.failure(.cliUnavailable), release: .failure(.cliUnavailable))
+  let subject = TokenFirstGitHubClient(token: token, cli: cli)
+
+  #expect(throws: GitHubError.noToken) { try ask(subject) }
+  #expect(throws: GitHubError.noToken) { try subject.blockingLatestRunnerRelease() }
+}
+
+@Test func aGhThatIsThereButLoggedOutKeepsItsOwnInstruction() throws {
+  // `gh` is installed, so `gh auth login` is a real fix and the shorter one.
+  let token = SpyClient(.failure(.noToken))
+  let cli = SpyClient(.failure(.notAuthenticated))
+
+  #expect(throws: GitHubError.notAuthenticated) {
+    try ask(TokenFirstGitHubClient(token: token, cli: cli))
+  }
+}
+
 @Test func aTokenThatGitHubRefusedIsReportedRatherThanPaperedOver() throws {
-  let token = SpyClient(.failure(.notAuthenticated))
+  let token = SpyClient(.failure(.tokenRefused))
   let cli = SpyClient(.success(working))
 
   // Falling back here would keep the menu working and hide the fact that a
   // credential the user deliberately configured is wrong. They would never
   // learn, and the app would quietly depend on `gh` again.
-  #expect(throws: GitHubError.notAuthenticated) {
+  #expect(throws: GitHubError.tokenRefused) {
+    try ask(TokenFirstGitHubClient(token: token, cli: cli))
+  }
+  #expect(cli.timesAsked == 0)
+}
+
+@Test func aKeychainThatWouldNotAnswerIsNotTreatedAsNothingStored() throws {
+  // Only `noToken` falls through. A token the Keychain withheld is still one
+  // the user configured, and answering through `gh` would hide that it is
+  // unusable.
+  let token = SpyClient(.failure(.tokenUnreadable))
+  let cli = SpyClient(.success(working))
+
+  #expect(throws: GitHubError.tokenUnreadable) {
     try ask(TokenFirstGitHubClient(token: token, cli: cli))
   }
   #expect(cli.timesAsked == 0)

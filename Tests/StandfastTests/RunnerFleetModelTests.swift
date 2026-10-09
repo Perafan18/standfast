@@ -11,6 +11,7 @@ private func model(
   _ sandbox: FleetSandbox, commands: any CommandRunning = RecordingCommandRunner(),
   settling: SettlingWindow = SettlingWindow(), settleDelay: TimeInterval = 0,
   probeDelay: TimeInterval = 0, clock: @escaping @Sendable () -> Date = Date.init,
+  monotonicClock: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
   // Never the real ones. `UNUserNotificationCenter` needs an application bundle
   // and a permission CI cannot grant, and a power assertion would be taken out
   // on whatever machine runs the suite.
@@ -47,9 +48,13 @@ private func model(
     // every test in this file.
     versions: sandbox.versions,
     releases: sandbox.releases,
+    // Nor this one: a runner whose GitHub answer carries labels would have it
+    // spend a real request on the queue.
+    queues: sandbox.queuedWork,
     opener: opener,
     serviceConfirmation: serviceConfirmation,
-    clock: clock, probeDelay: probeDelay, refreshInterval: refreshInterval,
+    clock: clock, monotonicClock: monotonicClock, probeDelay: probeDelay,
+    refreshInterval: refreshInterval,
     releaseInterval: releaseInterval)
 }
 
@@ -195,6 +200,34 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   #expect(FleetSummary.symbolName(for: []) == FleetSummary.noRunnersSymbolName)
 }
 
+@Test @MainActor func aWorkFolderOutsideTheRunnerKeepsTheRowAndMaintenanceSaysWhy()
+  async throws
+{
+  // `config.sh --work /Volumes/Builds/_work` is a working runner, and the row
+  // is what gives it a state and a Stop button.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let outside = box.root.appendingPathComponent("external-builds")
+  let fields: [String: Any] = [
+    "agentId": 7, "agentName": "build-mac", "workFolder": outside.path,
+    "gitHubUrl": "https://github.com/acme/acme-widget",
+  ]
+  try JSONSerialization.data(withJSONObject: fields)
+    .write(to: directory.appendingPathComponent(".runner"))
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  let snapshot = try #require(fleet.snapshots.first)
+  #expect(snapshot.display == .resolved(.idle))
+  #expect(!snapshot.isWorkDirectoryContained)
+  let maintenance = MaintenanceSection.building(
+    snapshot, measurement: nil, latest: nil, isWorking: false, notice: nil, now: Date())
+  #expect(maintenance.measured == L10n.diskOutsideRunner)
+  #expect(maintenance.offers.isEmpty)
+}
+
 @Test @MainActor func refreshesDoNotPileUpOnTopOfASlowScan() async throws {
   // A `gh` call has a 30s ceiling and the ticker comes round every 15s, so an
   // unguarded refresh would start a second scan on top of the first. The
@@ -294,7 +327,8 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   defer { box.cleanUp() }
   try box.addRunner()
   let clock = TestClock()
-  let fleet = model(box, clock: clock.read, refreshInterval: 15)
+  let fleet = model(
+    box, clock: clock.read, monotonicClock: clock.instant, refreshInterval: 15)
   await fleet.quiesce()
   #expect(box.scanCount == 1)
 
@@ -304,6 +338,35 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   #expect(box.scanCount == 1)
 
   clock.advance(2)
+  fleet.tick()
+  await fleet.quiesce()
+  #expect(box.scanCount == 2)
+}
+
+@Test @MainActor func aWallClockSetBackDoesNotStopTheTicker() async throws {
+  // A date set by hand, or `timed` correcting a fast clock. Measured on the
+  // wall clock, the last reading was dated in the future, every tick was
+  // dropped for the whole ten minutes, and the menu said "Checked just now".
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let fleet = model(
+    box, clock: clock.read, monotonicClock: clock.instant, refreshInterval: 15)
+  await fleet.quiesce()
+  #expect(box.scanCount == 1)
+
+  clock.stepWallClock(by: -600)
+  clock.advance(16)
+  fleet.tick()
+  await fleet.quiesce()
+  #expect(box.scanCount == 2)
+  // Still dated by the wall clock the operator sees, wherever it was set.
+  #expect(fleet.lastReadAt == clock.read())
+
+  // And the other way: a reading one second old is fresh, whatever the date.
+  clock.stepWallClock(by: 3_600)
+  clock.advance(1)
   fleet.tick()
   await fleet.quiesce()
   #expect(box.scanCount == 2)
@@ -699,6 +762,36 @@ private struct CouldNotLaunchCommandRunner: CommandRunning {
   #expect(titles.allSatisfy { $0.contains("mac-mini-m4") })
   #expect(titles.contains { $0.contains("acme/widget") })
   #expect(titles.contains { $0.contains("acme/gadget") })
+}
+
+@Test @MainActor func twoGitLabRunnersWithOneNameOnOneInstanceDrawTwoRows()
+  async throws
+{
+  // GitLab, unlike GitHub, accepts two runners with one name on one instance,
+  // and `gitlab-runner register` proposes the hostname too. The instance alone
+  // left two identical rows, and two banners sharing one identifier.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let config = try box.addGitLabRunner(name: "mac-mini", id: 101, host: "gitlab.com")
+  try """
+  [[runners]]
+    id = 101
+    name = "mac-mini"
+    url = "https://gitlab.com"
+  [[runners]]
+    id = 102
+    name = "mac-mini"
+    url = "https://gitlab.com"
+  """.write(to: config, atomically: true, encoding: .utf8)
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  let names = fleet.snapshots.map(\.name)
+  #expect(names.count == 2)
+  #expect(Set(names).count == 2)
+  #expect(names.allSatisfy { $0.contains("mac-mini") && $0.contains("gitlab.com") })
+  #expect(names.contains { $0.contains("101") } && names.contains { $0.contains("102") })
 }
 
 @Test @MainActor func aMacWithOneRunnerKeepsTheShortRow() async throws {
@@ -1267,6 +1360,51 @@ func unavailableBusyStopRunsNothingAndPublishesTerminalFeedback() async throws {
   await fleet.quiesce()
 }
 
+@Test @MainActor func aServiceActionKeepsWhatTheScanReadAboutItsRunner() async throws {
+  // Every receipt rebuilds the runner's snapshot, and a field left out fell
+  // back to its default for the whole action: the queue line vanished, and a
+  // checkout symlinked off the runner was offered a measurement.
+  let box = try FleetSandbox(
+    serviceRunning: true,
+    remote: .init(online: true, busy: false, labels: ["self-hosted", "macOS"]))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let external = box.root.appendingPathComponent("external-disk")
+  try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: directory.appendingPathComponent("_work"), withDestinationURL: external)
+  let queue = QueuedWork(
+    jobs: [
+      QueuedJob(
+        id: 1, name: "build", workflowName: "CI", labels: ["self-hosted"],
+        queuedAt: nil, url: nil)
+    ], isPartial: false)
+  box.set(queued: .success(queue))
+  let commands = BlockingCommandRunner()
+  defer { commands.release(10) }
+  // Moving on every reading, so the lower bound of a probe is not its upper one.
+  let clock = TestClock(step: 30)
+  let fleet = model(box, commands: commands, clock: clock.read)
+  await fleet.quiesce()
+  let before = fleet.snapshots[0]
+  #expect(before.labels == ["self-hosted", "macOS"])
+  #expect(before.queued == .work(queue))
+  #expect(!before.isWorkDirectoryContained)
+  #expect(before.readBeganAt < before.readAt)
+
+  fleet.stop(before.runner)
+  try await commands.waitForInvocationCount(1)
+
+  let during = fleet.snapshots[0]
+  #expect(during.operation?.phase == .inFlight)
+  #expect(during.labels == before.labels)
+  #expect(during.queued == before.queued)
+  #expect(during.isWorkDirectoryContained == before.isWorkDirectoryContained)
+  #expect(during.readBeganAt == before.readBeganAt)
+  commands.release()
+  await fleet.quiesce()
+}
+
 @Test @MainActor func aReturnedServiceCommandIsAcceptedNotAProvedRunnerState() async throws
 {
   for (kind, action) in [
@@ -1598,13 +1736,39 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
     in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
     finished: "2026-08-05 20:38:59Z", result: "Failed")
   box.set(remote: .success(RemoteStatus(online: false, busy: false)))
-  let (fleet, delivery) = await listening(box)
+  let clock = TestClock()
+  let (fleet, delivery) = await listening(box, clock: clock.read)
 
+  await fleet.quiesce()
+  clock.advance(30)
+  fleet.refresh()
   await fleet.quiesce()
 
   #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
   #expect(delivery.posted.map(\.id) == ["disconnected.build-mac"])
   #expect(!delivery.posted.contains { $0.id.hasPrefix("job") })
+}
+
+@Test @MainActor func aRunnerStillRegisteringAtLoginIsNotAnnounced() async throws {
+  // Login: launchd has started the runner, which has not opened its session
+  // yet, so GitHub still calls it offline. A scan later it is idle, and
+  // nothing was ever wrong.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  let clock = TestClock()
+  let (fleet, delivery) = await listening(box, clock: clock.read)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.disconnected)])
+
+  clock.advance(15)
+  box.set(remote: .success(RemoteStatus(online: true, busy: false)))
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.idle)])
+  #expect(delivery.posted.isEmpty)
 }
 
 @Test @MainActor func aRunnerThatFallsOffGitHubWhileTheAppRunsIsAnnounced()
@@ -1613,13 +1777,17 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   try box.addRunner()
-  let (fleet, delivery) = await listening(box)
+  let clock = TestClock()
+  let (fleet, delivery) = await listening(box, clock: clock.read)
   await fleet.quiesce()
   #expect(delivery.posted.isEmpty)
 
   box.set(remote: .success(RemoteStatus(online: false, busy: false)))
-  fleet.refresh()
-  await fleet.quiesce()
+  for _ in 0..<3 {
+    clock.advance(15)
+    fleet.refresh()
+    await fleet.quiesce()
+  }
 
   #expect(delivery.posted.count == 1)
   #expect(delivery.posted[0].title == L10n.notificationDisconnectedTitle)
@@ -1645,7 +1813,7 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   fleet.refresh()
   await fleet.quiesce()
 
-  #expect(delivery.posted.count == 1)
+  try #require(delivery.posted.count == 1)
   #expect(delivery.posted[0].title == L10n.notificationJobFailedTitle)
   #expect(delivery.posted[0].body.contains("deploy"))
 }
@@ -1840,6 +2008,9 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
 
   commands.release()
   await fleet.quiesce()
+  clock.advance(30)
+  fleet.refresh()
+  await fleet.quiesce()
 
   #expect(delivery.posted.map(\.title) == [L10n.notificationDisconnectedTitle])
 }
@@ -1884,10 +2055,16 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
       == .resolved(.disconnected)
   }
 
-  #expect(delivery.posted.map(\.title) == [L10n.notificationDisconnectedTitle])
-
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
   commands.release()
   await fleet.quiesce()
+  // Thirty seconds after the pre-click answer, twenty-nine after anything read
+  // since the click: only a disconnection dated from that answer is due.
+  clock.advance(29)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(delivery.posted.map(\.id) == ["disconnected.build-mac"])
 }
 
 @Test @MainActor func aRunnerRemainsOwnedUntilItsReprobeIsApplied() async throws {
@@ -2384,11 +2561,10 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   await fleet.quiesce()
 
   #expect(fleet.snapshots.map(\.display) == [.resolved(.stopped)])
-  // What this test protects is that the *expected* stop stays silent. The one
-  // banner here is D-R19 announcing the runner that was already disconnected
-  // when the app opened — a different fact, from a different scan.
-  #expect(!delivery.posted.contains { $0.id.hasPrefix("stopped") })
-  #expect(delivery.posted.map(\.id) == ["disconnected.build-mac"])
+  // What this test protects is that the *expected* stop stays silent. The
+  // runner was already disconnected at launch, but Restart turned it into
+  // "Starting…" before that disconnection had lasted long enough to announce.
+  #expect(delivery.posted.isEmpty)
 }
 
 @Test @MainActor func aRestartWhoseStartTimesOutCanBeSettledByStarting()
@@ -2496,6 +2672,34 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
 
   box.set(remote: .success(RemoteStatus(online: false, busy: false)))
   fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.display) == [.starting])
+  #expect(delivery.posted.isEmpty)
+}
+
+@Test @MainActor func aRestartWhoseReprobeFindsGitHubQuietIsStillSettling()
+  async throws
+{
+  // The one re-probe behind a restart lands on a rate-limited GitHub. That says
+  // nothing about the handshake, so the registration still under way a scan
+  // later is "Starting…", not a disconnection to put on screen or announce.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner()
+  let clock = TestClock()
+  let (fleet, delivery) = await listening(
+    box, commands: box.svcDrivingCommandRunner, clock: clock.read)
+  await fleet.quiesce()
+
+  box.set(remote: .failure(.rateLimited))
+  fleet.restart(fleet.snapshots[0].runner)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.map(\.display) == [.resolved(.unknown(.rateLimited))])
+
+  clock.advance(15)
+  box.set(remote: .success(RemoteStatus(online: false, busy: false)))
+  fleet.refresh()
   await fleet.quiesce()
 
   #expect(fleet.snapshots.map(\.display) == [.starting])
@@ -2662,6 +2866,53 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   #expect(!activity.isHeld)
 }
 
+/// A model whose every reading happens `elapsed` after `testflight` started.
+@MainActor
+private func abandonedJobModel(
+  elapsed: TimeInterval, sleep: SleepGuard
+) throws -> (FleetSandbox, RunnerFleetModel) {
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: true, busy: false))
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let now = Date(timeIntervalSince1970: 1_785_962_174).addingTimeInterval(elapsed)
+  return (box, model(box, clock: { now }, sleep: sleep))
+}
+
+@Test @MainActor func aJobTheListenerAbandonedStopsHoldingTheMacAwake() async throws {
+  // A job cancelled before its first lease renewal, or one the worker never
+  // took, leaves its start line as the log's last word while the listener
+  // goes back to idle. GitHub saying idle, long after, is the answer.
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let (box, fleet) = try abandonedJobModel(elapsed: 3 * 60 * 60, sleep: sleepGuard)
+  defer { box.cleanUp() }
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.idle))
+  #expect(fleet.snapshots[0].jobs.running?.name == "testflight")
+  #expect(!activity.isHeld)
+}
+
+@Test @MainActor func aJobJustStartedHoldsTheMacAwakeBeforeGitHubCatchesUp() async throws {
+  // The other side of the same rule: the log can be ahead of GitHub's answer
+  // by a refresh or two, and a build starting is no moment to let go.
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let (box, fleet) = try abandonedJobModel(elapsed: 30, sleep: sleepGuard)
+  defer { box.cleanUp() }
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].display == .resolved(.idle))
+  #expect(activity.isHeld)
+}
+
 @Test @MainActor func aMacWithNoRunnersLeftIsNotHeldAwakeForever() async throws {
   // Uninstall the runner mid-build and the snapshots go empty, which is a fleet
   // that is not busy — but only if the answer is read from the scan rather than
@@ -2775,6 +3026,62 @@ func aTerminalServiceReceiptExpiresAtTheFiveMinuteScanBoundary() async throws {
   #expect(!box.releaseQueuesUsed.isEmpty)
   #expect(!box.releaseQueuesUsed.contains { $0.contains("cooperative") })
   #expect(box.releaseQueuesUsed.allSatisfy { $0 != "com.apple.main-thread" })
+}
+
+@Test func workContainmentIsResolvedOffTheCooperativePool() {
+  // It resolves symlinks under a `_work` that may live on an external disk or a
+  // share, where `realpath` blocks until the volume answers. `FileManager` has
+  // no seam to watch its thread, so the scan's source is what is checked.
+  let mentions = offPoolMentions(
+    of: ".containedWorkDirectory", in: standfastSource("RunnerFleetModel.swift"))
+
+  #expect(!mentions.isEmpty)
+  #expect(mentions.allSatisfy { $0 })
+}
+
+@Test @MainActor func eachRowCarriesItsOwnRunnersContainment() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addRunner(name: "alpha")
+  let linked = try box.addRunner(name: "bravo")
+  let external = box.root.appendingPathComponent("external-work")
+  try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: linked.appendingPathComponent("_work"), withDestinationURL: external)
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.runner.displayName) == ["alpha", "bravo"])
+  #expect(fleet.snapshots.map(\.isWorkDirectoryContained) == [true, false])
+}
+
+/// For each mention of `needle`, whether it sits inside a closure handed to
+/// `offCooperativePool`. Whole-line comments are skipped; nothing in the file
+/// puts a brace inside a string.
+private func offPoolMentions(of needle: String, in source: String) -> [Bool] {
+  let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    .joined(separator: "\n")
+  var enclosing: [Bool] = []
+  var mentions: [Bool] = []
+  var index = code.startIndex
+  while index < code.endIndex {
+    if code[index...].hasPrefix(needle) {
+      mentions.append(enclosing.last ?? false)
+      index = code.index(index, offsetBy: needle.count)
+      continue
+    }
+    if code[index] == "{" {
+      var opener = code[..<index]
+      while opener.last?.isWhitespace == true { opener = opener.dropLast() }
+      enclosing.append((enclosing.last ?? false) || opener.hasSuffix("offCooperativePool"))
+    } else if code[index] == "}" {
+      _ = enclosing.popLast()
+    }
+    index = code.index(after: index)
+  }
+  return mentions
 }
 
 @Test @MainActor func actionsDoNotBlockTheMainThreadEither() async throws {
@@ -2901,14 +3208,30 @@ func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
       == ["https://github.com/acme/widget/actions"])
 }
 
+@Test @MainActor func aGitLabRunnerRefusesMaintenanceFromAnyRoute() async throws {
+  let sandbox = try FleetSandbox(serviceRunning: true)
+  defer { sandbox.cleanUp() }
+  try sandbox.addGitLabRunner()
+  let fleet = model(sandbox)
+  await fleet.quiesce()
+  let runner = try #require(fleet.snapshots.first?.runner)
+  #expect(runner.installation == .gitLabService)
+
+  fleet.performMaintenance(.measure, onRunnerID: runner.label)
+
+  #expect(!fleet.housekeeping.isWorking(on: runner))
+  await fleet.housekeeping.quiesce()
+  #expect(fleet.housekeeping.measurement(for: runner) == nil)
+}
+
 // MARK: - Which runner is installed, and whether there is a newer one
 
 @Test @MainActor func theVersionTheRunnerPrintsReachesTheMenu() async throws {
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   let directory = try box.addRunner(name: "build-mac")
-  // The header a listener writes at the top of every log it opens, which is the
-  // only place on disk that says which runner is installed.
+  // The header a listener writes when its process starts, which is the only
+  // place on disk that says which runner is installed.
   try box.writeListenerLog(
     in: directory, job: "build", startedAt: "2026-08-05 20:36:14Z", finished: nil,
     version: "2.336.0")
@@ -2918,12 +3241,31 @@ func openOnGitHubHandsTheBrowserThisRepositoriesWorkflowRuns() async throws {
   #expect(fleet.snapshots.first?.version == .known(RunnerVersion(2, 336, 0)))
 }
 
+@Test @MainActor func aListenerThatRolledItsLogOverStillReportsItsVersion() async throws {
+  // Past its page size the listener carries on in a new, newer file with no
+  // header in it. The version, and any update notice, must not vanish with it.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner(name: "build-mac")
+  try box.writeListenerLog(
+    in: directory, job: "build", startedAt: "2026-08-05 20:36:14Z", finished: nil,
+    version: "2.330.0")
+  try Data().write(
+    to: directory.appendingPathComponent("_diag/Runner_20260805-203700-utc.log"))
+
+  let fleet = model(box)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.first?.jobs.running?.name == "build")
+  #expect(fleet.snapshots.first?.version == .known(RunnerVersion(2, 330, 0)))
+}
+
 @Test @MainActor func aRunnerThatSaysNothingAboutItsVersionIsGivenNoNumber() async throws {
   let box = try FleetSandbox(serviceRunning: true)
   defer { box.cleanUp() }
   let directory = try box.addRunner(name: "build-mac")
   try box.writeListenerLog(
-    in: directory, job: "build", startedAt: "2026-08-05 20:36:14Z", finished: nil)
+    in: directory, job: "build", startedAt: "2026-08-05 20:36:14Z", finished: nil,
+    version: nil)
 
   let fleet = model(box)
   await fleet.quiesce()

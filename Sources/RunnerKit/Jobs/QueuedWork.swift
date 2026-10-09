@@ -3,10 +3,10 @@ import Foundation
 /// What GitHub has queued in one scope, and whether that is all of it.
 public struct QueuedWork: Equatable, Sendable {
   public let jobs: [QueuedJob]
-  /// True when GitHub had more queued runs than this client agreed to look at.
-  /// Said out loud rather than swallowed: a capped count presented as a total
-  /// is a silent truncation, and reads as "we covered everything" when it did
-  /// not.
+  /// True when GitHub had more queued runs, or one run more jobs, than this
+  /// client agreed to look at. Said out loud rather than swallowed: a capped
+  /// count presented as a total is a silent truncation, and reads as "we
+  /// covered everything" when it did not.
   public let isPartial: Bool
 
   public init(jobs: [QueuedJob], isPartial: Bool) {

@@ -35,7 +35,7 @@ private let realistic = """
 
   #expect(entries.map(\.id) == [17_373_720, 42])
   #expect(entries.map(\.name) == ["mac-mini-m4-gitlab", "second"])
-  #expect(entries.map(\.instanceHost) == ["gitlab.com", "gitlab.example.com"])
+  #expect(entries.map(\.instance.name) == ["gitlab.com", "gitlab.example.com"])
 }
 
 @Test func theTokenStaysInTheFile() throws {
@@ -106,4 +106,92 @@ private let realistic = """
 
   let entries = try GitLabRunnerConfigFile.entries(in: nameless)
   #expect(entries.map(\.name) == [""])
+}
+
+@Test func eachInstanceIsNamedOnceForItsTokenCard() {
+  // Two runners on one instance share one token, and so one Settings card.
+  let twoOnOne =
+    realistic + """
+
+      [[runners]]
+        id = 43
+        url = "https://gitlab.example.com"
+      """
+
+  #expect(
+    GitLabRunnerConfigFile.instances(in: twoOnOne).map(\.name) == [
+      "gitlab.com", "gitlab.example.com",
+    ])
+}
+
+// MARK: - Hand edits that used to make runners vanish without a trace
+
+@Test func windowsLineEndingsStillDeclareEveryRunner() throws {
+  // Swift reads "\r\n" as one Character, so splitting on "\n" alone saw the
+  // whole file as a single line, and nothing was found or skipped.
+  let crlf = realistic.replacingOccurrences(of: "\n", with: "\r\n")
+
+  #expect(try GitLabRunnerConfigFile.entries(in: crlf).map(\.id) == [17_373_720, 42])
+}
+
+@Test func aByteOrderMarkIsNotPartOfTheFirstHeader() throws {
+  let marked = "\u{FEFF}[[runners]]\n  id = 7\n  url = \"https://gitlab.com\"\n"
+
+  #expect(try GitLabRunnerConfigFile.entries(in: marked).map(\.id) == [7])
+}
+
+@Test func aCommentAfterARunnerHeaderStillOpensTheRunner() throws {
+  // Valid TOML, and gitlab-runner reads it.
+  let annotated = """
+    [[runners]] # prod
+      id = 7
+      url = "https://gitlab.com"
+    """
+
+  #expect(try GitLabRunnerConfigFile.entries(in: annotated).map(\.id) == [7])
+}
+
+@Test func aScriptWrittenAcrossLinesIsNotReadAsTheRunnersKeys() throws {
+  // The script is text: `url=` in it is shell, and would have pointed this
+  // runner, and its token, at another host. `[ -d … ]` is a test, not a table.
+  for delimiter in ["'''", "\"\"\""] {
+    let scripted = """
+      [[runners]]
+        id = 7
+        url = "https://gitlab.com"
+        pre_build_script = \(delimiter)
+      url=https://artifacts.example/x
+      id=$(whoami)
+      [ -d /tmp/cache ] || mkdir /tmp/cache
+      \(delimiter)
+        name = "mac"
+      """
+
+    let entries = try GitLabRunnerConfigFile.entries(in: scripted)
+
+    #expect(entries.map(\.id) == [7], "\(delimiter)")
+    #expect(entries.map(\.instance.name) == ["gitlab.com"], "\(delimiter)")
+    #expect(entries.map(\.name) == ["mac"], "\(delimiter)")
+  }
+}
+
+@Test func aCommentedOutScriptOpensNoStringAndHidesNoRunner() throws {
+  // gitlab-runner reads the line as a comment, so nothing after it is inside
+  // a string. Read as an opener, it swallowed every runner below it.
+  for comment in ["# pre_build_script = '''", "# the hook goes here: script = \"\"\""] {
+    let commented = """
+      [[runners]]
+        id = 1
+        url = "https://gitlab.com"
+        \(comment)
+      [[runners]]
+        id = 2
+        url = "https://gitlab.com"
+      """
+
+    let reading = try GitLabRunnerConfigFile.reading(commented)
+
+    #expect(reading.entries.map(\.id) == [1, 2], "\(comment)")
+    #expect(reading.skipped.isEmpty, "\(comment)")
+  }
 }

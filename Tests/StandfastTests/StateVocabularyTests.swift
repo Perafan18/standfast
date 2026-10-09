@@ -58,7 +58,7 @@ import Testing
   // tell somebody what to try next.
   for reason in [
     UnknownReason.cliUnavailable, .notAuthenticated, .noAnswer,
-    .serviceStateUnreadable,
+    .serviceStateUnreadable, .tokenRefused, .tokenUnreadable,
   ] {
     let summary = DisplayState.resolved(.unknown(reason)).summary
     #expect(summary.contains("—"), "\(reason)")

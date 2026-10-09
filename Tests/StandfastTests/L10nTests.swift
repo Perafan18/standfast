@@ -115,7 +115,7 @@ private func l10nSource() -> String {
     L10n.cleanupStandfastTrashEffect, L10n.cleanupLogsTitle(1, "a"),
     L10n.cleanupLogsTitle(2, "a"), L10n.cleanupLogsEffect(1),
     L10n.cleanupLogsEffect(2), L10n.cleanupRefused("a"), L10n.cleanupFailed("a"),
-    L10n.cleanupPartiallyFailed("a"),
+    L10n.cleanupPartiallyFailed("a"), L10n.cleanupUnconfirmed("a"),
     L10n.serviceConfirmStopTitle("a"), L10n.serviceConfirmRestartTitle("a"),
     L10n.serviceConfirmStopBusy("a", "b", "c"),
     L10n.serviceConfirmRestartBusy("a", "b", "c"),
@@ -153,6 +153,12 @@ private func l10nSource() -> String {
     L10n.settingsNotifications, L10n.settingsPower, L10n.settingsStartup,
     L10n.settingsNotificationsFooter, L10n.settingsPowerFooter,
     L10n.settingsStartupFooter, L10n.settingsVersion(" 0.5.0 (5)"),
+    L10n.settingsGitHubKeychainRemoveFailed,
+    L10n.diskGitLabService, L10n.openGitLab,
+    L10n.stateDisconnectedGitLab, L10n.notificationDisconnectedGitLabBody("a"),
+    L10n.stateUnknownNoLocalAnswerProcess,
+    L10n.stateUnknownGitLabPaused, L10n.stateLayerGitLabPaused,
+    L10n.settingsGitLabInsecure,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -198,6 +204,9 @@ private func l10nSource() -> String {
       "state.layer.gitLabNotAsked", "state.layer.gitLabRefusedToken",
       "state.layer.gitLabRateLimited", "state.layer.gitLabSilent",
       "state.layer.managedFleetWaiting", "state.layer.managedFleetUnavailable",
+      "state.unknown.tokenRefused", "state.layer.gitHubRefusedToken",
+      "state.unknown.tokenUnreadable", "state.unknown.gitLabTokenUnreadable",
+      "state.unknown.gitLabInsecure",
       "queue.waiting.one", "queue.waiting", "queue.waitingPartial",
       "queue.empty", "queue.unknownScope", "state.unknown.noLocalAnswer",
       "state.checkedAgo",
@@ -267,6 +276,15 @@ private func l10nSource() -> String {
       "settings.github.absent", "settings.github.unreadable",
       "settings.github.placeholder", "settings.github.save",
       "settings.github.remove", "settings.github.keychainFailed",
+      "cleanup.unconfirmed",
+      "menu.openAtLogin.needsApproval.extensions",
+      "menu.openAtLogin.unavailable.extensions",
+      "settings.github.keychainRemoveFailed",
+      "disk.gitLabService", "controlCenter.openGitLab",
+      "state.disconnected.gitLab", "notification.disconnected.body.gitLab",
+      "state.unknown.noLocalAnswer.process",
+      "state.unknown.gitLabPaused", "state.layer.gitLabPaused",
+      "settings.gitlab.insecure",
     ])
   #expect(everyKey == reached)
 }
@@ -368,7 +386,7 @@ private func l10nSource() -> String {
       == "Las alertas usan las notificaciones del sistema.")
   #expect(
     spanish["settings.power.footer"]
-      == "Cerrar la tapa la sigue durmiendo.")
+      == "Aun así, cerrar la tapa pone esta Mac en reposo.")
   #expect(
     spanish["settings.startup.footer"]
       == "Standfast puede abrirse automáticamente al iniciar sesión.")
@@ -442,6 +460,36 @@ private func l10nSource() -> String {
       == "4 archivos en los que nadie escribe desde hace más de una semana. El log "
       + "que el runner está escribiendo ahora nunca se borra, ni tampoco el historial "
       + "que muestra el Centro de control de Standfast.")
+}
+
+@Test func aRefusalNobodyCouldConfirmNamesNoJobInEitherLanguage() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.t("cleanup.unconfirmed", in: [english])
+      == "Cleanup stopped: could not confirm that %@ is idle or stopped")
+  #expect(
+    L10n.t("cleanup.unconfirmed", in: [spanish])
+      == "La limpieza se detuvo: no se pudo confirmar que %@ esté inactivo o detenido")
+}
+
+@Test func aCappedQueueCountReadsCorrectlyForOneJobInBothLanguages() throws {
+  // A partial reading with a single match is ordinary: more than ten queued
+  // runs and one of them for this Mac. "1 trabajos o más" is what the plural
+  // format used to make of it.
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+
+  #expect(
+    L10n.queueWaitingPartial(1, in: [english])
+      == "1 or more jobs are waiting for this machine")
+  #expect(
+    L10n.queueWaitingPartial(1, in: [spanish])
+      == "1 o más trabajos esperando a esta máquina")
+  #expect(
+    L10n.queueWaitingPartial(3, in: [spanish])
+      == "3 o más trabajos esperando a esta máquina")
 }
 
 @Test func premiumCompactVocabularyIsExactInBothLanguages() throws {
@@ -602,7 +650,7 @@ private func l10nSource() -> String {
     // dropped one leaves a dialogue that does not say what is about to be
     // deleted, or does not say how much.
     "cleanup.confirm.title": 1, "cleanup.confirm.body": 2, "cleanup.failed": 1,
-    "cleanup.partiallyFailed": 1, "cleanup.refused": 1,
+    "cleanup.partiallyFailed": 1, "cleanup.refused": 1, "cleanup.unconfirmed": 1,
     "cleanup.standfastTrash.title": 1, "cleanup.logs.title": 1,
     // The size is the reason to press the button.
     "menu.maintenance.freeToolCache": 1, "menu.maintenance.freeActionCache": 1,
@@ -735,6 +783,12 @@ private func specifiers(in format: String) -> [Character] {
     ("state.unknown.gitLabNotAuthenticated", "state.layer.gitLabRefusedToken"),
     ("state.unknown.gitLabRateLimited", "state.layer.gitLabRateLimited"),
     ("state.unknown.gitLabSilent", "state.layer.gitLabSilent"),
+    ("state.unknown.tokenRefused", "state.layer.gitHubRefusedToken"),
+    ("state.unknown.tokenUnreadable", "state.layer.gitHubNotAsked"),
+    ("state.unknown.gitLabTokenUnreadable", "state.layer.gitLabNotAsked"),
+    ("state.unknown.gitLabInsecure", "state.layer.gitLabNotAsked"),
+    ("state.unknown.noLocalAnswer.process", "state.layer.localUnreadable"),
+    ("state.unknown.gitLabPaused", "state.layer.gitLabPaused"),
   ]
 
   for language in ["en", "es"] {
@@ -749,4 +803,77 @@ private func specifiers(in format: String) -> [Character] {
         "\(language)/\(sentenceKey) does not open with \(badgeKey)")
     }
   }
+}
+
+@Test func noLineTheTokenPathCanProduceNamesGh() throws {
+  // With a token stored `gh` is never run, so a line naming it sends the user
+  // to a tool that played no part. Both catalogues, because the test host
+  // only ever speaks one of them.
+  let keys = [
+    "state.unknown.noAnswer", "state.unknown.rateLimited", "state.unknown.tokenRefused",
+    "state.unknown.tokenUnreadable",
+  ]
+  for language in ["en", "es"] {
+    let pack = try speaking(language)
+    for key in keys {
+      let line = L10n.t(key, in: [pack])
+      #expect(
+        line.range(of: #"\bgh\b"#, options: .regularExpression) == nil,
+        "\(language)/\(key): \(line)")
+    }
+  }
+}
+
+@Test func theLoginItemsNoticeNamesThePaneThisMacOSHas() throws {
+  // macOS 15 renamed the pane and 14 is still supported, so one sentence would
+  // send somebody on one of them to a name that is not on their screen.
+  let sonoma = OperatingSystemVersion(majorVersion: 14, minorVersion: 7, patchVersion: 0)
+  let sequoia = OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+  let panes = [
+    ("en", "Login Items", "Login Items & Extensions"),
+    ("es", "Ítems de inicio", "Ítems de inicio y extensiones"),
+  ]
+  let keys = ["menu.openAtLogin.needsApproval", "menu.openAtLogin.unavailable"]
+
+  for (language, old, renamed) in panes {
+    let pack = try speaking(language)
+    for key in keys {
+      let before = L10n.t(L10n.loginItemsPaneKey(key, on: sonoma), in: [pack])
+      let after = L10n.t(L10n.loginItemsPaneKey(key, on: sequoia), in: [pack])
+      #expect(before.hasSuffix("› " + old), "\(language)/\(key) on 14")
+      #expect(after.hasSuffix("› " + renamed), "\(language)/\(key) on 15")
+    }
+  }
+  // On whichever macOS runs this, the lines the app shows take the same turn.
+  #expect(
+    L10n.openAtLoginNeedsApproval
+      == L10n.t(L10n.loginItemsPaneKey("menu.openAtLogin.needsApproval")))
+  #expect(
+    L10n.openAtLoginUnavailable
+      == L10n.t(L10n.loginItemsPaneKey("menu.openAtLogin.unavailable")))
+}
+
+@Test func theUnaskableQueueLineCoversEnterpriseRunnersToo() throws {
+  // GitHub has no queue endpoint for either scope, so both get this line, and
+  // naming only one tells an enterprise runner it is something else.
+  let english = try #require(try catalogue("en")["queue.unknownScope"])
+  let spanish = try #require(try catalogue("es")["queue.unknownScope"])
+
+  #expect(english.contains("organisation") && english.contains("enterprise"))
+  #expect(spanish.contains("organización") && spanish.contains("empresa"))
+}
+
+@Test func spanishCopyReadsAsOneVoice() throws {
+  let spanish = try catalogue("es")
+
+  for (key, value) in spanish {
+    // Every other line says `esta Mac`, and one `este Mac` reads as somebody else.
+    #expect(!value.contains("este Mac"), "es/\(key)")
+    // A button name is not an instruction on its own.
+    #expect(!value.contains(". Actualizar ahora"), "es/\(key)")
+    #expect(!value.contains("luego Actualizar ahora"), "es/\(key)")
+  }
+  // The `una` of the second sentence stands for the noun the first one names.
+  #expect(spanish["cleanup.toolCache.effect"]?.contains("las toolchains") == true)
+  #expect(spanish["menu.preventSleep.lid"] == "Aun así, cerrar la tapa la pone en reposo")
 }

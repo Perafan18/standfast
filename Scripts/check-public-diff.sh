@@ -38,8 +38,11 @@ p5="[""["
 # does any real home. It is deliberately not applied to the binary scan below —
 # the icon has no reason to name a home directory at all.
 published_home="/""Users/ci/"
-scannable_lines="${added_lines//$published_home/}"
-scannable_docs="${added_docs//$published_home/}"
+# sed rather than `${added_lines//$published_home/}`: bash 3.2, which is the
+# /bin/bash on every Mac, takes minutes over a diff of a few thousand lines,
+# and the CI job running this then looks hung.
+scannable_lines="$(printf '%s\n' "$added_lines" | sed "s#${published_home}##g")"
+scannable_docs="$(printf '%s\n' "$added_docs" | sed "s#${published_home}##g")"
 
 matches=""
 for marker in "$p1" "$p2" "$p3" "$p4"; do

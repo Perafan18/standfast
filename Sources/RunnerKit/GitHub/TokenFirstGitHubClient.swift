@@ -40,7 +40,8 @@ public struct TokenFirstGitHubClient:
   /// buys the thing that matters: a token pasted into Settings is in use by the
   /// next refresh, with no wiring between the two and no relaunch.
   public static let standard = TokenFirstGitHubClient(
-    token: GitHubAPIClient(token: KeychainTokenStore(), http: URLSessionHTTPClient()),
+    token: GitHubAPIClient(
+      token: UnattendedTokenStore.gitHub, http: URLSessionHTTPClient()),
     cli: GHCommandLineClient())
 
   public func blockingRunnerStatus(id: Int, scope: RunnerScope) throws -> RemoteStatus {
@@ -73,7 +74,14 @@ public struct TokenFirstGitHubClient:
     do {
       return try withToken()
     } catch GitHubError.noToken {
-      return try withCLI()
+      // With no `gh` either, the instruction that fits is the token one:
+      // "install the GitHub CLI" sends someone who never used a terminal to
+      // the dependency the token exists to remove.
+      do {
+        return try withCLI()
+      } catch GitHubError.cliUnavailable {
+        throw GitHubError.noToken
+      }
     }
   }
 }

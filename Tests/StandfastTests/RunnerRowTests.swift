@@ -79,6 +79,36 @@ private func snapshot(
   #expect(rows.allSatisfy { $0.title.contains("mac-mini-m4") })
 }
 
+@Test func aScopeThatStillCollidesAddsTheRunnersID() throws {
+  // Two GitLab runners named alike on one instance: the scope is the same for
+  // both, so only the id GitLab gave each one can tell them apart.
+  let gitLab = try #require(GitLabInstance(url: "https://gitlab.com"))
+  let runners = [101, 102].map { id in
+    DiscoveredRunner(
+      label: "standfast.gitlab:gitlab.com:\(id)",
+      directory: URL(fileURLWithPath: "/Users/ci/.gitlab-runner"),
+      agentId: id, agentName: "mac-mini", scope: .gitLab(instance: gitLab),
+      installation: .gitLabService)
+  }
+  let qualifiers = RunnerSnapshot.qualifiers(
+    among: runners + [runner(name: "mac-mini", repository: "widget")])
+
+  #expect(qualifiers[0] != qualifiers[1])
+  #expect(qualifiers.compactMap { $0 }.count == 3)
+  #expect(qualifiers[0]?.contains("gitlab.com") == true)
+  #expect(qualifiers[0]?.contains("101") == true)
+  // Where the scope is enough, it stays the whole qualifier.
+  #expect(qualifiers[2] == "acme/widget")
+}
+
+@Test func aNameOnlyOneRunnerCarriesIsNotQualified() {
+  let qualifiers = RunnerSnapshot.qualifiers(among: [
+    runner(name: "build-mac"), runner(name: "spare-mac", repository: "gadget"),
+  ])
+
+  #expect(qualifiers == [nil, nil])
+}
+
 @Test func runnersWithDifferentNamesAreLeftAlone() {
   #expect(
     RunnerSnapshot.repeatedNames(among: [

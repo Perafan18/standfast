@@ -34,7 +34,7 @@ public enum GitHubError: Error, Equatable {
   /// for this endpoint, or a rate limit.
   case noAnswer
   /// Nothing has been stored for this app to ask with. Distinct from
-  /// `notAuthenticated`, which means a token was tried and refused: nothing was
+  /// `tokenRefused`, which means a token was tried and refused: nothing was
   /// tried here, the fix is to add one, and it is what lets a composing client
   /// fall back to `gh` instead of reporting a failure nobody can act on.
   case noToken
@@ -46,6 +46,14 @@ public enum GitHubError: Error, Equatable {
   /// failure and not an empty answer: an empty list would say "nothing is
   /// waiting", which is a claim nobody checked.
   case notAvailableForScope
+  /// This app's own token was tried and GitHub refused it: expired, or
+  /// revoked. Fix: replace it in Settings. Not `notAuthenticated`, whose fix
+  /// is `gh auth login` — with a token stored, `gh` is never asked.
+  case tokenRefused
+  /// The Keychain would not hand over this app's token: locked, or access
+  /// denied. Not `noToken`, because something is stored, so falling back to
+  /// `gh` would quietly ignore the credential the user configured.
+  case tokenUnreadable
 }
 
 public protocol GitHubClient: Sendable {
@@ -89,7 +97,7 @@ public struct GHCommandLineClient: GitHubClient {
   ///
   /// Shared between copies of the struct on purpose: the client is created per
   /// use in places, and a cache that reset with every copy would not be one. It
-  /// is only ever an optimisation — losing it costs two failed spawns, and a
+  /// is only ever an optimisation — losing it costs a few failed launches, and a
   /// wrong answer is impossible, because a remembered location that no longer
   /// works simply falls through to the full search again.
   private final class FoundLocation: @unchecked Sendable {
@@ -115,7 +123,7 @@ public struct GHCommandLineClient: GitHubClient {
   /// of installation and configuration. Authentication still follows `gh`'s
   /// own precedence, including token environment variables inherited by this
   /// process; no executable location proves which credentials it will use.
-  /// The two Homebrew prefixes follow because PATH is usually not enough:
+  /// The fixed prefixes follow because PATH is usually not enough:
   /// `launchctl getenv PATH` is empty on a stock Mac, so an .app opened from
   /// Finder runs with `/usr/bin:/bin:/usr/sbin:/sbin` and cannot see a brew
   /// install at all.
@@ -126,11 +134,22 @@ public struct GHCommandLineClient: GitHubClient {
   /// it looks: on exactly the machines the fallback exists for, PATH fails
   /// *every* time, so an unremembered search would spend a doomed spawn on
   /// every question, for every runner, on every refresh — not once.
-  public static let standardLocations = [
-    GHLocation(executable: "/usr/bin/env", leadingArguments: ["gh"]),
-    GHLocation(executable: "/opt/homebrew/bin/gh"),
-    GHLocation(executable: "/usr/local/bin/gh"),
-  ]
+  public static let standardLocations: [GHLocation] = {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    return [
+      GHLocation(executable: "/usr/bin/env", leadingArguments: ["gh"]),
+      GHLocation(executable: "/opt/homebrew/bin/gh"),
+      GHLocation(executable: "/usr/local/bin/gh"),
+      GHLocation(executable: "/opt/local/bin/gh"),
+      GHLocation(executable: "/etc/profiles/per-user/\(NSUserName())/bin/gh"),
+      GHLocation(executable: "/run/current-system/sw/bin/gh"),
+      GHLocation(executable: home + "/.nix-profile/bin/gh"),
+      // Shims last: one with no version configured exits with an error of its
+      // own rather than 127, and any answer ends the search.
+      GHLocation(executable: home + "/.local/share/mise/shims/gh"),
+      GHLocation(executable: home + "/.asdf/shims/gh"),
+    ]
+  }()
 
   /// Asks for the two fields the menu needs as one line, so the answer needs
   /// no JSON parsing. Note the spaces inside it: this is a single argument.

@@ -194,10 +194,9 @@ private func job(
 @Test func aCompletionAtTheTopOfOneLogCannotCloseAJobLeftOpenInTheOneBefore()
   throws
 {
-  // Each listener log is a closed world: a job never spans two of them, because
-  // the process that would have written the second line is the one that ended.
-  // Folding them together hands the interrupted job hours of somebody else's
-  // time — here, twelve of them.
+  // Each listener process is a closed world: the one that would have written
+  // the second line is the one that ended. Folding across that boundary hands
+  // the interrupted job hours of somebody else's time — here, twelve of them.
   let box = try ListenerLogSandbox()
   defer { box.cleanUp() }
   try box.writeLog(
@@ -235,6 +234,167 @@ private func job(
   // worth seeing.
   #expect(history.records.first?.result == nil)
   #expect(history.running == nil)
+}
+
+// MARK: - Pages
+
+/// What the listener writes between lease renewals: nothing this reads.
+private func renewal(at stamp: String) -> String {
+  "[\(stamp) INFO JobDispatcher] Successfully renew job 04aba6dc, job is valid till …"
+}
+
+@Test func aJobTheListenerFinishesOnANewPageKeepsItsResult() throws {
+  // Past eight megabytes the listener carries on in a new file, in the same
+  // process and mid-job. Read as a closed world, the completion is dropped
+  // and the failed job reads Interrupted, for good, with no notification.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  try box.writeLog(
+    startedAt: "20260901-000000",
+    job("build", from: "2026-09-10 10:00:00Z", to: "2026-09-10 10:02:00Z")
+      + [startedJob("deploy", at: "2026-09-10 11:00:00Z")])
+  try box.writeLog(
+    startedAt: "20260910-110031", continuing: true,
+    [
+      renewal(at: "2026-09-10 11:01:00Z"),
+      finishedJob("deploy", "Failed", at: "2026-09-10 11:04:00Z"),
+    ])
+  var reader = JobLogReader()
+
+  let history = reader.read(diagnosticsIn: box.diagnostics)
+
+  #expect(history.records.map(\.name) == ["deploy", "build"])
+  #expect(history.records.first?.result == .failed)
+  #expect(history.records.first?.duration == 240)
+  #expect(history.running == nil)
+}
+
+@Test func aJobStillGoingAfterTheListenerTurnsThePageIsStillRunning() throws {
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  try box.writeLog(
+    startedAt: "20260901-000000", [startedJob("deploy", at: "2026-09-10 11:00:00Z")])
+  // Empty is what a page is until the line after the one that filled the last.
+  let page = try box.writeLog(startedAt: "20260910-110031", continuing: true, [])
+  var reader = JobLogReader()
+
+  #expect(reader.read(diagnosticsIn: box.diagnostics).running?.name == "deploy")
+
+  try box.append(
+    renewal(at: "2026-09-10 11:01:00Z") + "\n"
+      + finishedJob("deploy", "Failed", at: "2026-09-10 11:04:00Z") + "\n", to: page)
+  let finished = reader.read(diagnosticsIn: box.diagnostics)
+
+  #expect(finished.running == nil)
+  #expect(finished.records.first?.result == .failed)
+  #expect(finished.records.first?.duration == 240)
+}
+
+@Test func aListenerThatHasNotWrittenItsHeaderYetIsNotTakenForAPage() throws {
+  // A new process looks like a new page until its header lands, a second in.
+  // A refresh inside that second must not leave the job a crash cut off
+  // running in the new process for good.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  try box.writeLog(
+    startedAt: "20260805-233458", [startedJob("testflight", at: "2026-08-05 23:40:00Z")])
+  let startup = "[2026-08-06 03:52:25Z INFO HostContext] No proxy settings were found"
+  let fresh = try box.writeLog(startedAt: "20260806-035225", continuing: true, [startup])
+  var reader = JobLogReader()
+  _ = reader.read(diagnosticsIn: box.diagnostics)
+
+  try box.append(
+    listenerChatter(at: "2026-08-06 03:52:25Z").map { $0 + "\n" }.joined(), to: fresh)
+  let history = reader.read(diagnosticsIn: box.diagnostics)
+
+  #expect(history.running == nil)
+  #expect(history.records.map(\.name) == ["testflight"])
+  #expect(history.records.first?.result == nil)
+}
+
+/// Renewals weighing more than `bytes`: the bulk of a page, and no job in it.
+private func renewals(outweighing bytes: Int, at stamp: String) -> [String] {
+  let line = renewal(at: stamp)
+  return Array(repeating: line, count: bytes / line.utf8.count + 1)
+}
+
+/// A page whose start closes `deploy` and opens `lint`, both too far up for a
+/// read of its last half megabyte, which sees only `lint` fail.
+private func pageReadOnlyFromItsEnd() -> [String] {
+  [
+    finishedJob("deploy", "Succeeded", at: "2026-09-10 11:04:00Z"),
+    startedJob("lint", at: "2026-09-10 11:10:00Z"),
+  ]
+    + renewals(outweighing: JobLogReader.tailWindow, at: "2026-09-10 11:20:00Z")
+    + [finishedJob("lint", "Failed", at: "2026-09-10 14:00:00Z")]
+}
+
+@Test func aPageReadOnlyFromItsEndLendsNoResultToTheLogBeforeIt() throws {
+  // The skipped bytes sit between the two logs. Joined across them, the
+  // completion that opens the tail closes `deploy` with `lint`'s result and
+  // three hours of `lint`'s time.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  try box.writeLog(
+    startedAt: "20260901-000000",
+    job("build", from: "2026-09-10 10:00:00Z", to: "2026-09-10 10:02:00Z")
+      + [startedJob("deploy", at: "2026-09-10 11:00:00Z")])
+  try box.writeLog(startedAt: "20260910-110031", continuing: true, pageReadOnlyFromItsEnd())
+  var reader = JobLogReader()
+
+  let history = reader.read(diagnosticsIn: box.diagnostics)
+
+  #expect(history.records.map(\.name) == ["deploy", "build"])
+  #expect(history.records.first?.result == nil)
+  #expect(history.running == nil)
+}
+
+@Test func anOlderPageReadOnlyFromItsEndLendsNoResultEither() throws {
+  // The same gap one page further back, where it is the usual case: every page
+  // but the newest is eight megabytes, and the walk reads only its end.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  try box.writeLog(
+    startedAt: "20260901-000000",
+    job("build", from: "2026-09-10 10:00:00Z", to: "2026-09-10 10:02:00Z")
+      + [startedJob("deploy", at: "2026-09-10 11:00:00Z")])
+  try box.writeLog(startedAt: "20260910-110031", continuing: true, pageReadOnlyFromItsEnd())
+  try box.writeLog(
+    startedAt: "20260910-140001", continuing: true, [renewal(at: "2026-09-10 14:01:00Z")])
+  var reader = JobLogReader()
+
+  let history = reader.read(diagnosticsIn: box.diagnostics)
+
+  #expect(history.records.map(\.name) == ["deploy", "build"])
+  #expect(history.records.first?.result == nil)
+  #expect(history.running == nil)
+}
+
+@Test func aJobFinishedOnAPageAlreadyUnderWayIsReadFromTheDelta() throws {
+  // Past its first few kilobytes a page is settled, and a completion landing
+  // on it is a warm read of the delta, folded onto the job the log before it
+  // left open.
+  let box = try ListenerLogSandbox()
+  defer { box.cleanUp() }
+  let first = try box.writeLog(
+    startedAt: "20260901-000000", [startedJob("deploy", at: "2026-09-10 11:00:00Z")])
+  let page = try box.writeLog(
+    startedAt: "20260910-110031", continuing: true,
+    renewals(outweighing: RunnerVersionReader.headWindow, at: "2026-09-10 11:01:00Z"))
+  var reader = JobLogReader()
+  #expect(reader.read(diagnosticsIn: box.diagnostics).running?.name == "deploy")
+
+  // Noise over the start, which only a cold read would see.
+  let size = try #require(
+    FileManager.default.attributesOfItem(atPath: first.path)[.size] as? Int)
+  try box.overwrite(first, at: 0, with: String(repeating: "x", count: size - 1))
+  try box.append(
+    finishedJob("deploy", "Failed", at: "2026-09-10 11:04:00Z") + "\n", to: page)
+  let finished = reader.read(diagnosticsIn: box.diagnostics)
+
+  #expect(finished.running == nil)
+  #expect(finished.records.first?.result == .failed)
+  #expect(finished.records.first?.duration == 240)
 }
 
 @Test func theActiveLogIsTheNewestByNameAndNotTheNewestByModificationDate() throws {

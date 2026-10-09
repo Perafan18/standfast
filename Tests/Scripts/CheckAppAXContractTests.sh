@@ -254,7 +254,7 @@ printf '%s\n' \
   '#!/bin/bash' \
   'printf "%s\n" "$*" >> "$STANDFAST_CONTRACT_CLICK_LOG"' \
   'case "${1:-}" in' \
-  '  where) echo "10 10" ;;' \
+  '  where) echo "733 421" ;;' \
   '  menu-bar-state) echo visible ;;' \
   'esac' \
   'exit 0' > "$FAKE_BIN/ax-click"
@@ -314,7 +314,9 @@ grep -Fxq 'where' "$STANDFAST_CONTRACT_CLICK_LOG" \
   || fail "contract probe did not use the isolated click helper"
 grep -Fxq 'reveal-menu-bar' "$STANDFAST_CONTRACT_CLICK_LOG" \
   || fail "contract probe did not simulate revealing the menu bar"
-grep -Fxq 'move 10 10' "$STANDFAST_CONTRACT_CLICK_LOG" \
+# The fake answered `where` with a point no probe would choose by itself, so
+# only restoring the position it read can produce this line.
+grep -Fxq 'move 733 421' "$STANDFAST_CONTRACT_CLICK_LOG" \
   || fail "contract probe did not simulate restoring the pointer"
 
 rm -f "$SENTINEL"
@@ -1160,7 +1162,7 @@ printf '%s\n' \
   '#!/bin/bash' \
   'printf "%s\n" "${1:-}" >> "$STANDFAST_REVEAL_LOG"' \
   'case "${1:-}" in' \
-  '  where) echo "10 10" ;;' \
+  '  where) echo "733 421" ;;' \
   '  menu-bar-state) echo "${STANDFAST_FAKE_MENU_BAR:-visible}" ;;' \
   'esac' \
   'exit 0' > "$reveal_bin/ax-click"

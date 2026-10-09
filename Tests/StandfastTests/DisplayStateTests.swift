@@ -9,6 +9,9 @@ private let everyDisplayState: [DisplayState] = [
   .resolved(.idle), .resolved(.busy), .resolved(.disconnected), .resolved(.stopped),
   .resolved(.unknown(.cliUnavailable)), .resolved(.unknown(.notAuthenticated)),
   .resolved(.unknown(.noAnswer)), .resolved(.unknown(.serviceStateUnreadable)),
+  .resolved(.unknown(.tokenRefused)), .resolved(.unknown(.tokenUnreadable)),
+  .resolved(.unknown(.gitLabTokenUnreadable)), .resolved(.unknown(.gitLabPaused)),
+  .resolved(.unknown(.gitLabInsecure)),
   .starting,
 ]
 
@@ -71,6 +74,31 @@ private let everyDisplayState: [DisplayState] = [
   #expect(
     DisplayState.resolved(.unknown(.rateLimited)).summary
       == L10n.stateUnknownRateLimited)
+  #expect(
+    DisplayState.resolved(.unknown(.tokenRefused)).summary
+      == L10n.stateUnknownTokenRefused)
+  #expect(
+    DisplayState.resolved(.unknown(.tokenUnreadable)).summary
+      == L10n.stateUnknownTokenUnreadable)
+  #expect(
+    DisplayState.resolved(.unknown(.gitLabTokenUnreadable)).summary
+      == L10n.stateUnknownGitLabTokenUnreadable)
+  #expect(
+    DisplayState.resolved(.unknown(.gitLabPaused)).summary
+      == L10n.stateUnknownGitLabPaused)
+  #expect(
+    DisplayState.resolved(.unknown(.gitLabInsecure)).summary
+      == L10n.stateUnknownGitLabInsecure)
+}
+
+@Test func aRefusedTokenNeverSendsTheUserToGh() {
+  // With a token stored `gh` is never run, so a line naming it points at a fix
+  // that cannot work.
+  let state = DisplayState.resolved(.unknown(.tokenRefused))
+  for line in [state.summary, state.shortSummary] {
+    #expect(line.range(of: #"\bgh\b"#, options: .regularExpression) == nil, "\(line)")
+  }
+  #expect(state.shortSummary == L10n.stateLayerGitHubRefusedToken)
 }
 
 @Test func noTwoStatesReadTheSame() {
@@ -120,7 +148,8 @@ private let everyDisplayState: [DisplayState] = [
   // itself did not answer, is a guess — deliberately this one, because a live
   // runner with Stop and Restart greyed out is the failure that matters.
   for reason: UnknownReason in [
-    .cliUnavailable, .notAuthenticated, .noAnswer, .serviceStateUnreadable,
+    .cliUnavailable, .notAuthenticated, .noAnswer, .serviceStateUnreadable, .tokenRefused,
+    .tokenUnreadable,
   ] {
     #expect(!DisplayState.resolved(.unknown(reason)).canStart)
     #expect(DisplayState.resolved(.unknown(reason)).canStop)
@@ -172,4 +201,28 @@ private let everyDisplayState: [DisplayState] = [
   #expect(
     DisplayState.resolved(.unknown(.serviceStateUnreadable)).shortSummary
       == L10n.stateLayerLocalUnreadable)
+  // A Keychain that withheld the token means nothing was sent to either host.
+  #expect(
+    DisplayState.resolved(.unknown(.tokenUnreadable)).shortSummary
+      == L10n.stateLayerGitHubNotAsked)
+  #expect(
+    DisplayState.resolved(.unknown(.gitLabTokenUnreadable)).shortSummary
+      == L10n.stateLayerGitLabNotAsked)
+  // Nor does an instance served over http, which is never sent the token.
+  #expect(
+    DisplayState.resolved(.unknown(.gitLabInsecure)).shortSummary
+      == L10n.stateLayerGitLabNotAsked)
+  // GitLab answered, and very clearly: neither "not asked" nor "not answering".
+  #expect(
+    DisplayState.resolved(.unknown(.gitLabPaused)).shortSummary
+      == L10n.stateLayerGitLabPaused)
+}
+
+@Test func aRunnerPausedInGitLabTakesNoWorkAndKeepsItsServiceButtons() {
+  // Paused in GitLab is not stopped here: the service is the one running, so
+  // Stop and Restart stay. What it will not do is take the job waiting for it.
+  let paused = DisplayState.resolved(.unknown(.gitLabPaused))
+
+  #expect(!paused.canReceiveWork)
+  #expect(paused.canStop && paused.canRestart && !paused.canStart)
 }

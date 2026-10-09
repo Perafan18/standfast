@@ -36,17 +36,19 @@ looks similar and the fix is not.
 | ↻ | `starting` | You just started it; GitHub has not acknowledged it yet. Held for 30s. |
 | ◌ | — | This Mac has no runners at all. Not a failure to read one. |
 
-`unknown` is never a shrug. It distinguishes *the GitHub CLI is not installed*, *it is
-installed but not authenticated* (run `gh auth login`), *it answered nothing useful*, and
-*launchd could not be asked* — because each one has a different fix.
+`unknown` is never a shrug. It says which of the reasons it was — no token in Settings and
+no GitHub CLI either, a credential GitHub refused, a rate limit, an answer with nothing
+usable in it, *launchd could not be asked*, and their GitLab and managed-fleet
+counterparts — because each one has a different fix.
 
 ## Quick menu, Control Center and Settings
 
-The quick menu is deliberately small. It shows one fleet summary, up to three runners that
-need attention, are doing work or starting, or carry a recent operation receipt; any compact
-discovery or thermal warning; when Standfast last looked; and four fixed actions: Refresh,
-Open Standfast, Settings, and Quit. A conclusively stopped runner may offer Start inside its
-echo. Stop, Restart, history, maintenance, preferences and confirmations do not live there.
+The quick menu is deliberately small. It shows one row per runner, in discovery order, each
+opening a submenu with that runner's state, progress, current managed job and latest
+operation receipt; any compact discovery or thermal warning; when Standfast last looked;
+and four fixed actions: Refresh, Open Standfast, Settings, and Quit. A conclusively stopped
+runner may offer Start inside its submenu. Stop, Restart, history, maintenance, preferences
+and confirmations do not live there.
 
 **Open Standfast** brings forward one persistent, single-column Control Center. Each runner
 gets a card with its local and GitHub state, current job, Start/Stop/Restart controls, the
@@ -66,16 +68,20 @@ command that returned is described as *request accepted*, not as a state the nex
 not proved. Timeouts say the result is uncertain, and Restart says when Stop completed but
 the Start phase failed or timed out so the recovery step is clear.
 
-**Settings** owns notification switches, SleepGuard and Open at Login. Those preferences
-share their existing state with the app; moving the controls did not create a second copy.
+**Settings** owns the notification switches, the folders of runners started by hand, the
+optional GitHub token, an optional token for each GitLab instance gitlab-runner's
+`config.toml` names, SleepGuard, Open at Login, and whether Standfast also takes a Dock tile.
+Those preferences share their existing state with the app; moving the controls did not
+create a second copy.
 
 ## Accessibility and app identity
 
 The status item exposes both the Standfast label and the aggregate fleet value to assistive
 technology. Control Center cards and operation feedback expose names, roles and values;
 native controls preserve keyboard order and visible focus, and text accompanies every
-meaningful symbol. No state depends on color or motion alone, and v0.5 adds no state
-animation that requires a separate Reduce Motion behavior.
+meaningful symbol. No state depends on color or motion alone. The only two animations —
+a card folding and an operation receipt appearing — become an immediate change under
+Reduce Motion.
 
 The rounded sentinel/beacon app icon is Standfast's product identity; it does not report
 live runner state. Its checked-in [1024×1024 source](Resources/AppIcon.png) contains no text
@@ -91,10 +97,12 @@ mac-mini-m4 — Running a job
 Running testflight — 1m 20s, usually 2m 50s
 ```
 
-Under it, the last five jobs show how each one ended and how long it took. All of it comes
-out of the log the runner already writes beside itself — **no API call, no token, nothing
-to configure**. The runner announces every job it picks up and every result it hands back,
-and Standfast reads the tail of that file.
+Under it, the last five jobs show how each one ended and how long it took. The job's name,
+its history and the usual duration all come out of the log the runner already writes beside
+itself — **no extra API call and nothing to configure**. The runner announces every job it
+picks up and every result it hands back, and Standfast reads the tail of that file. Whether
+the runner is busy right now is still GitHub's answer, from the same status request the
+card already makes, so the running line appears only once GitHub says so.
 
 "Usually" is the median of the last few **successful** runs *of that same job*. Not the
 mean, and not every run: a build cancelled after ten seconds is a real event and a
@@ -173,9 +181,17 @@ development bundle is not a published or distributable release.
 ### Requirements
 
 - macOS 14 or later.
-- A runner **installed as a service** — the one `./svc.sh install` sets up.
-- The [GitHub CLI](https://cli.github.com), authenticated once with `gh auth login`.
-  Standfast borrows those credentials and never stores a token of its own.
+- A runner to watch: one **installed as a service** — the one `./svc.sh install` sets up —
+  is found on its own. One started by hand with `./run.sh` is watched once you add its
+  folder in Settings.
+- A way to ask GitHub, either of:
+  - a GitHub token pasted into Settings, which Standfast keeps in your login Keychain and
+    uses for its requests to `api.github.com`; or
+  - the [GitHub CLI](https://cli.github.com), authenticated once with `gh auth login`.
+    Standfast uses it only while no token is stored.
+
+  Queued work needs the token: the `gh` path never answers it, because what it returns
+  cannot be attributed to a runner's labels.
 
 ## There is nothing to configure
 
@@ -187,10 +203,24 @@ installed, and the `.runner` file each one keeps beside itself:
 <runner directory>/.runner                                          → who it is
 ```
 
-No path to type, no repository to name, no token to paste. Several runners on one Mac work
-out of the box and are told apart by where they are registered when they share a name.
-Runners registered to an **organisation** or to a GitHub Enterprise Cloud **account**
-work too.
+No path to type and no repository to name. If `gh` is already signed in, there is no token
+to paste either. Several runners on one Mac work out of the box and are told apart by where
+they are registered when they share a name. Runners registered to an **organisation** or to
+a GitHub Enterprise Cloud **account** work too.
+
+Three other kinds of runner are found from where they already describe themselves:
+
+- **GitLab runners**, from gitlab-runner's own `~/.gitlab-runner/config.toml`. Their state
+  comes from the GitLab instance each one names, asked with a GitLab token from Settings.
+  The runner's own token stays in that file; Standfast never uses it.
+- **Supervisor-managed ephemeral fleets**, from the read-only status snapshot that
+  `actions-runner-fleet` publishes at `~/.local/state/actions-runner-fleet/status-v1.json`.
+  Standfast watches their slots; starting, stopping and cleaning them belong to the
+  supervisor.
+- **Runners started by hand with `./run.sh`**, which leave no LaunchAgent. They are never
+  guessed by walking the disk: you add their folder in Settings, and Standfast re-reads it
+  on every scan and watches the runner's process. It cannot start or stop them, and says so
+  beside the controls.
 
 Each runner is asked about by its own `agentId`, so a second runner on the same repository
 can never be mistaken for the first.
@@ -199,15 +229,21 @@ can never be mistaken for the first.
 
 These are real and deliberate, not oversights:
 
-- **Runners started by hand with `./run.sh` are not discovered.** They leave no
-  LaunchAgent, and the whole discovery mechanism is a scan of `~/Library/LaunchAgents`.
+- **Runners started by hand with `./run.sh` are not found on their own.** They leave no
+  LaunchAgent, so their folder has to be added in Settings, and Standfast can watch them but
+  not start or stop them. They must run under your own account: Standfast looks only at
+  your processes, never at another user's.
 - **GitHub Enterprise Server is not supported.** The host in the runner's `gitHubUrl` is
-  parsed for the scope and then thrown away: status is asked of `github.com` through `gh`,
-  and the workflow-runs or runner-settings destination is built there too. A GHES runner
-  reads `unknown`. (Runners registered to a GitHub Enterprise Cloud *account* —
-  `github.com/enterprises/...` — do work.)
-- **State is re-read every 15 seconds**, and a slow `gh` can stretch that. The menu now
-  says when it last looked, which is the only honest way to tell.
+  parsed for the scope and then thrown away: status is asked of `api.github.com` — or of
+  `github.com` through `gh` when no token is stored — and the workflow-runs or
+  runner-settings destination is built there too. A GHES runner reads `unknown`. (Runners
+  registered to a GitHub Enterprise Cloud *account* — `github.com/enterprises/...` — do
+  work.)
+- **Queued work is answered only for repository runners.** GitHub has no endpoint that
+  lists what is waiting at organization or enterprise level, so those runners say the
+  question cannot be answered there instead of showing an empty queue.
+- **State is re-read every 15 seconds**, and a slow answer from GitHub or `gh` can stretch
+  that. The menu says when it last looked, which is the only honest way to tell.
 - **The job history goes back about twenty jobs**, and no further. It is read from the
   tail of the runner's own logs; anything older is a question for the repository's GitHub
   workflow-runs page. Organization and enterprise runners have no honest cross-repository
@@ -223,28 +259,39 @@ These are real and deliberate, not oversights:
 ## Privacy
 
 Standfast itself adds no telemetry or analytics, and never checks for updates to *itself*.
-Its functional GitHub API calls go through `gh`: it asks for each configured runner's
-status and asks the public endpoint for the latest `actions/runner` release so the Control
-Center can say when an installed runner is out of date. That release request runs once when
-Standfast launches and then no more often than every 24 hours while that same instance
-stays open; relaunching starts a new instance and a new first check.
+Its GitHub requests are functional. It asks for each configured runner's status. For a
+repository runner, it lists that repository's queued workflow runs and their jobs. It also
+asks the public endpoint for the latest `actions/runner` release, so the Control Center can
+say when an installed runner is out of date. That release request runs once when Standfast
+launches and then no more often than every 24 hours while that same instance stays open;
+relaunching starts a new instance and a new first check.
 
-Standfast launches the installed GitHub CLI with the environment it inherited. Current
-`gh` versions may send their own pseudonymous telemetry; Standfast neither adds to nor
-suppresses that delegated behavior. GitHub documents the data and opt-out controls at
+With a token stored in Settings, those requests go straight to `api.github.com` over HTTPS.
+Without one, status and the release check
+go through the installed GitHub CLI, launched with the environment Standfast inherited.
+Current `gh` versions may send their own pseudonymous telemetry; Standfast neither adds to
+nor suppresses that delegated behavior. GitHub documents the data and opt-out controls at
 [GitHub CLI telemetry](https://cli.github.com/telemetry). In particular,
 `GH_TELEMETRY=false` or `DO_NOT_TRACK=true` disables it for the inherited environment.
+
+The only credentials Standfast keeps are the ones you paste into Settings — a GitHub token
+and, if you watch GitLab runners, one token per GitLab instance — in your login Keychain.
+Settings says whether one is stored and never what it is. A GitLab runner's status is asked
+of the GitLab instance named in that runner's own `config.toml`, with that instance's token
+only, and never over plain `http`: an instance served without TLS is not asked at all.
 
 The app reads the runner's own `_diag` locally: listener-log contents provide job history
 and the installed runner version, while file metadata and disk usage support maintenance.
 After explicit confirmation, maintenance can delete eligible old logs. Standfast never
-uploads `_diag` contents and stores no credentials of its own; see
-[SECURITY.md](SECURITY.md) for the complete boundary.
+uploads `_diag` contents; see [SECURITY.md](SECURITY.md) for the complete boundary.
 
 ## Building from source
 
+You need Xcode 16 or later; the Command Line Tools alone cannot build it, because from the
+macOS 27 SDK on SwiftUI's `@State` is a macro whose plugin ships only inside Xcode.app.
+
 ```sh
-swift package clean && swift test  # 623 tests; no installed runner required
+swift package clean && swift test  # about 1,000 tests; no installed runner required
 make app                           # assembles .build/Standfast.app
 make check                         # strict local bundle, menu and window/AX lifecycle check
 ```

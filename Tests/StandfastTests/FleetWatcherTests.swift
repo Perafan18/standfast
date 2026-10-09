@@ -4,6 +4,15 @@ import Testing
 
 @testable import Standfast
 
+private let launch = Date(timeIntervalSince1970: 1_785_962_174)
+
+/// The one runner, read `seconds` after `launch`, for a test about a sequence
+/// of scans rather than a single one.
+private func reading(_ display: DisplayState, at seconds: TimeInterval) -> RunnerSnapshot {
+  let readAt = launch.addingTimeInterval(seconds)
+  return snapshot(display: display, readAt: readAt, stateReadAt: readAt)
+}
+
 // MARK: - Nothing from before the app was watching
 
 @Test func theFirstReadingOfARunnerAnnouncesNoneOfItsJobs() {
@@ -188,21 +197,50 @@ import Testing
   #expect(events == [.jobFailed(runner: "mac-mini-m4 (acme/gadget)", job: "deploy")])
 }
 
+@Test func theLaunchAnnouncementNamesTheRunnerTheWayTheMenuDoes() {
+  // The same two `mac-mini-m4`s, both down when the app opens. Named bare, the
+  // two banners share one identifier, the second replaces the first, and the
+  // one left standing does not say which repository has lost its runner.
+  var watcher = FleetWatcher()
+  func bothDown(at second: TimeInterval) -> [RunnerSnapshot] {
+    let at = launch.addingTimeInterval(second)
+    return [
+      snapshot(
+        "mac-mini-m4", scope: "widget", display: .resolved(.disconnected),
+        qualifier: "acme/widget", readAt: at, stateReadAt: at),
+      snapshot(
+        "mac-mini-m4", scope: "gadget", display: .resolved(.disconnected),
+        qualifier: "acme/gadget", readAt: at, stateReadAt: at),
+    ]
+  }
+  _ = watcher.events(in: bothDown(at: 0))
+
+  let events = watcher.events(in: bothDown(at: 30))
+
+  #expect(
+    events == [
+      .runnerDisconnected(runner: "mac-mini-m4 (acme/widget)"),
+      .runnerDisconnected(runner: "mac-mini-m4 (acme/gadget)"),
+    ])
+}
+
 // MARK: - A runner GitHub cannot see
 
 @Test func aRunnerFallingOffGitHubIsReportedOnce() {
-  // The silent failure this app exists for: the process is up, the machine
-  // looks fine, and no work ever arrives. Reported when it happens and not
-  // again, because "still disconnected" every fifteen seconds is the same fact
-  // 240 times an hour.
+  // The silent failure this app exists for. Reported once it has outlasted a
+  // registration, and not again: "still disconnected" every fifteen seconds is
+  // the same fact 240 times an hour.
   var watcher = FleetWatcher()
-  _ = watcher.events(in: [snapshot(display: .resolved(.idle))])
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
 
-  let first = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
-  let second = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+  var announced: [Int] = []
+  for second in stride(from: 15.0, through: 120, by: 15) {
+    announced.append(
+      watcher.events(in: [reading(.resolved(.disconnected), at: second)]).count)
+  }
 
-  #expect(first == [.runnerDisconnected(runner: "build-mac")])
-  #expect(second.isEmpty)
+  // First read at 15 and still down at 45: the settling window's thirty seconds.
+  #expect(announced == [0, 0, 1, 0, 0, 0, 0, 0])
 }
 
 @Test func aRunnerThatComesBackCanBeReportedAgainIfItGoesAgain() {
@@ -210,13 +248,104 @@ import Testing
   // and a watcher that reported a state once and never again would go quiet
   // exactly where the trouble is.
   var watcher = FleetWatcher()
-  _ = watcher.events(in: [snapshot(display: .resolved(.idle))])
-  #expect(watcher.events(in: [snapshot(display: .resolved(.disconnected))]).count == 1)
-  #expect(watcher.events(in: [snapshot(display: .resolved(.idle))]).isEmpty)
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 15)])
+  #expect(watcher.events(in: [reading(.resolved(.disconnected), at: 45)]).count == 1)
+  #expect(watcher.events(in: [reading(.resolved(.idle), at: 60)]).isEmpty)
 
-  let again = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 75)])
+  let again = watcher.events(in: [reading(.resolved(.disconnected), at: 105)])
 
   #expect(again == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func aRunnerReconnectingAfterAWakeIsNotCalledDisconnected() {
+  // The laptop sleeps, GitHub marks the runner offline, and the first scan
+  // after waking reaches GitHub before the listener has. It is back a scan
+  // later: the same gap the settling window hides after a Start.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
+
+  let waking = watcher.events(in: [reading(.resolved(.disconnected), at: 3_600)])
+  let back = watcher.events(in: [reading(.resolved(.idle), at: 3_615)])
+
+  #expect(waking.isEmpty)
+  #expect(back.isEmpty)
+}
+
+@Test func aDisconnectionReadBeforeASleepWaitsItsGraceAgainAfterTheWake() {
+  // A scan in a dark wake reads the runner offline, and the Mac sleeps again
+  // before the grace has run. That reading says nothing about the hour slept
+  // through, so the first scan after the real wake, which lands in the
+  // registration gap, starts the thirty seconds over instead of finding them
+  // long gone.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 15)])
+
+  let waking = watcher.events(in: [reading(.resolved(.disconnected), at: 3_615)])
+  let stillDown = watcher.events(in: [reading(.resolved(.disconnected), at: 3_645)])
+
+  #expect(waking.isEmpty)
+  #expect(stillDown == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func aClockSetBackHoldsADisconnectionNoLongerThanItsGrace() {
+  // `timed` steps the wall clock back ten minutes while a disconnection is
+  // waiting out its grace. Measured from a first reading that now lies in the
+  // future, the banner would wait out the whole step.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 15)])
+
+  let stepped = watcher.events(in: [reading(.resolved(.disconnected), at: -570)])
+  let settled = watcher.events(in: [reading(.resolved(.disconnected), at: -540)])
+
+  #expect(stepped.isEmpty)
+  #expect(settled == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func aScanSlowerThanTheTickStillReportsADisconnection() {
+  // Other runners' requests timing out can stretch a scan well past the tick,
+  // so this runner is read every ninety seconds instead of every fifteen. The
+  // app never stopped watching, and a gap that started the grace over on every
+  // reading would never let it run out.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 90)])
+
+  #expect(
+    watcher.events(in: [reading(.resolved(.disconnected), at: 180)])
+      == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func readingsGitHubDidNotAnswerStillCountAsWatching() {
+  // GitHub stops answering for a few minutes while the runner is off it. This
+  // app read the runner throughout, so the disconnection on either side is one
+  // disconnection, long past its grace.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 15)])
+  for second in stride(from: 30.0, through: 390, by: 15) {
+    _ = watcher.events(in: [reading(.resolved(.unknown(.noAnswer)), at: second)])
+  }
+
+  #expect(
+    watcher.events(in: [reading(.resolved(.disconnected), at: 405)])
+      == [.runnerDisconnected(runner: "build-mac")])
+}
+
+@Test func aRunnerStillComingUpAtLoginIsNotAnnouncedAsDown() {
+  // launchd starts the runner at login and this app's first scan finds it up
+  // but not yet registered. D-R19 is for a runner that is down, and this one
+  // is idle a scan later.
+  var watcher = FleetWatcher()
+
+  let launching = watcher.events(in: [reading(.resolved(.disconnected), at: 0)])
+  let registered = watcher.events(in: [reading(.resolved(.idle), at: 15)])
+
+  #expect(launching.isEmpty)
+  #expect(registered.isEmpty)
 }
 
 @Test func aDisconnectedReadingDuringStopIsProvisional() {
@@ -235,8 +364,14 @@ import Testing
       display: .resolved(.disconnected),
       readAt: requestedAt.addingTimeInterval(1))
   ])
+  let stillInFlight = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(31))
+  ])
 
   #expect(events.isEmpty)
+  #expect(stillInFlight.isEmpty)
 }
 
 @Test func aFailedStopReplaysItsProvisionalDisconnection() {
@@ -256,10 +391,15 @@ import Testing
   ])
 
   watcher.cancelExpectedStop(expectedStop)
-  let events = watcher.events(in: [
+  _ = watcher.events(in: [
     snapshot(
       display: .resolved(.disconnected),
       readAt: requestedAt.addingTimeInterval(2))
+  ])
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: requestedAt.addingTimeInterval(32))
   ])
 
   #expect(events == [.runnerDisconnected(runner: "build-mac")])
@@ -380,11 +520,17 @@ import Testing
       stateReadAt: completedAt.addingTimeInterval(2))
   ])
   watcher.cancelExpectedStop(expectedStop)
-  let recovered = watcher.events(in: [
+  _ = watcher.events(in: [
     snapshot(
       display: .resolved(.disconnected),
       readAt: completedAt.addingTimeInterval(3),
       stateReadAt: completedAt.addingTimeInterval(4))
+  ])
+  let recovered = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(33),
+      stateReadAt: completedAt.addingTimeInterval(34))
   ])
 
   #expect(provisional.isEmpty)
@@ -403,11 +549,19 @@ import Testing
   let expectedStop = watcher.expectStop(for: runner.runner.label, at: requestedAt)
   watcher.completeExpectedStop(expectedStop, at: completedAt)
 
-  let events = watcher.events(in: [
+  _ = watcher.events(in: [
     snapshot(
       display: .resolved(.disconnected),
       readAt: requestedAt.addingTimeInterval(-1),
       stateReadAt: requestedAt.addingTimeInterval(-0.5))
+  ])
+  // Still down once the Stop grace has passed: the clock started at the
+  // pre-click answer, so thirty seconds have gone by.
+  let events = watcher.events(in: [
+    snapshot(
+      display: .resolved(.disconnected),
+      readAt: completedAt.addingTimeInterval(31),
+      stateReadAt: completedAt.addingTimeInterval(31))
   ])
 
   #expect(events == [.runnerDisconnected(runner: "build-mac")])
@@ -435,9 +589,148 @@ import Testing
 
   for reason in [
     UnknownReason.cliUnavailable, .notAuthenticated, .noAnswer, .serviceStateUnreadable,
+    .tokenRefused, .tokenUnreadable,
   ] {
     #expect(watcher.events(in: [snapshot(display: .resolved(.unknown(reason)))]).isEmpty)
   }
+}
+
+@Test func aReadingThatSaidNothingDoesNotMakeAnOldDisconnectionNews() {
+  // Down for an hour, then one scan where nothing answered: dropped wifi, a
+  // spent rate limit, a laptop just woken. The runner did not change, only
+  // this app's view of it.
+  for gap in [
+    UnknownReason.noAnswer, .rateLimited, .serviceStateUnreadable,
+    .managedFleetStatusUnavailable,
+  ] {
+    var watcher = FleetWatcher()
+    var announced: [FleetEvent] = []
+    for second in [0.0, 30, 60] {
+      announced += watcher.events(in: [reading(.resolved(.disconnected), at: second)])
+    }
+    #expect(announced.count == 1)
+
+    var after = watcher.events(in: [reading(.resolved(.unknown(gap)), at: 75)])
+    for second in [90.0, 120, 150] {
+      after += watcher.events(in: [reading(.resolved(.disconnected), at: second)])
+    }
+
+    #expect(after.isEmpty, "after \(gap)")
+  }
+}
+
+@Test func oneUnreadableLaunchctlDoesNotTurnAStoppedRunnerIntoACrash() {
+  // Stopped on purpose hours ago. A `launchctl list` that timed out says
+  // nothing about the service, so the stopped reading behind it is the same
+  // stopped as before, not a runner that has just gone down on its own.
+  var watcher = FleetWatcher()
+  #expect(watcher.events(in: [reading(.resolved(.stopped), at: 0)]).isEmpty)
+
+  let unreadable = watcher.events(in: [
+    reading(.resolved(.unknown(.serviceStateUnreadable)), at: 15)
+  ])
+  let stopped = watcher.events(in: [reading(.resolved(.stopped), at: 30)])
+
+  #expect(unreadable.isEmpty)
+  #expect(stopped.isEmpty)
+}
+
+@Test func aRunnerStartedBehindASilentGitHubCanStillBeSeenToStop() {
+  // The other side of that line. A GitHub-side unknown is only reached after
+  // launchd answered "running", so it does say the stopped runner came back,
+  // from a terminal say, and the stop after it is a new one.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.stopped), at: 0)])
+  #expect(watcher.events(in: [reading(.resolved(.unknown(.noAnswer)), at: 15)]).isEmpty)
+
+  let events = watcher.events(in: [reading(.resolved(.stopped), at: 30)])
+
+  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
+@Test func aRunnerFirstSeenThroughAnUnreadableLaunchctlIsStillBaselinedInSilence() {
+  // Login, a slow `launchctl`, and a runner somebody stopped last week. The
+  // first stopped reading this app manages is its first sight of the runner,
+  // which is the stopped-at-launch case and not a crash.
+  var watcher = FleetWatcher()
+  #expect(
+    watcher.events(in: [reading(.resolved(.unknown(.serviceStateUnreadable)), at: 0)])
+      .isEmpty)
+  #expect(watcher.events(in: [reading(.resolved(.stopped), at: 15)]).isEmpty)
+
+  // Once it has been seen up, going down is news again.
+  #expect(watcher.events(in: [reading(.resolved(.idle), at: 30)]).isEmpty)
+  let events = watcher.events(in: [reading(.resolved(.stopped), at: 45)])
+
+  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
+}
+
+// MARK: - A runner paused in GitLab
+
+@Test func aRunnerPausedInGitLabIsNotAnnouncedHoweverLongItStaysPaused() {
+  // Pausing is how somebody drains a GitLab runner. GitLab answered that it is
+  // paused, so there is nothing to announce going in, staying, or coming back.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.idle), at: 0)])
+
+  var events: [FleetEvent] = []
+  for second in stride(from: 15.0, through: 120, by: 15) {
+    events += watcher.events(in: [
+      reading(.resolved(.unknown(.gitLabPaused)), at: second)
+    ])
+  }
+  events += watcher.events(in: [reading(.resolved(.idle), at: 135)])
+
+  #expect(events.isEmpty)
+}
+
+@Test func aRunnerAlreadyPausedAtLaunchIsNotAnnounced() {
+  // D-R19 owes one banner for a runner that is down when the app opens. A
+  // paused one is not down, and the banner would come back at every login for
+  // as long as it stays paused.
+  var watcher = FleetWatcher()
+
+  var events: [FleetEvent] = []
+  for second in stride(from: 0.0, through: 120, by: 15) {
+    events += watcher.events(in: [
+      reading(.resolved(.unknown(.gitLabPaused)), at: second)
+    ])
+  }
+
+  #expect(events.isEmpty)
+}
+
+@Test func aPauseDoesNotMakeAnOldDisconnectionNews() {
+  // A release that reports "paused" in place of contact says nothing about
+  // whether the runner reconnected in between, so the disconnection after the
+  // pause may be the one already announced.
+  var watcher = FleetWatcher()
+  var announced: [FleetEvent] = []
+  for second in [0.0, 30, 60] {
+    announced += watcher.events(in: [reading(.resolved(.disconnected), at: second)])
+  }
+  #expect(announced.count == 1)
+
+  var after = watcher.events(in: [reading(.resolved(.unknown(.gitLabPaused)), at: 75)])
+  for second in [90.0, 120, 150] {
+    after += watcher.events(in: [reading(.resolved(.disconnected), at: second)])
+  }
+
+  #expect(after.isEmpty)
+}
+
+@Test func aRunnerStartedWhilePausedInGitLabCanStillBeSeenToStop() {
+  // GitLab is only asked once the service answered "running", so a paused
+  // reading after a stopped one says the runner came back, and the stop after
+  // it is a new one.
+  var watcher = FleetWatcher()
+  _ = watcher.events(in: [reading(.resolved(.stopped), at: 0)])
+  #expect(
+    watcher.events(in: [reading(.resolved(.unknown(.gitLabPaused)), at: 15)]).isEmpty)
+
+  let events = watcher.events(in: [reading(.resolved(.stopped), at: 30)])
+
+  #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
 }
 
 // MARK: - Who stopped the runner
@@ -605,7 +898,7 @@ import Testing
   #expect(watcher.events(in: [snapshot(display: .resolved(.stopped))]).isEmpty)
 
   // Started again from a terminal; GitHub has not registered it yet.
-  #expect(watcher.events(in: [snapshot(display: .resolved(.disconnected))]).count == 1)
+  #expect(watcher.events(in: [snapshot(display: .resolved(.disconnected))]).isEmpty)
   let events = watcher.events(in: [snapshot(display: .resolved(.stopped))])
 
   #expect(events == [.runnerStoppedUnexpectedly(runner: "build-mac")])
@@ -697,13 +990,18 @@ import Testing
   // — and on a Mac with two runners the name in the banner is the only part
   // that decides what to do next.
   var watcher = FleetWatcher()
-  let one = snapshot("build-mac", scope: "widget")
-  let two = snapshot("release-mac", scope: "gadget")
-  _ = watcher.events(in: [one, two])
+  func scan(at second: TimeInterval, release: DisplayState) -> [RunnerSnapshot] {
+    let at = launch.addingTimeInterval(second)
+    return [
+      snapshot("build-mac", scope: "widget", readAt: at, stateReadAt: at),
+      snapshot(
+        "release-mac", scope: "gadget", display: release, readAt: at, stateReadAt: at),
+    ]
+  }
+  _ = watcher.events(in: scan(at: 0, release: .resolved(.idle)))
+  _ = watcher.events(in: scan(at: 15, release: .resolved(.disconnected)))
 
-  let events = watcher.events(in: [
-    one, snapshot("release-mac", scope: "gadget", display: .resolved(.disconnected)),
-  ])
+  let events = watcher.events(in: scan(at: 45, release: .resolved(.disconnected)))
 
   #expect(events == [.runnerDisconnected(runner: "release-mac")])
 }
@@ -738,7 +1036,10 @@ import Testing
   // matters: you log in, walk away, and never learn the runner was down.
   var watcher = FleetWatcher()
 
-  let events = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+  var events: [FleetEvent] = []
+  for second in stride(from: 0.0, through: 120, by: 15) {
+    events += watcher.events(in: [reading(.resolved(.disconnected), at: second)])
+  }
 
   #expect(events == [.runnerDisconnected(runner: "build-mac")])
 }
@@ -749,9 +1050,10 @@ import Testing
   // somebody ends up switching notifications off — including the one that
   // mattered.
   var watcher = FleetWatcher()
-  _ = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 0)])
+  _ = watcher.events(in: [reading(.resolved(.disconnected), at: 30)])
 
-  let again = watcher.events(in: [snapshot(display: .resolved(.disconnected))])
+  let again = watcher.events(in: [reading(.resolved(.disconnected), at: 45)])
 
   #expect(again.isEmpty)
 }
@@ -776,12 +1078,18 @@ import Testing
   // installed mid-session is new to this app, not new to the machine, and
   // whoever just installed it is looking at the screen.
   var watcher = FleetWatcher()
-  _ = watcher.events(in: [snapshot("first", display: .resolved(.idle))])
-
-  let events = watcher.events(in: [
-    snapshot("first", display: .resolved(.idle)),
-    snapshot("second", display: .resolved(.disconnected)),
+  _ = watcher.events(in: [
+    snapshot("first", display: .resolved(.idle), readAt: launch, stateReadAt: launch)
   ])
+
+  var events: [FleetEvent] = []
+  for second in [15.0, 45, 75] {
+    let at = launch.addingTimeInterval(second)
+    events += watcher.events(in: [
+      snapshot("first", display: .resolved(.idle), readAt: at, stateReadAt: at),
+      snapshot("second", display: .resolved(.disconnected), readAt: at, stateReadAt: at),
+    ])
+  }
 
   #expect(events.isEmpty)
 }
@@ -796,9 +1104,14 @@ import Testing
     job("testflight", at: 1_785_950_000, result: .failed),
   ])
 
-  let events = watcher.events(in: [
-    snapshot(display: .resolved(.disconnected), jobs: broken)
-  ])
+  var events: [FleetEvent] = []
+  for second in [0.0, 30] {
+    let at = launch.addingTimeInterval(second)
+    events += watcher.events(in: [
+      snapshot(
+        display: .resolved(.disconnected), jobs: broken, readAt: at, stateReadAt: at)
+    ])
+  }
 
   #expect(events == [.runnerDisconnected(runner: "build-mac")])
   #expect(

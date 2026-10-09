@@ -958,6 +958,34 @@ private struct RemovingThenReportingMissingOperations: DestructiveFileOperations
 }
 
 @MainActor
+@Test func aRefusalGitHubCouldNotConfirmDoesNotSayTheRunnerTookWork() async throws {
+  // The menu settles a stopped runner from launchd alone; the gate asks GitHub
+  // first. Out of reach, or offline beside a live process, refusing is right
+  // and "picked up work" is a claim about a runner that may be stopped.
+  for verdict in [RunnerState.unknown(.noAnswer), .disconnected] {
+    for kind in [MaintenanceOffer.Kind.cleanToolCache, .trimLogs] {
+      let sandbox = try HousekeepingSandbox()
+      defer { sandbox.cleanUp() }
+      let old = try sandbox.writeLog(
+        "Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 30)
+      let subject = model(sandbox, confirmation: FakeConfirmation())
+      subject.measure(sandbox.runner)
+      await subject.quiesce()
+      sandbox.set(verdict)
+
+      subject.perform(kind, on: snapshot(display: .resolved(.stopped), of: sandbox))
+      await subject.quiesce()
+
+      #expect(sandbox.names(in: "_work").contains("_tool"))
+      #expect(FileManager.default.fileExists(atPath: old.path))
+      #expect(
+        subject.notice(for: sandbox.runner) == L10n.cleanupUnconfirmed("build-mac"),
+        "\(verdict), \(kind)")
+    }
+  }
+}
+
+@MainActor
 @Test func aPartiallyFailedSweepRemeasuresAndDoesNotClaimNothingWasDeleted() async throws {
   let sandbox = try HousekeepingSandbox()
   defer { sandbox.cleanUp() }
@@ -1204,6 +1232,58 @@ private func snapshot(
   await subject.quiesce()
 
   #expect(confirmation.prompts.count == 1)
+  #expect(subject.notice(for: sandbox.runner) == nil)
+}
+
+@MainActor
+@Test func cancellingANewAttemptRetiresWhatTheLastOneSaid() async throws {
+  // The notice is what the last action had to say. After unlocking the Mac
+  // and pressing Cancel, "unlock this Mac and try again" is about nothing.
+  for kind in [
+    MaintenanceOffer.Kind.cleanToolCache, .trimLogs, .cleanStandfastTrash,
+  ] {
+    let sandbox = try HousekeepingSandbox()
+    defer { sandbox.cleanUp() }
+    try sandbox.writeLog("Worker_20260101-000000-utc.log", bytes: 8192, ageInDays: 30)
+    let grave = sandbox.root.appendingPathComponent(
+      "_work/\(Housekeeper.trashFolder)/EEEEEEEE-0000-0000-0000-000000000001")
+    try FileManager.default.createDirectory(at: grave, withIntermediateDirectories: true)
+    try Data(repeating: UInt8(ascii: "x"), count: 4096)
+      .write(to: grave.appendingPathComponent("payload"))
+    let confirmation = FakeConfirmation()
+    let subject = model(sandbox, confirmation: confirmation)
+    subject.measure(sandbox.runner)
+    await subject.quiesce()
+    confirmation.answer = .unavailable
+    subject.perform(kind, on: snapshot(display: .resolved(.idle), of: sandbox))
+    #expect(subject.notice(for: sandbox.runner) == L10n.cleanupConfirmationUnavailable)
+
+    confirmation.answer = .cancelled
+    subject.perform(kind, on: snapshot(display: .resolved(.idle), of: sandbox))
+    await subject.quiesce()
+
+    #expect(confirmation.prompts.count == 2, "\(kind)")
+    #expect(subject.notice(for: sandbox.runner) == nil, "\(kind)")
+  }
+}
+
+@MainActor
+@Test func measuringAgainRetiresWhatTheLastActionSaid() async throws {
+  // A notice with no date stays under the buttons for as long as the app runs.
+  // Once the user has asked for fresh numbers, the last action is that one.
+  let sandbox = try HousekeepingSandbox()
+  defer { sandbox.cleanUp() }
+  let confirmation = FakeConfirmation()
+  confirmation.answer = .unavailable
+  let subject = model(sandbox, confirmation: confirmation)
+  subject.measure(sandbox.runner)
+  await subject.quiesce()
+  subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
+  #expect(subject.notice(for: sandbox.runner) == L10n.cleanupConfirmationUnavailable)
+
+  subject.perform(.measure, on: snapshot(display: .resolved(.idle), of: sandbox))
+  await subject.quiesce()
+
   #expect(subject.notice(for: sandbox.runner) == nil)
 }
 
