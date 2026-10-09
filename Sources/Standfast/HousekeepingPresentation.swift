@@ -120,6 +120,14 @@ extension MaintenanceSection {
         version: nil, usage: [], measured: L10n.diskManagedFleet,
         offers: [], notes: notice.map { [$0] } ?? [])
     }
+    // Its directory is the folder holding `config.toml`, which has no `_work`
+    // or `_diag`: a measurement would draw an empty disk while the builds sit
+    // in `builds_dir`, which nothing here reads.
+    guard snapshot.runner.installation != .gitLabService else {
+      return MaintenanceSection(
+        version: nil, usage: [], measured: L10n.diskGitLabService,
+        offers: [], notes: notice.map { [$0] } ?? [])
+    }
     // A checkout that lives outside the runner's directory is a refusal with a
     // reason, not a failed measure: nothing broke, maintenance just does not
     // follow a symlink off the runner on purpose, and a Measure button here

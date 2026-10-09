@@ -73,6 +73,12 @@ public struct JobLogReader: Sendable {
   /// `Worker_…`, are ten times the size, and hold nothing this needs.
   static let logPrefix = "Runner_"
 
+  /// What follows the trace header on the line a listener writes once, when
+  /// its process starts. A log without it is a page the same process rolled
+  /// over into past its size limit — eight megabytes unless `RUNNER_LOGSIZE`
+  /// says otherwise.
+  static let processStartMarker = "Version: "
+
   /// What has already been read, and how much of the active log it covers.
   private struct Cache: Equatable, Sendable {
     /// The log the listener is writing to now.
@@ -95,8 +101,15 @@ public struct JobLogReader: Sendable {
     /// Warm reads since the older walk was last attempted. See
     /// `olderRetryInterval` (INV-009).
     var warmReadsSinceOlderWalk: Int
-    /// Records from the active log, oldest first.
+    /// Records from the active log and the pages before it that its process
+    /// wrote, back to the first gap in what was read, oldest first.
     var active: [JobRecord]
+    /// The active log's size when it was read as a page, while it was still
+    /// short enough for a new process's header to be on its way. Nil once
+    /// that is settled.
+    var activeHeaderPendingAt: Int?
+    /// See `JobLogReader.headerLog`.
+    var headerLog: URL?
   }
 
   private var cache: Cache?
@@ -129,13 +142,12 @@ public struct JobLogReader: Sendable {
 
   /// The log the listener had open at the last read, and nil until something
   /// has been read.
-  ///
-  /// Exposed so that the one other thing which needs this file — the runner's
-  /// version, which is written in its header — does not list `_diag` a second
-  /// time to find the file this type has just found. That listing is the work
-  /// the cache above exists to avoid, and doing it twice per runner per refresh
-  /// grows with exactly the number of files the sweep is there to bound.
   public var activeLog: URL? { cache?.activeLog }
+
+  /// The log holding the header of the process writing now: the active log
+  /// unless it has since rolled over into a page, and nil when none was found
+  /// within reach. The version is read from it without listing `_diag` again.
+  public var headerLog: URL? { cache?.headerLog }
 
   /// Blocks the calling thread on file I/O.
   ///
@@ -181,7 +193,10 @@ public struct JobLogReader: Sendable {
     }
 
     if var cached = cache, cached.activeLog == active, cached.consumed <= size,
-      !Self.isDueForOlderRetry(cached)
+      !Self.isDueForOlderRetry(cached),
+      // A log read as a page that has grown since may have been a new process
+      // caught before its header, which a cold start can now tell apart.
+      cached.activeHeaderPendingAt.map({ $0 == size }) ?? true
     {
       // The steady state, and the reason this is worth its cache: an idle
       // listener writes nothing at all, so a refresh that finds the same size
@@ -221,11 +236,9 @@ public struct JobLogReader: Sendable {
   private func history() -> JobHistory {
     guard let cache else { return .empty }
     let combined = Self.trimmed(cache.older + cache.active)
-    // Only the active log can hold a job that is still running. An unfinished
-    // job in a log the listener has stopped writing to is one that was cut off
-    // when the listener went down — the same missing line, for opposite
-    // reasons, and reporting the second as the first would leave "Running
-    // testflight — 14h" over an idle machine.
+    // Only the process writing now can hold a running job. One left unfinished
+    // by a process that has ended was cut off, and calling it running would
+    // leave "Running testflight — 14h" over an idle machine.
     let running = cache.active.last.flatMap { $0.finishedAt == nil ? $0 : nil }
     return JobHistory(records: combined.reversed(), running: running)
   }
@@ -238,51 +251,99 @@ public struct JobLogReader: Sendable {
     let from = max(0, activeSize - tailWindow)
     guard
       let read = events(
-        in: active, from: from, to: activeSize, skippingFirstLine: from > 0)
+        in: active, from: from, to: activeSize, skippingFirstLine: from > 0),
+      let activeStartsProcess = startsAProcess(active)
     else { return nil }
-    let current = trimmed(fold(read.events, into: []))
 
     // Backwards through the rotations until there is enough history or enough
     // has been read. A listener opens a new log every time it starts, so a Mac
     // that sleeps and wakes — or a runner restarted from this very menu —
     // rotates without running a single job, and the jobs can be several files
     // back.
-    var older: [[JobRecord]] = []
-    var known = current.count
+    var processes: [[JobLogEvent]] = []
+    var group = read.events
+    // Whether the oldest log in `group` carries on straight from the one before
+    // it: a page read from its first byte.
+    var groupJoinsBack = !activeStartsProcess && from == 0
+    var headerLog = activeStartsProcess ? active : nil
+    var known = startCount(read.events)
     var budget = coldReadBudget
     var truncatedByFailure = false
     for log in logs.dropLast().suffix(maxFiles).reversed() {
-      guard known < maxRecords, budget > 0 else { break }
-      // Folded on its own. Each listener log is a closed world: a job never
-      // spans two of them, because the process that would have written the
-      // second line is the one that ended. Folding them together would let a
-      // completion at the top of one log close a job left dangling at the
-      // bottom of the log before it, and hand it hours of somebody else's time.
+      let wantsJobs = known < maxRecords && budget > 0
+      // Past enough jobs, on only as far as the header of the process writing
+      // now: the one place its version is.
+      guard wantsJobs || headerLog == nil else { break }
       // A rotated log is historical evidence, not the source of the current
       // state. If one remains unreadable, stop at that boundary: older history
       // may be incomplete, but poisoning the readable active log would hide
       // current jobs, version and future notifications on every refresh. The
       // active log above still fails closed because it alone can describe work
       // happening now.
-      guard let events = tailEvents(of: log) else {
+      guard let startsProcess = startsAProcess(log),
+        let tail = wantsJobs ? tailEvents(of: log) : (events: [], fromStart: true)
+      else {
         truncatedByFailure = true
         break
       }
-      let records = fold(events, into: [])
+      if headerLog == nil, startsProcess { headerLog = log }
+      guard wantsJobs else { continue }
       budget -= min(size(of: log) ?? 0, tailWindow)
-      known += records.count
-      older.append(records)
+      known += startCount(tail.events)
+      // Folded per stretch the listener wrote without a gap: never across two
+      // processes, nor across bytes a tail read skipped. Either way, a
+      // completion on the far side would hand a job hours of somebody else's
+      // time.
+      if groupJoinsBack {
+        group = tail.events + group
+      } else {
+        processes.append(group)
+        group = tail.events
+      }
+      groupJoinsBack = !startsProcess && tail.fromStart
     }
+    processes.append(group)
+    // A new process's header lands within its first kilobyte or two, so a head
+    // window's worth without one is a page for good.
+    let headerSettled = activeStartsProcess || activeSize >= RunnerVersionReader.headWindow
 
     return Cache(
       activeLog: active,
       // Never less than where the window opened: the bytes before it were
       // skipped deliberately and re-reading them would undo the ceiling.
       consumed: max(read.consumed, from),
-      older: trimmed(older.reversed().flatMap { $0 }),
+      older: trimmed(processes.dropFirst().reversed().flatMap { fold($0, into: []) }),
       olderTruncatedByFailure: truncatedByFailure,
       warmReadsSinceOlderWalk: 0,
-      active: current)
+      active: trimmed(fold(processes[0], into: [])),
+      activeHeaderPendingAt: headerSettled ? nil : activeSize,
+      headerLog: headerLog)
+  }
+
+  /// Whether `log` opens with the header a listener writes when its process
+  /// starts, and nil when its head could not be read.
+  private static func startsAProcess(_ log: URL) -> Bool? {
+    guard let handle = try? FileHandle(forReadingFrom: log) else { return nil }
+    defer { try? handle.close() }
+    let head: Data
+    do {
+      head = try handle.read(upToCount: RunnerVersionReader.headWindow) ?? Data()
+    } catch {
+      return nil
+    }
+    // Only right after the trace header's own bracket, so a job named
+    // `x] Version: 1`, echoed after `WRITE LINE:`, cannot pass for one.
+    return String(decoding: head, as: UTF8.self).split(separator: "\n").contains {
+      guard let close = $0.range(of: "] ") else { return false }
+      return $0[close.upperBound...].hasPrefix(processStartMarker)
+    }
+  }
+
+  private static func startCount(_ events: [JobLogEvent]) -> Int {
+    events.reduce(0) { count, event in
+      guard case .started = event else { return count }
+      return count + 1
+    }
   }
 
   /// How many warm reads pass before a walk that failed is tried again.
@@ -316,10 +377,14 @@ public struct JobLogReader: Sendable {
       warmReads: cache.warmReadsSinceOlderWalk)
   }
 
-  private static func tailEvents(of log: URL) -> [JobLogEvent]? {
+  private static func tailEvents(
+    of log: URL
+  ) -> (events: [JobLogEvent], fromStart: Bool)? {
     guard let size = size(of: log) else { return nil }
     let from = max(0, size - tailWindow)
-    return events(in: log, from: from, to: size, skippingFirstLine: from > 0)?.events
+    guard let read = events(in: log, from: from, to: size, skippingFirstLine: from > 0)
+    else { return nil }
+    return (read.events, from == 0)
   }
 
   /// The events in the whole lines of `[from, to)`, and the offset one past the

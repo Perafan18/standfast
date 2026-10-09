@@ -11,8 +11,25 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 CONFIG="${CONFIG:-release}"
 DEST="${DEST:-.build/Standfast.app}"
 
-swift build -c "$CONFIG" --product Standfast
-BIN="$(swift build -c "$CONFIG" --show-bin-path | tail -n 1)"
+# Homebrew already runs this build under sandbox-exec, and macOS refuses the
+# nested sandbox SwiftPM evaluates the manifest in, so the formula turns that
+# one off. Everybody else keeps it.
+SWIFTPM_FLAGS=()
+if [ "${STANDFAST_SWIFTPM_SANDBOX:-1}" = 0 ]; then
+  SWIFTPM_FLAGS+=(--disable-sandbox)
+fi
+
+# ARCHS="arm64 x86_64" builds universal, which the release needs: it is built
+# on Apple silicon and has to open on an Intel Mac too. Unset, SwiftPM builds
+# for this Mac alone, which is all Homebrew and `make app` need.
+for arch in ${ARCHS:-}; do
+  SWIFTPM_FLAGS+=(--arch "$arch")
+done
+
+# The `+` form because /bin/bash 3.2 calls an empty array unbound under `set -u`.
+swift build -c "$CONFIG" --product Standfast ${SWIFTPM_FLAGS[@]+"${SWIFTPM_FLAGS[@]}"}
+BIN="$(swift build -c "$CONFIG" --show-bin-path \
+  ${SWIFTPM_FLAGS[@]+"${SWIFTPM_FLAGS[@]}"} | tail -n 1)"
 
 EXECUTABLE="$BIN/Standfast"
 # Named after the package and the target, both of which are "Standfast".
@@ -44,11 +61,19 @@ cp Resources/Info.plist "$DEST/Contents/Info.plist"
 # refuses, which would have to be undone the day this app gets notarised.
 cp -R "$RESOURCES" "$DEST/Contents/Resources/"
 
+# Swift Build, SwiftPM's default from Swift 6.4, emits a real macOS bundle with
+# the catalogues under Contents/Resources; the native build system leaves them
+# flat, and a glob written for one shape matches nothing in the other.
+LPROJ_ROOT="$RESOURCES"
+if [ -d "$RESOURCES/Contents/Resources" ]; then
+  LPROJ_ROOT="$RESOURCES/Contents/Resources"
+fi
+
 # The loose `.lproj` directories are what make Contents/Resources itself a
 # localised bundle, so `Bundle.main` can answer in Spanish even if the bundle
 # above were lost, and — with CFBundleLocalizations in Info.plist — what makes
 # macOS offer Standfast in the per-app language picker.
-cp -R "$RESOURCES"/*.lproj "$DEST/Contents/Resources/"
+cp -R "$LPROJ_ROOT"/*.lproj "$DEST/Contents/Resources/"
 
 # Compile the checked-in master into Apple's icon family before signing so the
 # resulting Standfast.icns is covered by the bundle's resource seal.

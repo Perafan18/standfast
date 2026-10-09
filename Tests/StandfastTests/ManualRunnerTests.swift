@@ -84,7 +84,7 @@ private func gitLabSnapshot(
       label: "standfast.gitlab:gitlab.example.com:91",
       directory: URL(fileURLWithPath: "/Users/ci/.gitlab-runner"),
       agentId: 91, agentName: "mac-gitlab",
-      scope: .gitLab(instanceHost: "gitlab.example.com"),
+      scope: .gitLab(instance: GitLabInstance(url: "https://gitlab.example.com")!),
       installation: .gitLabService),
     display: display, labels: labels, queued: queued)
 }
@@ -102,6 +102,129 @@ private func gitLabSnapshot(
   #expect(card.serviceNote == L10n.runnerGitLabService)
   #expect(card.action(.start)?.isEnabled == false)
   #expect(card.action(.stop)?.isEnabled == false)
+}
+
+@Test func aGitLabRunnerOffersNoMaintenance() {
+  // Its directory is `~/.gitlab-runner`, which has no `_work` or `_diag`, so a
+  // measurement there reports an empty disk while the builds sit in
+  // `builds_dir`, a folder this app never reads.
+  let section = MaintenanceSection.building(
+    gitLabSnapshot(), measurement: nil, latest: nil, isWorking: false, notice: nil,
+    now: Date(timeIntervalSince1970: 0))
+
+  #expect(section.offers.isEmpty)
+  #expect(section.measured == L10n.diskGitLabService)
+}
+
+@Test func aGitLabRunnersLinkSaysItOpensGitLab() {
+  // The link can only reach the instance's home page, so "View settings" and
+  // "Open runner settings" promised a page nobody lands on.
+  let card = RunnerCardPresentation.building(
+    gitLabSnapshot(), measurement: nil, latestRelease: nil,
+    isMaintenanceWorking: false, maintenanceNotice: nil,
+    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+
+  guard case .instance(let url) = card.githubDestination else {
+    Issue.record("A GitLab runner links to \(card.githubDestination)")
+    return
+  }
+  #expect(url.host == "gitlab.example.com")
+  #expect(card.action(.openOnGitHub)?.label == L10n.openGitLab)
+  #expect(card.action(.openOnGitHub)?.accessibilityLabel == L10n.openGitLab)
+}
+
+@Test func aRunnerGitLabCannotSeeNamesGitLabWhereverItsStateIsRead() throws {
+  // GitLab is what was asked, so a sentence naming GitHub sends somebody to
+  // the wrong service to look.
+  let snapshot = gitLabSnapshot(.resolved(.disconnected))
+  let card = RunnerCardPresentation.building(
+    snapshot, measurement: nil, latestRelease: nil,
+    isMaintenanceWorking: false, maintenanceNotice: nil,
+    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+  let menu = QuickMenuPresentation.building(
+    snapshots: [snapshot],
+    overview: .building(snapshots: [snapshot], notice: nil),
+    thermalLines: [], readAt: nil, now: Date(timeIntervalSince1970: 0))
+  guard case .runner(let echo) = menu.items.first else {
+    Issue.record("The quick menu lost the runner: \(menu.items)")
+    return
+  }
+
+  #expect(card.focus == .state(L10n.stateDisconnectedGitLab))
+  for line in [card.state, snapshot.row.title, echo.longState] {
+    #expect(line.contains(L10n.stateDisconnectedGitLab), "\(line)")
+    #expect(!line.contains("GitHub"), "\(line)")
+  }
+}
+
+@Test func aRunnerGitLabCannotSeeIsAnnouncedInGitLabsName() {
+  // Both routes to the banner: found disconnected at the first scan (D-R19),
+  // and falling off while the app watched. No grace: the wording is the
+  // subject here, and FleetEventsTests owns the wait.
+  var atLaunch = FleetWatcher(disconnectionGrace: 0)
+  let found = atLaunch.events(in: [gitLabSnapshot(.resolved(.disconnected))])
+  var watching = FleetWatcher(disconnectionGrace: 0)
+  _ = watching.events(in: [gitLabSnapshot(.resolved(.idle))])
+  let fell = watching.events(in: [gitLabSnapshot(.resolved(.disconnected))])
+
+  let banner = [L10n.notificationDisconnectedGitLabBody("mac-gitlab")]
+  #expect(found.map(\.body) == banner)
+  #expect(fell.map(\.body) == banner)
+}
+
+@Test func aRunnerPausedInGitLabSaysPausedWhereverItsStateIsRead() throws {
+  // Paused in GitLab to drain it. "GitLab cannot see it" would be false, and
+  // "not answering" would send somebody to check a network that is fine.
+  let snapshot = gitLabSnapshot(.resolved(.unknown(.gitLabPaused)))
+  let card = RunnerCardPresentation.building(
+    snapshot, measurement: nil, latestRelease: nil,
+    isMaintenanceWorking: false, maintenanceNotice: nil,
+    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+  let menu = QuickMenuPresentation.building(
+    snapshots: [snapshot],
+    overview: .building(snapshots: [snapshot], notice: nil),
+    thermalLines: [], readAt: nil, now: Date(timeIntervalSince1970: 0))
+  guard case .runner(let echo) = menu.items.first else {
+    Issue.record("The quick menu lost the runner: \(menu.items)")
+    return
+  }
+
+  #expect(snapshot.display.shortSummary == L10n.stateLayerGitLabPaused)
+  #expect(card.state == L10n.stateUnknownGitLabPaused)
+  for line in [card.state, snapshot.row.title, echo.longState] {
+    #expect(line.contains(L10n.stateUnknownGitLabPaused), "\(line)")
+    #expect(!line.contains(L10n.stateDisconnectedGitLab), "\(line)")
+  }
+}
+
+@Test func aRunnerPausedInGitLabIsNeverAnnounced() {
+  // The same two routes as the disconnection above, with no grace to hide
+  // behind: a pause is GitLab's answer, not a runner it lost.
+  var atLaunch = FleetWatcher(disconnectionGrace: 0)
+  let found = atLaunch.events(in: [gitLabSnapshot(.resolved(.unknown(.gitLabPaused)))])
+  var watching = FleetWatcher(disconnectionGrace: 0)
+  _ = watching.events(in: [gitLabSnapshot(.resolved(.idle))])
+  let paused = watching.events(in: [gitLabSnapshot(.resolved(.unknown(.gitLabPaused)))])
+
+  #expect(found.isEmpty)
+  #expect(paused.isEmpty)
+}
+
+@Test func anUnreadableProcessListIsNotBlamedOnLaunchctl() {
+  // A GitLab or hand-started runner's local half comes from `ps`; only a
+  // LaunchAgent is asked through `launchctl`.
+  func state(of snapshot: RunnerSnapshot) -> String {
+    RunnerCardPresentation.building(
+      snapshot, measurement: nil, latestRelease: nil,
+      isMaintenanceWorking: false, maintenanceNotice: nil,
+      now: Date(timeIntervalSince1970: 0), fleetSize: 1
+    ).state
+  }
+  let unreadable = DisplayState.resolved(.unknown(.serviceStateUnreadable))
+
+  #expect(state(of: gitLabSnapshot(unreadable)) == L10n.stateUnknownNoLocalAnswerProcess)
+  #expect(state(of: manualSnapshot(unreadable)) == L10n.stateUnknownNoLocalAnswerProcess)
+  #expect(state(of: servicedSnapshot(unreadable)) == L10n.stateUnknownNoLocalAnswer)
 }
 
 @Test func aGitLabRunnerIsNeverAskedAboutTheGitHubQueue() {

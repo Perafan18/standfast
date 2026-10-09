@@ -21,6 +21,8 @@ final class FleetSandbox: @unchecked Sendable {
   private var discoveryFailure: DiscoveryFailure?
   private var manualDirectories: [URL] = []
   private var gitLabConfig: URL?
+  /// What GitLab answers about any runner, and nil for no token stored.
+  private var gitLabAnswer: String?
   private var queues: [String] = []
   private var discoveryQueues: [String] = []
   /// Held for the duration of every GitHub call, so a test can make a scan
@@ -145,6 +147,8 @@ final class FleetSandbox: @unchecked Sendable {
     withLock { remote = answer }
   }
   func set(delay seconds: TimeInterval) { withLock { delay = seconds } }
+  /// Stores a token for GitLab and has GitLab answer `body` to it.
+  func set(gitLabAnswer body: String) { withLock { gitLabAnswer = body } }
   func set(discoveryFailure failure: DiscoveryFailure?) {
     withLock { discoveryFailure = failure }
   }
@@ -238,16 +242,20 @@ final class FleetSandbox: @unchecked Sendable {
 
   /// A gitlab-runner `config.toml` with one runner in it, and the sandbox's
   /// discovery pointed at it.
+  ///
+  /// - Parameter url: the address as config.toml spells it, `https://` and the
+  ///   host when nil; gitlab-runner accepts plain http too.
   @discardableResult
   func addGitLabRunner(
-    name: String = "mac-gitlab", id: Int = 91, host: String = "gitlab.example.com"
+    name: String = "mac-gitlab", id: Int = 91, host: String = "gitlab.example.com",
+    url: String? = nil
   ) throws -> URL {
     let config = root.appendingPathComponent("gitlab-config.toml")
     try """
     [[runners]]
       id = \(id)
       name = "\(name)"
-      url = "https://\(host)"
+      url = "\(url ?? "https://\(host)")"
       token = "glrt-TEST"
       executor = "shell"
     """.write(to: config, atomically: true, encoding: .utf8)
@@ -265,10 +273,13 @@ final class FleetSandbox: @unchecked Sendable {
   /// - Parameters:
   ///   - finished: nil for a job still running.
   ///   - version: the header a real listener writes before anything else, and
-  ///     the only place on disk that says which runner is installed.
+  ///     the only place on disk that says which runner is installed. Without
+  ///     it the log is a page the listener rolled over into, which the reader
+  ///     reads cold each time it grows, so nil is for tests about pages. The
+  ///     default is the release `latest` answers, so no update is on offer.
   func writeListenerLog(
     in directory: URL, job name: String, startedAt: String, finished: String?,
-    result: String = "Succeeded", version: String? = nil
+    result: String = "Succeeded", version: String? = "2.336.0"
   ) throws {
     let diagnostics = directory.appendingPathComponent("_diag")
     try FileManager.default.createDirectory(
@@ -430,27 +441,36 @@ final class FleetSandbox: @unchecked Sendable {
       github: Client(sandbox: self),
       // Never the default. `GitLabAPIClient.standard` reads the operator's
       // real Keychain and would put a network call in any test whose sandbox
-      // holds a GitLab runner. No token stored is the state every test wants:
+      // holds a GitLab runner. No token stored is the state most tests want:
       // the runner resolves to its own "not asked", with nothing external.
-      gitLab: GitLabAPIClient(token: NoStoredToken(), http: RefusingHTTP()))
+      gitLab: GitLabAPIClient(
+        tokens: { [self] _ in SandboxToken(isStored: withLock { gitLabAnswer != nil }) },
+        http: SandboxGitLab(sandbox: self)))
   }
 
-  /// An empty token store, so a sandboxed GitLab runner reads as "not asked"
-  /// without the real Keychain ever being opened.
-  private struct NoStoredToken: GitHubTokenStoring {
-    func token() throws -> String? { nil }
+  /// A token only when GitLab has been given an answer, so a sandboxed GitLab
+  /// runner reads as "not asked" without the real Keychain ever being opened.
+  private struct SandboxToken: GitHubTokenStoring {
+    let isStored: Bool
+
+    func token() throws -> String? { isStored ? "glpat-TEST" : nil }
     func store(_ token: String) throws {}
     func clear() throws {}
   }
 
-  /// Refuses every request, loudly. With no token stored nothing should reach
-  /// the network, and if a change ever routes around that guard, a test fails
-  /// here instead of silently calling a GitLab that does not exist.
-  private struct RefusingHTTP: HTTPPerforming {
+  /// The answer the sandbox was given, or a refusal, loudly. With no token
+  /// stored nothing should reach the network, and if a change ever routes
+  /// around that guard, a test fails here instead of silently calling a GitLab
+  /// that does not exist.
+  private struct SandboxGitLab: HTTPPerforming {
     struct SandboxedTest: Error {}
+    let sandbox: FleetSandbox
 
     func blockingGet(_ url: URL, headers: [String: String]) throws -> HTTPResponse {
-      throw HTTPError.unreachable(underlying: SandboxedTest())
+      guard let body = sandbox.withLock({ sandbox.gitLabAnswer }) else {
+        throw HTTPError.unreachable(underlying: SandboxedTest())
+      }
+      return HTTPResponse(statusCode: 200, body: Data(body.utf8))
     }
   }
 
@@ -761,6 +781,8 @@ final class TestClock: @unchecked Sendable {
   private let lock = NSLock()
   private var now: Date
   private let step: TimeInterval
+  private let origin = ContinuousClock.now
+  private var elapsed = Duration.zero
   /// Where it started, which a test needs to name the instant it expects.
   let start: Date
 
@@ -787,6 +809,25 @@ final class TestClock: @unchecked Sendable {
   }
 
   func advance(_ seconds: TimeInterval) {
+    lock.lock()
+    defer { lock.unlock() }
+    now = now.addingTimeInterval(seconds)
+    elapsed += .seconds(seconds)
+  }
+
+  /// The monotonic side of the same clock. Only `advance` moves it: a date set
+  /// by hand changes what time it is, not how long anything took.
+  var instant: @Sendable () -> ContinuousClock.Instant {
+    { [self] in
+      lock.lock()
+      defer { lock.unlock() }
+      return origin.advanced(by: elapsed)
+    }
+  }
+
+  /// Moves the wall clock alone, the way a date set by hand or a correction
+  /// from `timed` does.
+  func stepWallClock(by seconds: TimeInterval) {
     lock.lock()
     defer { lock.unlock() }
     now = now.addingTimeInterval(seconds)

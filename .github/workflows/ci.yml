@@ -9,6 +9,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Nothing here writes to the repository, and a token that reaches pull request
+# code should not be able to.
+permissions:
+  contents: read
+
 # Every job runs on the release manager's own Mac. Nothing here is rented.
 #
 # It is the premise of the product applied to the product: these are Pedro's
@@ -35,6 +40,13 @@ concurrency:
 jobs:
   test:
     name: Build and test
+    # A fork's pull request would run its own code here as the release
+    # manager's user, on the Mac that signs releases. The control is the
+    # repository setting that requires approval for every outside contributor
+    # (see CONTRIBUTING, "Pull requests from forks"): a fork brings its own copy
+    # of this file and can delete this line. This only keeps an approved fork
+    # run that leaves the workflows untouched off the Mac.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +75,8 @@ jobs:
 
   package:
     name: Package the app
+    # Fork pull requests stay off this Mac; see `test`.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, macOS, ARM64]
     env:
       # Ad-hoc on purpose, even though this Mac has a Developer ID. The
@@ -124,6 +138,8 @@ jobs:
 
   hygiene:
     name: Hygiene
+    # Fork pull requests stay off this Mac; see `test`.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
@@ -135,6 +151,15 @@ jobs:
 
       - name: Packaged localization copies stay identical
         run: Tests/Scripts/CheckLocalizationCataloguesTests.sh
+
+      - name: Assembling the app survives either SwiftPM build system
+        run: Tests/Scripts/BuildAppContractTests.sh
+
+      - name: The formula builds the way Homebrew runs it
+        run: Tests/Scripts/FormulaContractTests.sh
+
+      - name: Gatekeeper's verdict is judged against how the app was signed
+        run: Tests/Scripts/CheckGatekeeperTests.sh
 
       - name: CI policy contracts stay bounded
         run: Tests/Scripts/CIContractTests.sh

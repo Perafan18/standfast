@@ -44,9 +44,13 @@ public struct ManagedFleetJob: Decodable, Equatable, Sendable {
     id > 0 && runID > 0 && runAttempt > 0 && runnerID > 0
       && hostname.range(
         of: #"^[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\z"#, options: .regularExpression) != nil
+      // A repository name may start with a dot — `.github` is GitHub's own
+      // organisation-wide one — so only the two names that are path steps
+      // rather than names are refused. An owner never starts with one.
       && repository.range(
-        of: #"^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*\z"#,
+        of: #"^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+\z"#,
         options: .regularExpression) != nil
+      && !repository.hasSuffix("/.") && !repository.hasSuffix("/..")
       && [runnerName, workflowName, name, event].allSatisfy {
         !$0.isEmpty && $0.count <= 500
           && $0.rangeOfCharacter(from: .controlCharacters) == nil

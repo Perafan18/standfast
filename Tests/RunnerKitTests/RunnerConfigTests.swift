@@ -52,17 +52,22 @@ import Testing
   #expect(try RunnerConfig(data: nullWorkFolder).workFolder == "_work")
 }
 
-@Test func refusesExplicitWorkFoldersThatCanEscapeTheRunnerDirectory() {
-  let unsafe = [
-    #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","workFolder":"../outside"}"#,
-    #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","workFolder":"/tmp/outside"}"#,
-  ]
-
-  for json in unsafe {
-    #expect(throws: (any Error).self) {
-      try RunnerConfig(data: Data(json.utf8))
-    }
+@Test func keepsEveryWorkFolderTheRunnerItselfAccepts() throws {
+  // `config.sh --work` validates nothing but emptiness and the runner joins the
+  // value onto its root, so each of these is a machine that takes jobs. Whether
+  // one leaves the runner is housekeeping's question, not the file's.
+  for folder in ["../outside", "/Volumes/Builds/_work", "./_work", "builds/../_work"] {
+    let json =
+      #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","workFolder":"\#(folder)"}"#
+    #expect(try RunnerConfig(data: Data(json.utf8)).workFolder == folder)
   }
+}
+
+@Test func anEmptyWorkFolderFallsBackToTheStandardOne() throws {
+  // `config.sh` never writes one. Reading it as the runner's root would aim
+  // maintenance at the runner's own files rather than at `_work`.
+  let json = #"{"agentId":7,"gitHubUrl":"https://github.com/a/b","workFolder":""}"#
+  #expect(try RunnerConfig(data: Data(json.utf8)).workFolder == "_work")
 }
 
 @Test func refusesFilesItCannotTrust() {

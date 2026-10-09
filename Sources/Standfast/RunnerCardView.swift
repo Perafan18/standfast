@@ -36,6 +36,7 @@ struct RunnerCardView: View {
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.controlActiveState) private var controlActiveState
   @State private var jobsExpanded = false
   @State private var maintenanceExpanded = false
 
@@ -359,9 +360,17 @@ struct RunnerCardView: View {
     card.actions.filter { $0.kind != .openOnGitHub }
   }
 
+  /// Only while the window is active. In one the user has left for another app,
+  /// macOS drops the tint and draws a grey pill, and the label forced to the
+  /// tint's white would sit on it at about 1.1:1.
+  private func drawsProminent(_ action: RunnerCardAction) -> Bool {
+    action.isEnabled && action.emphasis == .prominent
+      && controlActiveState != .inactive
+  }
+
   @ViewBuilder
   private func serviceButton(_ action: RunnerCardAction) -> some View {
-    if action.isEnabled && action.emphasis == .prominent {
+    if drawsProminent(action) {
       serviceButtonLabel(action, foreground: palette.primaryButtonText)
         .buttonStyle(.borderedProminent)
         .tint(palette.primaryButton.color)
@@ -407,7 +416,7 @@ struct RunnerCardView: View {
   @ViewBuilder
   private var navigation: some View {
     if let action = card.action(.openOnGitHub) {
-      if action.isEnabled && action.emphasis == .prominent {
+      if drawsProminent(action) {
         navigationButton(action, foreground: palette.primaryButtonText)
           .buttonStyle(.borderedProminent)
           .tint(palette.primaryButton.color)

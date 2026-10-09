@@ -126,11 +126,12 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
 
   // 0b. The other window. Settings takes its own size, not the Control
   // Center's.
+  let githubWithout = await settledAccess(nil)
   try render(
     SettingsView(
       loginItem: LoginItem(), notifications: healthyFleet.notifications,
-      sleep: healthyFleet.sleep, github: GitHubAccess(store: RenderTokenStore(nil)),
-      gitLab: GitHubAccess(store: RenderTokenStore(nil)), showsGitLab: false,
+      sleep: healthyFleet.sleep, github: githubWithout,
+      gitLab: GitLabInstanceCards(cards: []),
       manualRunners: ManualRunnerDirectories(defaults: renderDefaults()),
       dock: unattendedDockVisibility(),
       infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
@@ -141,14 +142,20 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   // 0d. The same window on a Mac that has a token. The Remove button only
   // exists in this state, so the screenshot without it proves nothing about
   // whether it fits.
+  let githubWithToken = await settledAccess("ghp_example")
+  let gitLabBeside = await settledAccess(nil)
   try render(
     SettingsView(
       loginItem: LoginItem(), notifications: healthyFleet.notifications,
       sleep: healthyFleet.sleep,
-      github: GitHubAccess(store: RenderTokenStore("ghp_example")),
+      github: githubWithToken,
       // The GitLab card too: this render is the crowded one on purpose, every
       // optional section at once, because that is the layout worth doubting.
-      gitLab: GitHubAccess(store: RenderTokenStore(nil)), showsGitLab: true,
+      gitLab: GitLabInstanceCards(cards: [
+        GitLabInstanceAccess(
+          instance: GitLabInstance(url: "https://gitlab.example.com")!,
+          access: gitLabBeside)
+      ]),
       // With one added, so the row and its Remove button are in the picture.
       manualRunners: renderRunners(["/Users/ci/actions-runner-by-hand"]),
       dock: unattendedDockVisibility(),
@@ -296,6 +303,15 @@ private struct RenderTokenStore: GitHubTokenStoring {
   func token() throws -> String? { stored }
   func store(_ token: String) throws {}
   func clear() throws {}
+}
+
+/// Read before it is drawn: the Keychain is read off the main actor, and a
+/// card rendered first shows the state from before the read answered.
+@MainActor
+private func settledAccess(_ token: String?) async -> GitHubAccess {
+  let access = GitHubAccess(store: RenderTokenStore(token))
+  await access.quiesce()
+  return access
 }
 
 /// Defaults nobody else shares, so a render cannot see — or leave — real

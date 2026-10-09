@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -65,4 +66,47 @@ import Testing
   // Settings is the only surface in this app that holds preferences at all.
   #expect(source.contains("dock.setVisible"))
   #expect(source.contains("SettingsAccessibility.appearanceShowInDock"))
+}
+
+/// `NSApplication`, as far as the activation policy goes, down to the part
+/// that matters here: leaving `.regular` deactivates the app.
+@MainActor
+private final class FakeApplication: ActivationPolicyApplying {
+  private(set) var isActive: Bool
+  private(set) var calls: [String] = []
+
+  init(isActive: Bool) { self.isActive = isActive }
+
+  func setActivationPolicy(_ policy: NSApplication.ActivationPolicy) -> Bool {
+    calls.append(policy == .regular ? "regular" : "accessory")
+    if policy == .accessory { isActive = false }
+    return true
+  }
+
+  func activate() {
+    calls.append("activate")
+    isActive = true
+  }
+}
+
+@MainActor
+@Test func turningTheTileOffKeepsTheSettingsWindowInFront() {
+  let application = FakeApplication(isActive: true)
+
+  AppActivationPolicy(application: { application }).apply(.menuBarOnly)
+
+  // The switch lives in Settings. Without the activation the previous app
+  // comes forward over it, and with no tile and no ⌘-Tab entry the only way
+  // back is the menu bar.
+  #expect(application.calls == ["accessory", "activate"])
+  #expect(application.isActive)
+}
+
+@MainActor
+@Test func theLaunchTimeApplyNeverTakesFocusFromWhateverIsInFront() {
+  let application = FakeApplication(isActive: false)
+
+  AppActivationPolicy(application: { application }).apply(.menuBarOnly)
+
+  #expect(application.calls == ["accessory"])
 }

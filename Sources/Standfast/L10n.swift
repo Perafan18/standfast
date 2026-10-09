@@ -64,10 +64,12 @@ enum L10n {
   static let stateLayerLocalUnreadable = t("state.layer.localUnreadable")
   static let stateLayerManagedFleetWaiting = t("state.layer.managedFleetWaiting")
   static let stateLayerManagedFleetUnavailable = t("state.layer.managedFleetUnavailable")
+  static let stateLayerGitHubRefusedToken = t("state.layer.gitHubRefusedToken")
   static let foldCard = t("controlCenter.fold")
   static let unfoldCard = t("controlCenter.unfold")
   static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
   static let openRunnerSettings = t("controlCenter.openRunnerSettings")
+  static let openGitLab = t("controlCenter.openGitLab")
   static let settingsNotifications = t("settings.notifications")
   static let settingsPower = t("settings.power")
   static let settingsStartup = t("settings.startup")
@@ -87,6 +89,7 @@ enum L10n {
   static let settingsGitLabStored = t("settings.gitlab.stored")
   static let settingsGitLabAbsent = t("settings.gitlab.absent")
   static let settingsGitLabPlaceholder = t("settings.gitlab.placeholder")
+  static let settingsGitLabInsecure = t("settings.gitlab.insecure")
   static let settingsGitHubFooter = t("settings.github.footer")
   static let settingsGitHubStored = t("settings.github.stored")
   static let settingsGitHubAbsent = t("settings.github.absent")
@@ -95,6 +98,7 @@ enum L10n {
   static let settingsGitHubSave = t("settings.github.save")
   static let settingsGitHubRemove = t("settings.github.remove")
   static let settingsGitHubKeychainFailed = t("settings.github.keychainFailed")
+  static let settingsGitHubKeychainRemoveFailed = t("settings.github.keychainRemoveFailed")
 
   static func settingsVersion(
     _ suffix: String, in bundles: [Bundle]? = nil
@@ -113,8 +117,17 @@ enum L10n {
   static let recentJobs = t("menu.recentJobs")
   static let openAtLogin = t("menu.openAtLogin")
   static let openAtLoginFailed = t("menu.openAtLogin.failed")
-  static let openAtLoginNeedsApproval = t("menu.openAtLogin.needsApproval")
-  static let openAtLoginUnavailable = t("menu.openAtLogin.unavailable")
+  static let openAtLoginNeedsApproval = t(
+    loginItemsPaneKey("menu.openAtLogin.needsApproval"))
+  static let openAtLoginUnavailable = t(loginItemsPaneKey("menu.openAtLogin.unavailable"))
+  /// macOS 15 renamed General › Login Items to Login Items & Extensions, and
+  /// macOS 14, which this app still runs on, only has the old name.
+  static func loginItemsPaneKey(
+    _ key: String,
+    on version: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
+  ) -> String {
+    version.majorVersion >= 15 ? key + ".extensions" : key
+  }
 
   static let notifyMe = t("menu.notify")
   static let notifyJobFailed = t("menu.notify.jobFailed")
@@ -150,6 +163,7 @@ enum L10n {
   static let diskUnavailable = t("disk.unavailable")
   static let diskOutsideRunner = t("disk.outsideRunner")
   static let diskManagedFleet = t("disk.managedFleet")
+  static let diskGitLabService = t("disk.gitLabService")
 
   // The two buttons of the confirmation, and nothing else in it. Everything
   // above them names a directory, a size or a runner, which is what makes the
@@ -173,6 +187,7 @@ enum L10n {
   static let stateIdle = t("state.idle")
   static let stateBusy = t("state.busy")
   static let stateDisconnected = t("state.disconnected")
+  static let stateDisconnectedGitLab = t("state.disconnected.gitLab")
   static let stateStopped = t("state.stopped")
   static let stateStarting = t("state.starting")
   static let stateReadyShort = t("state.short.ready")
@@ -247,6 +262,13 @@ enum L10n {
   static let stateUnknownNotAuthenticated = t("state.unknown.notAuthenticated")
   static let stateUnknownNoAnswer = t("state.unknown.noAnswer")
   static let stateUnknownNoLocalAnswer = t("state.unknown.noLocalAnswer")
+  static let stateUnknownTokenRefused = t("state.unknown.tokenRefused")
+  static let stateUnknownTokenUnreadable = t("state.unknown.tokenUnreadable")
+  static let stateUnknownGitLabTokenUnreadable = t("state.unknown.gitLabTokenUnreadable")
+  static let stateUnknownGitLabInsecure = t("state.unknown.gitLabInsecure")
+  static let stateUnknownGitLabPaused = t("state.unknown.gitLabPaused")
+  static let stateLayerGitLabPaused = t("state.layer.gitLabPaused")
+  static let stateUnknownNoLocalAnswerProcess = t("state.unknown.noLocalAnswer.process")
 
   static let checkedJustNow = t("state.checkedJustNow")
   static let checkedNever = t("state.checkedNever")
@@ -433,6 +455,10 @@ enum L10n {
     String(format: t("notification.disconnected.body"), runner)
   }
 
+  static func notificationDisconnectedGitLabBody(_ runner: String) -> String {
+    String(format: t("notification.disconnected.body.gitLab"), runner)
+  }
+
   static func notificationStoppedBody(_ runner: String) -> String {
     String(format: t("notification.stopped.body"), runner)
   }
@@ -587,6 +613,12 @@ enum L10n {
   static let cleanupConfirmationUnavailable = t("cleanup.confirmationUnavailable")
   static func cleanupRefused(_ runner: String) -> String {
     String(format: t("cleanup.refused"), runner)
+  }
+
+  /// Said for every other refusal. A gate that could not establish idle or
+  /// stopped — GitHub out of reach, most often — is no evidence of a job.
+  static func cleanupUnconfirmed(_ runner: String) -> String {
+    String(format: t("cleanup.unconfirmed"), runner)
   }
 
   static func cleanupFailed(_ path: String) -> String {
@@ -855,7 +887,7 @@ enum L10n {
     "queue.empty":
       "No queued work is waiting for this machine",
     "queue.unknownScope":
-      "GitHub cannot say what is queued for an organisation runner",
+      "GitHub cannot say what is queued for an organisation or enterprise runner",
     "state.unknown.noToken":
       "Running locally, GitHub not asked — add a GitHub token in Settings",
     "state.unknown.rateLimited":
@@ -865,7 +897,7 @@ enum L10n {
     "state.unknown.notAuthenticated":
       "Running locally, GitHub not answering — run gh auth login in a terminal",
     "state.unknown.noAnswer":
-      "Running locally, GitHub not answering — gh got no answer; check your network",
+      "Running locally, GitHub not answering — check your network, or the token's access to this runner",
     "state.unknown.noLocalAnswer":
       "Local service unreadable — launchctl did not answer; try Refresh now",
     "state.unknown.managedFleetWaiting":
@@ -924,6 +956,34 @@ enum L10n {
     "duration.hours": "%dh",
     "duration.minutes": "%dm",
     "duration.seconds": "%ds",
+    "state.unknown.tokenRefused":
+      "Running locally, GitHub refused the token — replace it in Settings",
+    "state.layer.gitHubRefusedToken": "GitHub refused the token",
+    "state.unknown.tokenUnreadable":
+      "Running locally, GitHub not asked — the Keychain would not hand over the token; unlock it, or let Standfast read it",
+    "state.unknown.gitLabTokenUnreadable":
+      "Running locally, GitLab not asked — the Keychain would not hand over the token; unlock it, or let Standfast read it",
+    "cleanup.unconfirmed": "Cleanup stopped: could not confirm that %@ is idle or stopped",
+    "menu.openAtLogin.needsApproval.extensions":
+      "Allow Standfast in System Settings › General › Login Items & Extensions",
+    "menu.openAtLogin.unavailable.extensions":
+      "Login item state unknown; check System Settings › General › "
+      + "Login Items & Extensions",
+    "settings.github.keychainRemoveFailed":
+      "The Keychain refused to remove it. It is still stored.",
+    "disk.gitLabService": "Maintenance covers GitHub Actions runner folders only",
+    "controlCenter.openGitLab": "Open GitLab",
+    "state.disconnected.gitLab": "Running locally, but GitLab cannot see it",
+    "notification.disconnected.body.gitLab": "%@ is running here, but GitLab cannot see it",
+    "state.unknown.noLocalAnswer.process":
+      "Local service unreadable — ps did not answer; try Refresh now",
+    "state.unknown.gitLabInsecure":
+      "Running locally, GitLab not asked — its address is http, and Standfast sends tokens only over https",
+    "state.unknown.gitLabPaused":
+      "Running locally, paused in GitLab — no work is sent until it is resumed",
+    "state.layer.gitLabPaused": "Paused in GitLab",
+    "settings.gitlab.insecure":
+      "Served over http. Standfast sends tokens only over https, so this instance is not asked.",
   ]
 
   /// Looks the key up in one complete language pack, and falls back to the

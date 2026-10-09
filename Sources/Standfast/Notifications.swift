@@ -121,6 +121,7 @@ final class NotificationSettings: ObservableObject {
   /// is asynchronous and the switch it belongs to is not.
   private var request: Task<Void, Never>?
   private var authorizationGeneration = 0
+  private var awaitsPermission = false
 
   init(
     delivery: any NotificationDelivering = UserNotificationDelivery(),
@@ -133,6 +134,14 @@ final class NotificationSettings: ObservableObject {
     enabled = Set(
       NotificationKind.allCases.filter { defaults.bool(forKey: $0.defaultsKey) })
     if !enabled.isEmpty { refreshAuthorization(requestPermission: false) }
+  }
+
+  /// Reads macOS's verdict again, which the user can change in System Settings
+  /// while this app runs. Never over a permission request still waiting: the
+  /// prompt can sit unanswered for minutes, and replacing it drops the answer.
+  func refreshAuthorizationIfEnabled() {
+    guard !enabled.isEmpty, !awaitsPermission else { return }
+    refreshAuthorization(requestPermission: false)
   }
 
   func isEnabled(_ kind: NotificationKind) -> Bool { enabled.contains(kind) }
@@ -152,12 +161,14 @@ final class NotificationSettings: ObservableObject {
     authorizationGeneration += 1
     let generation = authorizationGeneration
     request?.cancel()
+    awaitsPermission = requestPermission
     request = Task { [weak self, delivery] in
       if requestPermission { _ = await delivery.requestAuthorization() }
       let status = await delivery.authorizationStatus()
       guard !Task.isCancelled, let self,
         self.authorizationGeneration == generation
       else { return }
+      self.awaitsPermission = false
       self.authorization = status
     }
   }
@@ -186,7 +197,7 @@ final class NotificationSettings: ObservableObject {
   private func identifier(for event: FleetEvent) -> String {
     switch event {
     case .jobFailed(let runner, let job): "jobFailed.\(runner).\(job)"
-    case .runnerDisconnected(let runner): "disconnected.\(runner)"
+    case .runnerDisconnected(let runner, _): "disconnected.\(runner)"
     case .runnerStoppedUnexpectedly(let runner): "stopped.\(runner)"
     }
   }

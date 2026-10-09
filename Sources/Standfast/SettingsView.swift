@@ -1,4 +1,5 @@
 import AppKit
+import RunnerKit
 import SwiftUI
 
 /// The only preference surface. Every value is owned by the same long-lived
@@ -8,13 +9,9 @@ struct SettingsView: View {
   @ObservedObject var notifications: NotificationSettings
   @ObservedObject var sleep: SleepGuard
   @ObservedObject var github: GitHubAccess
-  /// The GitLab token, over its own Keychain account. Its card only appears
-  /// when this Mac has gitlab-runner configured; see `showsGitLab`.
-  @ObservedObject var gitLab: GitHubAccess
-  /// Decided at launch from whether `config.toml` exists. Static per run on
-  /// purpose: installing gitlab-runner mid-session is rare, and a Settings
-  /// pane that reads the disk on every body pass is not the price for it.
-  let showsGitLab: Bool
+  /// One token card per GitLab instance, each over its own Keychain account,
+  /// re-read when Settings is shown rather than on every body pass.
+  @ObservedObject var gitLab: GitLabInstanceCards
   @ObservedObject var manualRunners: ManualRunnerDirectories
   /// Whether this Mac shows Standfast in the Dock. `LSUIElement` starts the
   /// process without a tile; this is what can give it one afterwards.
@@ -25,7 +22,7 @@ struct SettingsView: View {
   /// It is emptied the moment Save hands it over, so the secret does not sit
   /// in a view that a screen recording or a screenshot would capture.
   @State private var draftToken = ""
-  @State private var draftGitLabToken = ""
+  @State private var draftGitLabTokens: [String: String] = [:]
 
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -41,7 +38,6 @@ struct SettingsView: View {
   var body: some View {
     let presentation = SettingsPresentation(
       githubState: github.state, githubNotice: github.notice,
-      gitLabState: showsGitLab ? gitLab.state : nil, gitLabNotice: gitLab.notice,
       notificationNotice: notifications.notice,
       loginItemNotice: loginItem.notice,
       infoDictionary: infoDictionary)
@@ -77,19 +73,23 @@ struct SettingsView: View {
           githubAccess(presentation.github)
         }
 
-        if let gitLabPresentation = presentation.gitLab {
-          settingsCard(
-            title: L10n.settingsGitLab,
-            systemImage: "key.fill"
-          ) {
-            tokenAccess(
-              gitLabPresentation, draft: $draftGitLabToken, access: gitLab,
-              placeholder: L10n.settingsGitLabPlaceholder,
-              identifiers: (
-                token: SettingsAccessibility.gitlabToken,
-                save: SettingsAccessibility.gitlabSave,
-                remove: SettingsAccessibility.gitlabRemove
-              ))
+        ForEach(gitLab.cards) { entry in
+          ObservingAccess(access: entry.access) { access in
+            settingsCard(
+              title: L10n.settingsGitLab,
+              systemImage: "key.fill"
+            ) {
+              Text(entry.instance.name)
+                .font(StandfastTheme.Typography.secondary)
+                .foregroundStyle(palette.textSecondary.color)
+              tokenAccess(
+                SettingsPresentation.gitLab(
+                  access.state, notice: access.notice,
+                  isServedOverHTTPS: entry.instance.isServedOverHTTPS),
+                draft: gitLabDraft(for: entry.instance), access: access,
+                placeholder: L10n.settingsGitLabPlaceholder,
+                identifiers: SettingsAccessibility.gitlab(entry.instance))
+            }
           }
         }
 
@@ -152,6 +152,19 @@ struct SettingsView: View {
       maxWidth: StandfastTheme.settingsMaximumWidth
     )
     .background(Color(nsColor: .windowBackgroundColor))
+    // Reopening Settings can reuse this view rather than build a new one, and
+    // leaving System Settings, where these answers change, reactivates the app.
+    .onAppear { rereadWhatMacOSDecides() }
+    .onReceive(
+      NotificationCenter.default.publisher(
+        for: NSApplication.didBecomeActiveNotification)
+    ) { _ in rereadWhatMacOSDecides() }
+  }
+
+  private func rereadWhatMacOSDecides() {
+    loginItem.refresh()
+    notifications.refreshAuthorizationIfEnabled()
+    gitLab.reload()
   }
 
   private var productHeader: some View {
@@ -242,6 +255,12 @@ struct SettingsView: View {
       ))
   }
 
+  private func gitLabDraft(for instance: GitLabInstance) -> Binding<String> {
+    Binding(
+      get: { draftGitLabTokens[instance.name, default: ""] },
+      set: { draftGitLabTokens[instance.name] = $0 })
+  }
+
   /// One shape for both providers' token cards, because they are one shape:
   /// what differs is which Keychain account is behind them and which words
   /// describe it, and both arrive as parameters.
@@ -256,21 +275,23 @@ struct SettingsView: View {
         .foregroundStyle(palette.textPrimary.color)
         .frame(maxWidth: .infinity, alignment: .leading)
 
-      HStack(spacing: StandfastTheme.Spacing.compact) {
-        // Secure, so the token is never on screen even while it is being
-        // pasted — this window is the one people screenshot when they ask for
-        // help with it.
-        SecureField(placeholder, text: draft)
-          .textFieldStyle(.roundedBorder)
-          .accessibilityIdentifier(identifiers.token)
-        Button(L10n.settingsGitHubSave) {
-          access.save(draft.wrappedValue)
-          draft.wrappedValue = ""
+      if presentation.canSave {
+        HStack(spacing: StandfastTheme.Spacing.compact) {
+          // Secure, so the token is never on screen even while it is being
+          // pasted — this window is the one people screenshot when they ask
+          // for help with it.
+          SecureField(placeholder, text: draft)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier(identifiers.token)
+          Button(L10n.settingsGitHubSave) {
+            access.save(draft.wrappedValue)
+            draft.wrappedValue = ""
+          }
+          .disabled(
+            draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          )
+          .accessibilityIdentifier(identifiers.save)
         }
-        .disabled(
-          draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        )
-        .accessibilityIdentifier(identifiers.save)
       }
 
       if presentation.canRemove {
@@ -374,4 +395,13 @@ struct SettingsView: View {
       .fill(palette.structuralBorder.color)
       .frame(height: StandfastTheme.Stroke.separator)
   }
+}
+
+/// Redraws its content whenever one access object changes. GitLab has a card
+/// per instance, and a view cannot observe the objects inside an array.
+private struct ObservingAccess<Content: View>: View {
+  @ObservedObject var access: GitHubAccess
+  @ViewBuilder let content: (GitHubAccess) -> Content
+
+  var body: some View { content(access) }
 }

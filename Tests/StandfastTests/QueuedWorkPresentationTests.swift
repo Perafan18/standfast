@@ -85,6 +85,17 @@ private func line(
   #expect(presentation?.tone == .neutral)
 }
 
+@Test func aCappedReadingWithNoMatchDoesNotClaimTheQueueIsEmpty() {
+  // GitHub had more queued runs than were inspected, and the ones left unread
+  // may well be this runner's. "Nothing is waiting" there is the capped count
+  // presented as a total, on exactly the runner that cannot take the work.
+  let unread = QueuedWork(
+    jobs: [job(1, labels: ["self-hosted", "linux"])], isPartial: true)
+
+  #expect(line(.work(unread), display: .resolved(.stopped)) == nil)
+  #expect(line(.work(unread), display: .resolved(.disconnected)) == nil)
+}
+
 @Test func anOrganisationRunnerInTroubleSaysTheQuestionCannotBeAnswered() {
   // GitHub has no endpoint for it. Saying nothing would leave the operator to
   // conclude the queue is empty; saying it on every healthy card would be a

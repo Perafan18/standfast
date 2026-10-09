@@ -373,13 +373,9 @@ private struct RemovingThenReportingMissingOperations: DestructiveFileOperations
 }
 
 @Test func aTrashLeftBehindIsNotMistakenForARepositoryCheckout() throws {
-  // The leading dot is load-bearing, not decoration. `_work` carries no
-  // manifest, so the breakdown reads each directory's purpose off its name:
-  // anything that starts with an underscore or a dot is the runner's own, and
-  // what is left is named after a repository. A trash folder without the dot
-  // would be reported to the user as gigabytes of *repository checkout* — the
-  // one line in that submenu that says "do not delete this".
-  #expect(Housekeeper.trashFolder.hasPrefix("."))
+  // `_work` carries no manifest, so the breakdown reads each directory's
+  // purpose off its name. Read as a repository, the trash would be reported as
+  // gigabytes of checkout, the one line that says "do not delete this".
   #expect(DiskEntryKind(folderName: Housekeeper.trashFolder) == .other)
 }
 
@@ -415,6 +411,63 @@ private struct RemovingThenReportingMissingOperations: DestructiveFileOperations
   }
 
   #expect(files.calls.isEmpty)
+  #expect(sandbox.exists(sandbox.outside.appendingPathComponent("_tool/payload")))
+}
+
+@Test(arguments: CleanupTarget.allCases)
+func aSymlinkedCacheIsLeftAloneWhileItsGravesAreStillSwept(_ target: CleanupTarget) throws {
+  // A tool cache moved to an external disk and linked back. Renaming the link
+  // frees nothing and sends the next job's downloads to the internal disk.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  let elsewhere = try sandbox.makeOutsideFolder("cache", kilobytes: 4)
+  try sandbox.makeWorkFolder("placeholder")
+  try FileManager.default.createSymbolicLink(
+    at: sandbox.work.appendingPathComponent(target.folderName),
+    withDestinationURL: elsewhere)
+  let untouched = RecordingFileOperations()
+
+  let alone = try Housekeeper(files: untouched).blockingClean(
+    target, in: sandbox.runner, isStillSafe: { true })
+
+  #expect(alone == .nothingToDo)
+  #expect(untouched.calls.isEmpty)
+
+  // A grave of the same kind is what puts a button in front of this link.
+  let grave = target.graveName(identifier: UUID())
+  try sandbox.makeWorkFolder("\(Housekeeper.trashFolder)/\(grave)", kilobytes: 4)
+  let files = RecordingFileOperations()
+
+  let swept = try Housekeeper(files: files).blockingClean(
+    target, in: sandbox.runner, isStillSafe: { true })
+
+  #expect(swept == .done)
+  #expect(files.calls == ["remove \(grave)"])
+}
+
+@Test func aWorkFolderDeclaredOutsideTheRunnerIsRefusedBeforeAnyMutation() throws {
+  // The same restraint as the symlink above, for a `.runner` that names the
+  // outside folder itself, in either spelling `config.sh --work` accepts.
+  let sandbox = try RunnerDirectorySandbox()
+  defer { sandbox.cleanUp() }
+  try sandbox.makeOutsideFolder("_tool", kilobytes: 4)
+  let relative = "../" + sandbox.outside.lastPathComponent
+
+  for workFolder in [sandbox.outside.path, relative] {
+    let base = sandbox.runner
+    let runner = DiscoveredRunner(
+      label: base.label, directory: base.directory, agentId: base.agentId,
+      agentName: base.agentName, scope: base.scope, workFolder: workFolder)
+    let files = RecordingFileOperations()
+
+    let failure = #expect(throws: HousekeepingFailure.self) {
+      try Housekeeper(files: files).blockingClean(
+        .toolCache, in: runner, isStillSafe: { true })
+    }
+
+    #expect(failure?.directory.path == sandbox.outside.path)
+    #expect(files.calls.isEmpty)
+  }
   #expect(sandbox.exists(sandbox.outside.appendingPathComponent("_tool/payload")))
 }
 
@@ -759,6 +812,7 @@ private struct RemovingThenMissingOperations: DestructiveFileOperations {
   // And "I could not tell" is not a licence to delete four gigabytes.
   for reason in [
     UnknownReason.cliUnavailable, .notAuthenticated, .noAnswer, .serviceStateUnreadable,
+    .tokenRefused, .tokenUnreadable,
   ] {
     #expect(!RunnerState.unknown(reason).allowsHousekeeping)
   }

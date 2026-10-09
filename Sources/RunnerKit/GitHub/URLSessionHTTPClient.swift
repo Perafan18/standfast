@@ -53,9 +53,47 @@ public struct URLSessionHTTPClient: HTTPPerforming {
       outcome.finish(data: data, response: response, error: error)
       waiting.signal()
     }
+    // On the task rather than the session, so an injected session cannot
+    // carry a credential off to another server either.
+    task.delegate = SameOriginRedirects()
     task.resume()
-    waiting.wait()
+    // The request's own timeout is only an idle one: a peer trickling a byte
+    // at a time resets it indefinitely. The total is bounded here instead.
+    guard waiting.wait(timeout: .now() + timeout) == .success else {
+      task.cancel()
+      throw HTTPError.unreachable(underlying: URLError(.timedOut))
+    }
     return try outcome.result()
+  }
+
+  /// Follows a redirect only within the origin that was asked. Every request
+  /// here carries a credential, and URLSession copies custom headers onto the
+  /// redirected request; refused, the 3xx itself comes back to the caller.
+  private final class SameOriginRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+      _ session: URLSession, task: URLSessionTask,
+      willPerformHTTPRedirection response: HTTPURLResponse,
+      newRequest request: URLRequest,
+      completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+      let asked = task.originalRequest?.url.flatMap(Origin.init)
+      let sent = request.url.flatMap(Origin.init)
+      completionHandler(asked != nil && asked == sent ? request : nil)
+    }
+
+    private struct Origin: Equatable {
+      let scheme: String
+      let host: String
+      let port: Int
+
+      init?(_ url: URL) {
+        guard let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased()
+        else { return nil }
+        self.scheme = scheme
+        self.host = host
+        port = url.port ?? (scheme == "https" ? 443 : 80)
+      }
+    }
   }
 
   /// Carries the completion handler's three values back to the thread that is

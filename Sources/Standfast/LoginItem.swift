@@ -74,6 +74,17 @@ final class LoginItem: ObservableObject {
     status = registrar.status()
   }
 
+  /// Asks macOS again. The user can approve or switch off this item in System
+  /// Settings at any time, and nothing tells this app it happened.
+  func refresh() {
+    let now = registrar.status()
+    // Changed somewhere else, so what this app last asked for no longer
+    // explains it: an item switched off in System Settings did not fail to
+    // turn on.
+    if now != status { lastRequest = nil }
+    status = now
+  }
+
   var isEnabled: Bool { status == .enabled }
 
   /// The line under the toggle, and nil when there is nothing to add.

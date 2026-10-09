@@ -65,4 +65,29 @@ for shape in loose nested; do
   done
 done
 
+# Swift Build, SwiftPM's default from Swift 6.4, emits the resource bundle as a
+# real macOS bundle with the catalogues under Contents/Resources. The flat shape
+# above is what the native build system emits, and both have to pass.
+SWIFT_BUILD_APP="$TEST_TMP/SwiftBuild/Standfast.app"
+SWIFT_BUILD_NESTED="$SWIFT_BUILD_APP/Contents/Resources/Standfast_Standfast.bundle/Contents/Resources"
+for language in en es; do
+  source_catalogue="$SOURCE_ROOT/Sources/Standfast/Resources/$language.lproj/Localizable.strings"
+  mkdir -p "$SWIFT_BUILD_APP/Contents/Resources/$language.lproj" \
+    "$SWIFT_BUILD_NESTED/$language.lproj"
+  cp "$source_catalogue" "$SWIFT_BUILD_APP/Contents/Resources/$language.lproj/"
+  cp "$source_catalogue" "$SWIFT_BUILD_NESTED/$language.lproj/"
+done
+
+"$CHECK" "$SOURCE_ROOT" "$SWIFT_BUILD_APP" \
+  || fail "a Swift Build resource bundle with matching catalogues was rejected"
+
+for language in en es; do
+  source_catalogue="$SOURCE_ROOT/Sources/Standfast/Resources/$language.lproj/Localizable.strings"
+  packaged_catalogue="$SWIFT_BUILD_NESTED/$language.lproj/Localizable.strings"
+  printf 'truncated\n' >"$packaged_catalogue"
+  expect_failure "nested $language catalogue differs from source" \
+    "$CHECK" "$SOURCE_ROOT" "$SWIFT_BUILD_APP"
+  cp "$source_catalogue" "$packaged_catalogue"
+done
+
 echo "PASS"

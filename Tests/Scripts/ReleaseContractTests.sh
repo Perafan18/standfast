@@ -102,6 +102,92 @@ else
   pass "a manual run leaves the signed app behind as a workflow artifact"
 fi
 
+# The step named "$1", up to the next step.
+step_block() {
+  awk -v name="- name: $1" '
+    !found && index($0, name) { found = 1; next }
+    found && /^      - / { exit }
+    found { print }' "$WORKFLOW"
+}
+
+# Its `run: |` body, dedented, so the test can execute it rather than read it.
+step_script() {
+  step_block "$1" | awk '
+    /^        run: \|$/ { inside = 1; next }
+    inside && /^          / { print substr($0, 11); next }
+    inside && NF { exit }
+    inside { print "" }'
+}
+
+line_of() { { grep -nF -- "$1" "$WORKFLOW" || true; } | head -n 1 | cut -d: -f1; }
+
+# 7 ────────────────────────────────────────────────────────────────────────────
+# The runner is Apple silicon and SwiftPM builds only the host's slice unless
+# asked, so an Intel Mac on macOS 14 would be refused the notarised download.
+build_step="$(step_block "Build and sign")"
+build_archs="$(printf '%s\n' "$build_step" | grep -E '^ +ARCHS:' || true)"
+case "$build_archs" in
+  *arm64*x86_64* | *x86_64*arm64*) pass "the release is built for both architectures" ;;
+  *) fail "Build and sign does not ask build-app.sh for arm64 and x86_64" ;;
+esac
+
+slices_step="Both architectures are in the executable"
+slices_line="$(line_of "- name: $slices_step")"
+if [ -z "$slices_line" ] \
+  || [ "$slices_line" -lt "$(line_of "- name: Build and sign")" ] \
+  || [ "$slices_line" -gt "$(line_of "- name: Notarise and staple")" ]; then
+  fail "nothing checks the executable's slices between building and notarising"
+else
+  slices_dir="$(mktemp -d "${TMPDIR:-/tmp}/standfast-release-slices.XXXXXX")"
+  step_script "$slices_step" > "$slices_dir/check.sh"
+  mkdir -p "$slices_dir/bin"
+  # shellcheck disable=SC2016 # Expands when the fake runs.
+  printf '%s\n' '#!/bin/bash' 'echo "$STANDFAST_FAKE_ARCHS"' > "$slices_dir/bin/lipo"
+  chmod +x "$slices_dir/bin/lipo"
+  for thin in arm64 x86_64; do
+    if PATH="$slices_dir/bin:$PATH" STANDFAST_FAKE_ARCHS="$thin" \
+      bash "$slices_dir/check.sh" >/dev/null 2>&1; then
+      fail "the slice check accepts an executable that is only $thin"
+    fi
+  done
+  if PATH="$slices_dir/bin:$PATH" STANDFAST_FAKE_ARCHS="x86_64 arm64" \
+    bash "$slices_dir/check.sh" >/dev/null 2>&1; then
+    pass "the slice check refuses a thin executable and accepts a universal one"
+  else
+    fail "the slice check refuses a universal executable"
+  fi
+  rm -rf "$slices_dir"
+fi
+
+# 8 ────────────────────────────────────────────────────────────────────────────
+# A tag pushed before the version bump publishes a release whose app reports
+# the previous version. Checked before the gate, so a mismatch fails before the
+# job touches the host keychain.
+tag_step="The tag names the version the app reports"
+tag_line="$(line_of "- name: $tag_step")"
+if [ -z "$tag_line" ] || [ "$tag_line" -gt "$(line_of "id: gate")" ]; then
+  fail "nothing compares the tag with Info.plist before the signing gate"
+elif ! step_block "$tag_step" | grep -qF "if: startsWith(github.ref, 'refs/tags/')"; then
+  fail "the tag check is not limited to tags, so a manual run from a branch fails it"
+else
+  tag_dir="$(mktemp -d "${TMPDIR:-/tmp}/standfast-release-tag.XXXXXX")"
+  step_script "$tag_step" > "$tag_dir/check.sh"
+  mkdir -p "$tag_dir/Resources"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleShortVersionString string 1.4.0' \
+    "$tag_dir/Resources/Info.plist" >/dev/null
+  run_tag_check() {
+    (cd "$tag_dir" && GITHUB_REF_NAME="$1" bash check.sh >/dev/null 2>&1)
+  }
+  if run_tag_check v1.3.9; then
+    fail "the tag check publishes v1.3.9 from a bundle that says 1.4.0"
+  elif ! run_tag_check v1.4.0; then
+    fail "the tag check refuses v1.4.0 for a bundle that says 1.4.0"
+  else
+    pass "a tag that disagrees with Info.plist fails before anything is signed"
+  fi
+  rm -rf "$tag_dir"
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 if [ "$failures" -ne 0 ]; then
   printf '\n%s release contract assertion(s) failed\n' "$failures" >&2

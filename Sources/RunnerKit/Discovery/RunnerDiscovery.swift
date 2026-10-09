@@ -43,7 +43,16 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   public let currentJob: ManagedFleetJob?
 
   public var id: String { label }
-  public var workDirectory: URL { directory.appendingPathComponent(workFolder) }
+  /// Joined the way the runner joins it: an absolute folder stands on its own,
+  /// and `.` and `..` collapse by spelling. Every path derived from this then
+  /// names the folder the runner uses, which the containment check also does.
+  public var workDirectory: URL {
+    let joined =
+      workFolder.hasPrefix("/")
+      ? URL(fileURLWithPath: workFolder, isDirectory: true)
+      : directory.appendingPathComponent(workFolder)
+    return joined.standardized
+  }
   /// Where the runner keeps its own logs. Not configurable and not recorded in
   /// `.runner`: the name is compiled into the runner, which is why this can be
   /// derived rather than discovered.
@@ -109,7 +118,7 @@ extension DiscoveredRunner {
   ///
   /// Public since INV-006: discovery stopped enforcing this, so the app's scan
   /// reads it to tell maintenance when to abstain — and it involves resolving
-  /// symlinks, which is why the scan reads it off the main actor.
+  /// symlinks, which is why the scan reads it off both pools.
   public var containedWorkDirectory: URL? {
     Self.resolvedPath(workDirectory, containedIn: directory, allowingRoot: true)
   }
@@ -381,11 +390,11 @@ public struct RunnerDiscovery: Sendable {
         // Instance and id, because nothing else tells two runners with the
         // same name on two instances apart. Prefixed like the manual labels,
         // so anybody who meets one in `defaults` can tell what it is.
-        label: "standfast.gitlab:\(entry.instanceHost):\(entry.id)",
+        label: "standfast.gitlab:\(entry.instance.name):\(entry.id)",
         directory: home,
         agentId: entry.id,
         agentName: entry.name,
-        scope: .gitLab(instanceHost: entry.instanceHost),
+        scope: .gitLab(instance: entry.instance),
         installation: .gitLabService)
     }
     return (runners, reading.skipped.isEmpty ? [] : [gitLabConfigFile])
@@ -444,10 +453,19 @@ public struct RunnerDiscovery: Sendable {
   /// the filesystem happened to hand back.
   private func deduplicatedByLabel(_ runners: [DiscoveredRunner]) -> [DiscoveredRunner] {
     runners
-      .sorted { ($0.label, $0.directory.path) < ($1.label, $1.directory.path) }
+      .sorted(by: Self.menuOrder)
       .reduce(into: [DiscoveredRunner]()) { unique, runner in
         if unique.last?.label != runner.label { unique.append(runner) }
       }
+  }
+
+  /// Numbers read as numbers, so slot 10 follows slot 9, and never by locale.
+  /// `mac-1` and `mac-01` tie that way, so the exact label breaks the tie:
+  /// otherwise two copies of one label could straddle the other and survive.
+  private static func menuOrder(_ lhs: DiscoveredRunner, _ rhs: DiscoveredRunner) -> Bool {
+    let order = lhs.label.compare(rhs.label, options: .numeric)
+    if order != .orderedSame { return order == .orderedAscending }
+    return (lhs.label, lhs.directory.path) < (rhs.label, rhs.directory.path)
   }
 
   private func runner(
@@ -472,14 +490,10 @@ public struct RunnerDiscovery: Sendable {
       agentName: config.agentName,
       scope: scope,
       workFolder: config.workFolder)
-    // Deliberately no containment check here (INV-006). A work folder
-    // symlinked outside the runner — builds on an external SSD — is a
-    // legitimate machine, and erasing its whole row treated it as having no
-    // state, no jobs and no Stop button. Only housekeeping needs containment,
-    // and `Housekeeper` and `DiskUsage` re-derive it themselves at the moment
-    // it matters, failing closed. A `.runner` that *declares* an escaping
-    // path is still rejected above, by `RunnerConfig` — that one is the
-    // file's fault.
+    // Deliberately no containment check here (INV-006). A work folder outside
+    // the runner, symlinked or declared, is a legitimate machine. Only
+    // housekeeping needs containment, and `Housekeeper` and `DiskUsage`
+    // re-derive it when it matters, failing closed.
     return (runner, agent.label)
   }
 }

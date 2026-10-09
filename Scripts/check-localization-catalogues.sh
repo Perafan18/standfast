@@ -24,7 +24,13 @@ for language in en es; do
         packaged_catalogue="$APP/Contents/Resources/$language.lproj/Localizable.strings"
         ;;
       nested)
-        packaged_catalogue="$APP/Contents/Resources/Standfast_Standfast.bundle/$language.lproj/Localizable.strings"
+        # Swift Build (the default from Swift 6.4) nests a real macOS bundle;
+        # the native build system leaves the catalogues flat inside it.
+        nested_root="$APP/Contents/Resources/Standfast_Standfast.bundle"
+        if [ -d "$nested_root/Contents/Resources" ]; then
+          nested_root="$nested_root/Contents/Resources"
+        fi
+        packaged_catalogue="$nested_root/$language.lproj/Localizable.strings"
         ;;
     esac
 

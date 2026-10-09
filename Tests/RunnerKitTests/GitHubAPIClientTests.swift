@@ -72,11 +72,11 @@ private func ask(
 
 @Test func aRejectedTokenIsNotTheSameAsNoAnswer() throws {
   // 401 has a fix a person can act on — paste a new token — and "could not
-  // tell" does not. A menu bar app that collapses them leaves the user with
-  // nothing to try.
+  // tell" does not. Nor is it `notAuthenticated`: that is `gh` wanting a login,
+  // and with a token stored `gh` is never consulted.
   let http = FakeHTTPClient([runnerURL: [.status(401)]])
 
-  #expect(throws: GitHubError.notAuthenticated) { try ask(http) }
+  #expect(throws: GitHubError.tokenRefused) { try ask(http) }
 }
 
 @Test func aRunnerGitHubDoesNotKnowIsNoAnswer() throws {
@@ -99,6 +99,20 @@ private func ask(
   let http = FakeHTTPClient([runnerURL: [.ok(idleRunner())]])
 
   #expect(throws: GitHubError.noToken) { try ask(http, token: nil) }
+  #expect(http.requests.isEmpty)
+}
+
+@Test func aKeychainThatWouldNotAnswerIsNotAnEmptyOne() throws {
+  // Something is stored and the Keychain would not hand it over. Read as "no
+  // token" it would fall back to `gh`; let through raw, it would read as
+  // GitHub going quiet.
+  let store = FakeTokenStore("ghp_secret")
+  store.failsToRead = true
+  let http = FakeHTTPClient([runnerURL: [.ok(idleRunner())]])
+
+  #expect(throws: GitHubError.tokenUnreadable) {
+    try GitHubAPIClient(token: store, http: http).blockingRunnerStatus(id: 21, scope: scope)
+  }
   #expect(http.requests.isEmpty)
 }
 
@@ -204,19 +218,61 @@ private func ask(
 
 @Test func aForbiddenAnswerWithBudgetLeftIsNoAnswer() throws {
   // 403 with requests remaining is a token whose scopes do not cover this
-  // endpoint — a different problem, and not one waiting will fix.
+  // endpoint — a different problem, and not one waiting will fix. The body is
+  // GitHub's own, so reading the message cannot turn this into a limit.
   let http = FakeHTTPClient([
-    runnerURL: [.status(403, headers: ["x-ratelimit-remaining": "4999"])]
+    runnerURL: [
+      forbidden(
+        #"{"message":"Resource not accessible by personal access token","#
+          + #""documentation_url":"https://docs.github.com/rest/actions/"#
+          + #"self-hosted-runners","status":"403"}"#,
+        headers: ["x-ratelimit-remaining": "4999"])
+    ]
   ])
 
   #expect(throws: GitHubError.noAnswer) { try ask(http) }
 }
 
 @Test func tooManyRequestsIsAlsoRateLimiting() throws {
-  // GitHub answers secondary rate limits with 429 and no rate-limit header.
+  // One of the two ways GitHub answers a secondary rate limit.
   let http = FakeHTTPClient([runnerURL: [.status(429)]])
 
   #expect(throws: GitHubError.rateLimited) { try ask(http) }
+}
+
+@Test func aSecondaryLimitAnsweredWith403IsRateLimitingDespiteBudgetLeft() throws {
+  // The other way: 403 with `retry-after`, while the hourly count is nowhere
+  // near zero. The header is what separates it from a token without the scope.
+  let http = FakeHTTPClient([
+    runnerURL: [
+      .status(403, headers: ["x-ratelimit-remaining": "4000", "retry-after": "60"])
+    ]
+  ])
+
+  #expect(throws: GitHubError.rateLimited) { try ask(http) }
+}
+
+@Test func aSecondaryLimitNamedOnlyInItsMessageIsRateLimiting() throws {
+  // GitHub sends `retry-after` with a secondary limit only "if present", and
+  // otherwise says what happened in the message alone. With budget left and
+  // no header, that message is the one thing telling a wait from a token
+  // without the scope. Capitalised unlike GitHub's own text, which has been
+  // reworded before.
+  let http = FakeHTTPClient([
+    runnerURL: [
+      forbidden(
+        #"{"message":"You have exceeded a Secondary Rate Limit. Please wait a "#
+          + #"few minutes before you try again.","documentation_url":"#
+          + #""https://docs.github.com/rest/using-the-rest-api/rate-limits"}"#,
+        headers: ["x-ratelimit-remaining": "4000"])
+    ]
+  ])
+
+  #expect(throws: GitHubError.rateLimited) { try ask(http) }
+}
+
+private func forbidden(_ json: String, headers: [String: String]) -> HTTPResponse {
+  HTTPResponse(statusCode: 403, body: Data(json.utf8), headers: headers)
 }
 
 // MARK: - The published runner release
@@ -265,6 +321,14 @@ private let releaseURL = URL(
   ])
 
   #expect(throws: GitHubError.rateLimited) {
+    try client(http).blockingLatestRunnerRelease()
+  }
+}
+
+@Test func theReleaseQuestionAlsoKnowsItsTokenWasRefused() throws {
+  let http = FakeHTTPClient([releaseURL: [.status(401)]])
+
+  #expect(throws: GitHubError.tokenRefused) {
     try client(http).blockingLatestRunnerRelease()
   }
 }

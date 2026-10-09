@@ -174,8 +174,8 @@ public struct RunnerStateResolver: Sendable {
       // GitHub client would ask the wrong API with the wrong token and, on
       // failure, hand the user the wrong instruction.
       let remote: RemoteStatus
-      if case .gitLab(let host) = runner.scope {
-        remote = try gitLab.blockingRunnerStatus(id: runner.agentId, instanceHost: host)
+      if case .gitLab(let instance) = runner.scope {
+        remote = try gitLab.blockingRunnerStatus(id: runner.agentId, instance: instance)
       } else {
         remote = try github.blockingRunnerStatus(id: runner.agentId, scope: runner.scope)
       }

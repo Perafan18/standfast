@@ -14,10 +14,8 @@ public struct GitLabRunnerEntry: Equatable, Sendable {
   /// Empty when the file gives none; what to show instead is the caller's
   /// decision, the same rule `.runner` files follow.
   public let name: String
-  /// The host of the instance this runner reports to. Kept as a host rather
-  /// than a URL because it is an identity here, not an address — the API
-  /// client builds its own URLs.
-  public let instanceHost: String
+  /// The instance this runner reports to.
+  public let instance: GitLabInstance
 }
 
 /// Reads the parts of `config.toml` this app uses.
@@ -44,6 +42,14 @@ public enum GitLabRunnerConfigFile {
     try reading(text).entries
   }
 
+  /// The instances the file's runners report to, each once, in the order the
+  /// file first names them.
+  public static func instances(in text: String) -> [GitLabInstance] {
+    var seen = Set<GitLabInstance>()
+    let instances = ((try? entries(in: text)) ?? []).map(\.instance)
+    return instances.filter { seen.insert($0).inserted }
+  }
+
   public static func reading(_ text: String) throws -> Reading {
     var entries: [GitLabRunnerEntry] = []
     var skipped: [String] = []
@@ -53,6 +59,9 @@ public enum GitLabRunnerConfigFile {
     // sub-table like `[runners.docker]` — whose keys belong to the sub-table,
     // not to the runner. `[runners.docker]` even has a `name` of its own.
     var inRunnerBody = false
+    // The delimiter of a multi-line string still open. Its lines are a
+    // script's text, where `url=` is shell and `[ -d … ]` is not a table.
+    var openString: String?
 
     func finish() {
       guard let fields = current else { return }
@@ -62,18 +71,28 @@ public enum GitLabRunnerConfigFile {
         skipped.append(name)
         return
       }
-      guard let url = fields["url"], let host = URL(string: url)?.host else {
+      guard let instance = fields["url"].flatMap(GitLabInstance.init(url:)) else {
         skipped.append(name)
         return
       }
-      entries.append(GitLabRunnerEntry(id: id, name: name, instanceHost: host))
+      entries.append(GitLabRunnerEntry(id: id, name: name, instance: instance))
     }
 
-    for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-      let line = rawLine.trimmingCharacters(in: .whitespaces)
+    // On any newline, because Swift reads "\r\n" as one Character: a file
+    // saved with CRLF splits on "\n" into a single line and loses every runner.
+    let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+    for rawLine in lines {
+      let line = rawLine.trimmingCharacters(in: blank)
+      if let delimiter = openString {
+        if line.contains(delimiter) { openString = nil }
+        continue
+      }
+      // Before the opener check: a commented-out `script = '''` opens nothing,
+      // and taking it for an opener would swallow every runner after it.
+      if line.hasPrefix("#") { continue }
       if line.hasPrefix("[[") {
         finish()
-        if line == "[[runners]]" {
+        if withoutComment(line) == "[[runners]]" {
           current = [:]
           inRunnerBody = true
         } else {
@@ -87,10 +106,16 @@ public enum GitLabRunnerConfigFile {
         inRunnerBody = false
         continue
       }
-      guard inRunnerBody, current != nil else { continue }
       guard let equals = line.firstIndex(of: "=") else { continue }
       let key = line[..<equals].trimmingCharacters(in: .whitespaces)
       var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+      if let delimiter = ["\"\"\"", "'''"].first(where: value.hasPrefix),
+        !value.dropFirst(delimiter.count).contains(delimiter)
+      {
+        openString = delimiter
+        continue
+      }
+      guard inRunnerBody, current != nil else { continue }
       if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
         value = String(value.dropFirst().dropLast())
       }
@@ -99,5 +124,17 @@ public enum GitLabRunnerConfigFile {
     finish()
 
     return Reading(entries: entries, skipped: skipped)
+  }
+
+  /// Whitespace, and a byte-order mark, which Foundation does not count as
+  /// whitespace and an editor may leave in front of the first header.
+  private static let blank = CharacterSet.whitespaces.union(
+    CharacterSet(charactersIn: "\u{FEFF}"))
+
+  /// A header without a trailing `# comment`. Table names this scanner looks
+  /// for never contain `#`, so the first one starts the comment.
+  private static func withoutComment(_ line: String) -> String {
+    let header = line.split(separator: "#", maxSplits: 1).first ?? ""
+    return header.trimmingCharacters(in: .whitespaces)
   }
 }

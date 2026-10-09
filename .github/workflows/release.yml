@@ -67,6 +67,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A tag pushed before the version bump would sign, notarise and publish
+      # an app that reports the previous version. Before the gate, so the
+      # mismatch fails before anything touches the host keychain.
+      - name: The tag names the version the app reports
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="$(/usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but Info.plist says $version"
+            exit 1
+          fi
+          echo "tag and Info.plist both say $version"
+
       - name: Are the signing secrets configured?
         id: gate
         env:
@@ -149,7 +163,28 @@ jobs:
 
       - name: Build and sign
         if: steps.gate.outputs.configured == 'true'
+        env:
+          # This runner is Apple silicon, and the download has to open on any
+          # Mac that meets the macOS 14 requirement, Intel ones included.
+          ARCHS: arm64 x86_64
         run: ./Scripts/build-app.sh
+
+      # Before notarising, because a thin executable notarises and staples
+      # just as happily and is then refused on the other kind of Mac.
+      - name: Both architectures are in the executable
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          archs="$(lipo -archs .build/Standfast.app/Contents/MacOS/Standfast)"
+          for arch in arm64 x86_64; do
+            case " $archs " in
+              *" $arch "*) ;;
+              *)
+                echo "::error::the executable has no $arch slice (has: $archs)"
+                exit 1
+                ;;
+            esac
+          done
+          echo "universal: $archs"
 
       - name: Notarise and staple
         if: steps.gate.outputs.configured == 'true'

@@ -92,6 +92,66 @@ private func settings(
   #expect(notifications.notice != nil)
 }
 
+@Test @MainActor func allowingItLaterInSystemSettingsClearsTheNotice() async {
+  // Refused at the prompt, then switched on in System Settings. Coming back to
+  // Standfast must not go on saying notifications are off, and must not ask
+  // again to find out.
+  let delivery = FakeNotificationDelivery()
+  delivery.grants = false
+  delivery.currentAuthorization = .denied
+  let notifications = settings(delivery)
+  notifications.setEnabled(.jobFailed, true)
+  await notifications.quiesce()
+  #expect(notifications.notice != nil)
+
+  delivery.currentAuthorization = .authorized
+  notifications.refreshAuthorizationIfEnabled()
+  await notifications.quiesce()
+
+  #expect(notifications.notice == nil)
+  #expect(delivery.authorizationRequests == 1)
+}
+
+@Test @MainActor func switchingItOffLaterInSystemSettingsIsSaidOutLoud() async {
+  // The case the `.denied` documentation promises: the switches still on, and
+  // nothing arriving. Without a fresh read the menu would have no reason to
+  // say why.
+  let delivery = FakeNotificationDelivery()
+  let notifications = settings(delivery)
+  notifications.setEnabled(.runnerDisconnected, true)
+  await notifications.quiesce()
+  #expect(notifications.notice == nil)
+
+  delivery.currentAuthorization = .denied
+  notifications.refreshAuthorizationIfEnabled()
+  await notifications.quiesce()
+
+  #expect(notifications.notice != nil)
+  #expect(delivery.authorizationRequests == 1)
+}
+
+@Test @MainActor func withEverySwitchOffTheSystemIsNotAskedAnything() async {
+  let delivery = FakeNotificationDelivery()
+  let notifications = settings(delivery)
+
+  notifications.refreshAuthorizationIfEnabled()
+  await notifications.quiesce()
+
+  #expect(delivery.authorizationStatusReads == 0)
+  #expect(delivery.authorizationRequests == 0)
+}
+
+@Test func settingsReadsTheSystemVerdictAgainWheneverItCouldHaveChanged() {
+  // Allowing or refusing Standfast in System Settings tells this app nothing.
+  // The only surface showing the notice re-reads it when it appears and when
+  // the app comes back to the front, which is where the user returns from.
+  let source = standfastSource("SettingsView.swift")
+
+  #expect(source.contains(".onAppear { rereadWhatMacOSDecides() }"))
+  #expect(source.contains("NSApplication.didBecomeActiveNotification"))
+  #expect(source.contains("notifications.refreshAuthorizationIfEnabled()"))
+}
+
 @Test @MainActor func thereIsNothingToExplainBeforeAnybodyHasAskedForAnything() {
   let delivery = FakeNotificationDelivery()
 
@@ -177,6 +237,59 @@ private func settings(
   for _ in 0..<5 { await Task.yield() }
 
   #expect(notifications.authorization == .authorized)
+}
+
+@Test @MainActor func turningNotificationsBackOnInSystemSettingsClearsTheNotice() async {
+  let delivery = FakeNotificationDelivery()
+  delivery.currentAuthorization = .denied
+  let notifications = settings(delivery)
+  notifications.setEnabled(.jobFailed, true)
+  await notifications.quiesce()
+  #expect(notifications.notice == L10n.notificationsBlocked)
+
+  delivery.currentAuthorization = .authorized
+  notifications.refreshAuthorizationIfEnabled()
+  await notifications.quiesce()
+
+  #expect(notifications.notice == nil)
+  // Read again, never asked again.
+  #expect(delivery.authorizationRequests == 1)
+}
+
+@Test @MainActor func aRefreshWithEverySwitchOffAsksMacOSNothing() async {
+  let delivery = FakeNotificationDelivery()
+  let notifications = settings(delivery)
+
+  notifications.refreshAuthorizationIfEnabled()
+  await notifications.quiesce()
+
+  #expect(delivery.authorizationStatusReads == 0)
+}
+
+@Test @MainActor func aRefreshNeverReplacesAPermissionRequestStillWaiting() async throws {
+  // The prompt can sit unanswered while the user works elsewhere, and coming
+  // back to this app is exactly when a refresh runs. Replacing the request
+  // would drop the answer the user is about to give.
+  let delivery = FakeNotificationDelivery()
+  delivery.suspendsAuthorizationStatusReads = true
+  let notifications = settings(delivery)
+  notifications.setEnabled(.jobFailed, true)
+  for _ in 0..<100 where delivery.authorizationStatusReads < 1 {
+    await Task.yield()
+  }
+  try #require(delivery.authorizationStatusReads == 1)
+
+  notifications.refreshAuthorizationIfEnabled()
+  for _ in 0..<100 where delivery.authorizationStatusReads < 2 {
+    await Task.yield()
+  }
+  // Answered too, so a regression fails here instead of hanging in quiesce.
+  delivery.resolveAuthorizationStatusRead(2, as: .notDetermined)
+  delivery.resolveAuthorizationStatusRead(1, as: .denied)
+  await notifications.quiesce()
+
+  #expect(delivery.authorizationStatusReads == 1)
+  #expect(notifications.authorization == .denied)
 }
 
 @Test @MainActor func everySwitchIsRememberedSomewhereOfItsOwn() {
