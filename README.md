@@ -167,16 +167,27 @@ registration rather than the state of the request — including the case where m
 the registration and the user has switched it off in System Settings, where nothing failed
 and the app still will not launch.
 
-## Availability
+## Install
 
-No Standfast release or Homebrew tap has been published. The v0.5.0 interface described
-here remains `Unreleased`; there is no supported stable-install command or downloadable
-artifact yet. Tagging, signing, notarization, the final formula SHA, tap creation and
-publication remain with the release manager.
+With Homebrew, which builds Standfast on your Mac and so needs Xcode 16 or later:
 
-Contributors can assemble an ad-hoc local app from an existing checkout of this source
-state using the verified [building-from-source workflow](#building-from-source) below. That
-development bundle is not a published or distributable release.
+```sh
+brew install perafan18/tap/standfast
+```
+
+Spotlight and Launchpad do not look inside Homebrew's Cellar, and they ignore a symlink to
+it, so copy the app into Applications — and copy it again after every upgrade:
+
+```sh
+rm -rf /Applications/Standfast.app
+ditto "$(brew --prefix standfast)/Standfast.app" /Applications/Standfast.app
+open /Applications/Standfast.app
+```
+
+Each upgrade is a new build, so macOS asks once whether it may read the token the previous
+build stored in your Keychain; choose Always Allow. There is no signed, notarized download
+yet: that needs a Developer ID certificate. You can also
+[build it from source](#building-from-source).
 
 ### Requirements
 
