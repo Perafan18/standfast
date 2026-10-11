@@ -186,11 +186,12 @@ not evidence that Control Center or Settings opens, focuses, or closes correctly
 
 ## The oldest macOS this runs on
 
-Four files say it, and nothing in the build links them: the deployment target in
-`Package.swift`, `LSMinimumSystemVersion` in `Resources/Info.plist`, a sentence in
-`README.md`, and one on the landing page. `Tests/Scripts/MinimumOSContractTests.sh` fails
-when they disagree — bump one and the rest keep promising the old number, which is an app
-macOS will happily install onto a system it can no longer run on.
+Five files say it, and nothing in the build links them: the deployment target in
+`Package.swift`, `LSMinimumSystemVersion` in `Resources/Info.plist`, sentences in
+`README.md` and on the landing page, and one in the bug report form
+(`.github/ISSUE_TEMPLATE/bug_report.yml`). `Tests/Scripts/MinimumOSContractTests.sh` fails
+when any of them disagree — bump one and the rest keep promising the old number, which is an
+app macOS will happily install onto a system it can no longer run on.
 
 **What that number is backed by, and what it is not.** The deployment target is real: the
 compiler refuses an API newer than it, on every machine, for free. Nothing else is checked.

@@ -1,12 +1,18 @@
 # Standfast
 
-**A macOS menu bar app for self-hosted GitHub Actions runners.** Its status item tells you,
-without a click, whether your runners are actually going to get work. A slim quick menu
-keeps the fleet glanceable; the Standfast Control Center holds the complete operational
-picture and controls.
+![The Standfast app icon and the headline "Know whether your Mac's runners will get work." beside the Standfast Control Center, where build-mac on acme/widget is Disconnected with 1 job waiting for this machine, and release-mac is Running](site/img/hero.png)
 
-<!-- TODO before launch: a GIF of the menu bar cycling idle → busy → disconnected.
-     Nothing sells this app like watching the icon change while the machine stays up. -->
+Standfast is a menu bar app for the self-hosted GitHub Actions runners on your Mac. It tells
+you whether each one is actually going to get work, not only whether its process is up. A
+slim quick menu keeps the fleet glanceable; the Standfast Control Center holds the complete
+operational picture and controls.
+
+```sh
+brew install --cask perafan18/tap/standfast
+```
+
+Signed with a Developer ID and notarized by Apple, for macOS 14 or later. The formula that
+builds it from source and the `Standfast.zip` download are under [Install](#install).
 
 ## Why it exists
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# The oldest macOS this app claims to run on, and the four places that say so.
+# The oldest macOS this app claims to run on, and the places that say so.
 #
 # Nothing in the build links them. `Package.swift` decides what the compiler
 # enforces; `Info.plist` decides what macOS will let a user install; the README
@@ -30,19 +30,20 @@ plist="$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" Resources/In
 [ -n "$plist" ] || fail "Info.plist has no LSMinimumSystemVersion"
 plist_major="${plist%%.*}"
 
-# The two sentences a person reads. Matched loosely on purpose: the prose may
-# be reworded, and what has to stay true is the number in it.
-readme="$(sed -n 's/.*macOS \([0-9][0-9]*\) or later.*/\1/p' README.md | head -n 1)"
-[ -n "$readme" ] || fail "README.md no longer states a minimum macOS"
+[ "$plist_major" = "$package" ] \
+  || fail "Info.plist says macOS $plist_major, Package.swift says $package"
 
-site="$(sed -n 's/.*macOS \([0-9][0-9]*\) or later.*/\1/p' site/index.html | head -n 1)"
-[ -n "$site" ] || fail "site/index.html no longer states a minimum macOS"
-
-for pair in "Info.plist:$plist_major" "README.md:$readme" "site/index.html:$site"; do
-  where="${pair%%:*}"
-  found="${pair##*:}"
-  [ "$found" = "$package" ] \
-    || fail "$where says macOS $found, Package.swift says $package"
+# The sentences a person reads. Matched loosely on purpose: the prose may be
+# reworded, and what has to stay true is the number in it. Every match counts,
+# not only the first: the README says it on its first screen and again under
+# Requirements, and a fix to one would leave the other promising the old number.
+for where in README.md site/index.html .github/ISSUE_TEMPLATE/bug_report.yml; do
+  found="$(sed -n 's/.*macOS \([0-9][0-9]*\) or later.*/\1/p' "$where")"
+  [ -n "$found" ] || fail "$where no longer states a minimum macOS"
+  while IFS= read -r number; do
+    [ "$number" = "$package" ] \
+      || fail "$where says macOS $number, Package.swift says $package"
+  done <<< "$found"
 done
 
 echo "PASS: macOS $package, everywhere that says so"

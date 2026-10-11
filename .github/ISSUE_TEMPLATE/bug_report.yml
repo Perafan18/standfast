@@ -1,0 +1,120 @@
+name: Bug report
+description: Standfast showed the wrong state, or something in the app did not work.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you paste anything:** never paste a GitHub or GitLab token (or the output of
+        `gh auth token`), the runner's `.credentials` or `.credentials_rsaparams` file,
+        gitlab-runner's `config.toml`, or logs that name private repositories, such as the
+        runner's `_diag` logs. Replace real repository, organization, runner and macOS user
+        names with placeholders like `acme/widget`, `build-mac`, `release-mac` and `ci` (as in
+        `/Users/ci/actions-runner`), in text and in screenshots.
+
+        **Found a security problem?** Do not open a public issue. Report it privately through a
+        [security advisory](https://github.com/Perafan18/standfast/security/advisories/new), as
+        [SECURITY.md](https://github.com/Perafan18/standfast/blob/main/SECURITY.md) describes.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected Standfast to show or do, and what it did instead.
+      placeholder: |
+        Expected: build-mac to show Ready after Start service.
+        Instead: it stayed on Starting, then showed Disconnected.
+    validations:
+      required: true
+
+  - type: input
+    id: standfast-version
+    attributes:
+      label: Standfast version
+      description: >-
+        Click Standfast's status icon in the menu bar (the ✓, ⚙, ⚠, ☾, ?, ↻ or ◌ symbol, not
+        the app icon), choose **Settings** and scroll to the bottom. The small line below
+        **Appearance** reads like `Standfast 0.5.0 (5)`; copy it whole. The quick menu and the
+        Control Center do not show it, and the `Runner …` line on a runner's card is the
+        runner's version, not Standfast's.
+      placeholder: Standfast 0.5.0 (5)
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: Apple menu › About This Mac. Standfast needs macOS 14 or later.
+      placeholder: macOS 15.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runner-kind
+    attributes:
+      label: Runner kind
+      description: >-
+        The runner the problem is about. For a GitHub runner, say in What happened whether it
+        is registered to a repository, an organization or an enterprise. GitHub Enterprise
+        Server is not supported.
+      options:
+        - "Installed as a service (./svc.sh install)"
+        - "Started by hand (./run.sh, folder added in Settings)"
+        - "GitLab runner (gitlab-runner)"
+        - "Managed fleet slot (actions-runner-fleet)"
+        - "Other / not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      description: >-
+        Every install shows the same version line, so this tells them apart. For a build from a
+        git checkout, put the output of `git rev-parse --short HEAD` in Anything else.
+      options:
+        - "Homebrew cask (brew install --cask perafan18/tap/standfast)"
+        - "Homebrew formula, built from source (brew install perafan18/tap/standfast)"
+        - "Standfast.zip from the release page"
+        - "Built from a git checkout (make app)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: state-and-reason
+    attributes:
+      label: State and reason Standfast showed
+      description: >-
+        Copy the words exactly as Standfast shows them: the short badge on the runner's card or
+        quick-menu row (for example `Disconnected` or `GitHub not answering`), and the sentence
+        at the top of that runner's submenu in the quick menu. Add the line that says when
+        Standfast last checked, and the result of any Start service, Stop service or Restart
+        service request. No runner badge says "Unknown": it names the answer that is missing,
+        such as `GitHub not answering` or `GitHub not asked`, so please copy it exactly.
+      placeholder: |
+        Badge: GitHub not answering
+        Sentence: Running locally, GitHub not answering — check your network, or the token's access to this runner
+        Last check: Checked just now
+        Service request: Start service request timed out
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Standfast and click Start service on build-mac.
+        2. Wait 30 seconds.
+        3. Click Refresh now in the quick menu.
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >-
+        For example the access line in Settings › GitHub access (it says whether a token is
+        stored and never shows it), the runner version from the card's Maintenance group, or a
+        screenshot with real names replaced. Standfast's own log is safe to share, since it
+        records only windows that were slow to open:
+        `log show --last 1h --predicate 'subsystem == "dev.standfast.app"'`
