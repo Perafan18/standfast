@@ -164,6 +164,8 @@ private func l10nSource() -> String {
     L10n.layerLocalStarting, L10n.layerRemoteOnline, L10n.layerRemoteBusy,
     L10n.layerRemoteOffline, L10n.layerRemoteWaitingToAppear,
     L10n.layerRemoteNotAskedStopped, L10n.layerRemoteNotAsked, L10n.managedFleet,
+    L10n.settingsTabGeneral, L10n.settingsTabRunners, L10n.settingsTabAccounts,
+    L10n.settingsToken,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -296,6 +298,8 @@ private func l10nSource() -> String {
       "layer.remote.online", "layer.remote.busy", "layer.remote.offline",
       "layer.remote.waitingToAppear", "layer.remote.notAskedStopped",
       "layer.remote.notAsked", "controlCenter.group.managedFleet",
+      "settings.tab.general", "settings.tab.runners", "settings.tab.accounts",
+      "settings.token",
     ])
   #expect(everyKey == reached)
 }

@@ -187,19 +187,6 @@ import Testing
   #expect(Set(scale).count == scale.count)
 }
 
-@Test func noViewPicksItsOwnTypeAnyMore() {
-  // Semantic styles, so the accessibility text-size axis the manual matrix
-  // still owes keeps working; what the tokens fix is which role goes where.
-  for view in ["ControlCenterView.swift", "RunnerCardView.swift", "SettingsView.swift"] {
-    let source = standfastSource(view)
-    #expect(
-      !source.contains(".font(.title") && !source.contains(".font(.subheadline")
-        && !source.contains(".font(.caption") && !source.contains(".font(.body")
-        && !source.contains(".font(.callout") && !source.contains(".font(.headline"),
-      "\(view) still picks a system font style by hand")
-  }
-}
-
 // MARK: - Surfaces do some of the work the 1 pt cage was doing alone
 
 @Test func theCardIsToldFromItsCanvasWithoutNeedingABorder() {

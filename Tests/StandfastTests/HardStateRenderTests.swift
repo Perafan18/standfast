@@ -124,45 +124,68 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     ControlCenterView(fleet: healthyFleet),
     to: directory.appendingPathComponent("0-normal.png"), appearance: .light)
 
-  // 0b. The other window. Settings takes its own size, not the Control
-  // Center's.
-  let githubWithout = await settledAccess(nil)
+  // 0b. The other window, a pane at a time: each is the size the window takes
+  // while it shows, and the tabs above them belong to the window, which an
+  // offscreen render does not draw. General is where Settings always opens.
+  let settingsVersion = ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]
   try render(
-    SettingsView(
-      loginItem: LoginItem(), notifications: healthyFleet.notifications,
-      sleep: healthyFleet.sleep, github: githubWithout,
-      gitLab: GitLabInstanceCards(cards: []),
-      manualRunners: ManualRunnerDirectories(defaults: renderDefaults()),
-      dock: unattendedDockVisibility(),
-      infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
+    GeneralSettingsPane(
+      presentation: SettingsPresentation(
+        notificationNotice: nil, loginItemNotice: nil, infoDictionary: settingsVersion),
+      notifications: healthyFleet.notifications, sleep: healthyFleet.sleep,
+      loginItem: LoginItem(), dock: unattendedDockVisibility()
+    )
+    .background(Color(nsColor: .windowBackgroundColor)),
     to: directory.appendingPathComponent("0c-ajustes.png"),
-    width: StandfastTheme.settingsIdealWidth,
-    height: StandfastTheme.settingsDefaultHeight)
+    width: StandfastTheme.settingsPaneWidth,
+    height: StandfastTheme.settingsGeneralHeight)
 
-  // 0d. The same window on a Mac that has a token. The Remove button only
-  // exists in this state, so the screenshot without it proves nothing about
-  // whether it fits.
+  // 0c2. General with the longest notice each section can show. This is the
+  // case its height was measured on, so a longer line shows up here first.
+  try render(
+    GeneralSettingsPane(
+      presentation: SettingsPresentation(
+        notificationNotice: L10n.notificationsBlocked,
+        loginItemNotice: L10n.openAtLoginUnavailable, infoDictionary: settingsVersion),
+      notifications: healthyFleet.notifications, sleep: healthyFleet.sleep,
+      loginItem: LoginItem(), dock: unattendedDockVisibility()
+    )
+    .background(Color(nsColor: .windowBackgroundColor)),
+    to: directory.appendingPathComponent("0c2-ajustes-con-avisos.png"),
+    width: StandfastTheme.settingsPaneWidth,
+    height: StandfastTheme.settingsGeneralHeight)
+
+  // 0d. Accounts on a Mac that has a token. The Remove button only exists in
+  // this state, so the screenshot without it proves nothing about whether it
+  // fits.
   let githubWithToken = await settledAccess("ghp_example")
   let gitLabBeside = await settledAccess(nil)
   try render(
-    SettingsView(
-      loginItem: LoginItem(), notifications: healthyFleet.notifications,
-      sleep: healthyFleet.sleep,
+    AccountsSettingsPane(
+      presentation: SettingsPresentation(
+        githubState: githubWithToken.state, githubNotice: githubWithToken.notice,
+        notificationNotice: nil, loginItemNotice: nil, infoDictionary: nil
+      ).github,
       github: githubWithToken,
-      // The GitLab card too: this render is the crowded one on purpose, every
-      // optional section at once, because that is the layout worth doubting.
+      // The GitLab section too: this render is the crowded one on purpose,
+      // every optional section at once, because that is the layout worth
+      // doubting.
       gitLab: GitLabInstanceCards(cards: [
         GitLabInstanceAccess(
           instance: GitLabInstance(url: "https://gitlab.example.com")!,
           access: gitLabBeside)
-      ]),
-      // With one added, so the row and its Remove button are in the picture.
-      manualRunners: renderRunners(["/Users/ci/actions-runner-by-hand"]),
-      dock: unattendedDockVisibility(),
-      infoDictionary: ["CFBundleShortVersionString": "0.5.0", "CFBundleVersion": "5"]),
+      ])),
     to: directory.appendingPathComponent("0d-ajustes-con-token.png"),
-    width: StandfastTheme.settingsIdealWidth,
-    height: StandfastTheme.settingsDefaultHeight)
+    width: StandfastTheme.settingsPaneWidth,
+    height: StandfastTheme.settingsAccountsHeight(gitLabInstances: 1))
+
+  // 0e. Runners with one added, so the row and its Remove button are in the
+  // picture.
+  try render(
+    RunnersSettingsPane(manualRunners: renderRunners(["/Users/ci/actions-runner-by-hand"])),
+    to: directory.appendingPathComponent("0e-ajustes-runners.png"),
+    width: StandfastTheme.settingsPaneWidth,
+    height: StandfastTheme.settingsRunnersHeight(folders: 1))
 
   // 1. A runner GitHub cannot see, with work piling up behind it. The reason
   // somebody opens this window, and the sentence the queue line exists to make

@@ -217,6 +217,27 @@ enum StandfastTheme {
   static let settingsMaximumWidth: CGFloat = 520
   static let settingsDefaultHeight: CGFloat = 680
 
+  /// Settings has one width on every pane and a height per pane: under
+  /// `.contentSize` a form with no height collapses. Heights are measured from
+  /// renders on macOS 27 in Spanish, General with both notices showing.
+  static let settingsPaneWidth: CGFloat = 520
+  /// With the title bar and tabs on top, the window is taller than a 1280×720
+  /// display: there the last footer and the version fall below the screen, and
+  /// every switch stays above it.
+  static let settingsGeneralHeight: CGFloat = 690
+
+  /// One folder fits where the empty line does, then a row each. Past General's
+  /// height the form scrolls, so no pane makes the window taller than General.
+  static func settingsRunnersHeight(folders: Int) -> CGFloat {
+    min(230 + 56 * CGFloat(max(folders - 1, 0)), settingsGeneralHeight)
+  }
+
+  /// GitHub with a token and a notice, then a section per GitLab instance, up
+  /// to General's height.
+  static func settingsAccountsHeight(gitLabInstances: Int) -> CGFloat {
+    min(300 + 280 * CGFloat(gitLabInstances), settingsGeneralHeight)
+  }
+
   static func palette(
     for appearance: Appearance, increasedContrast: Bool = false,
     reduceTransparency _: Bool = false

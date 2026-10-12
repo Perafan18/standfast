@@ -117,6 +117,10 @@ enum L10n {
   static let settingsGitHubRemove = t("settings.github.remove")
   static let settingsGitHubKeychainFailed = t("settings.github.keychainFailed")
   static let settingsGitHubKeychainRemoveFailed = t("settings.github.keychainRemoveFailed")
+  static let settingsTabGeneral = t("settings.tab.general")
+  static let settingsTabRunners = t("settings.tab.runners")
+  static let settingsTabAccounts = t("settings.tab.accounts")
+  static let settingsToken = t("settings.token")
 
   static func settingsVersion(
     _ suffix: String, in bundles: [Bundle]? = nil
@@ -1016,6 +1020,10 @@ enum L10n {
     "layer.remote.waitingToAppear": "Waiting to appear",
     "layer.remote.notAskedStopped": "Not asked while stopped",
     "layer.remote.notAsked": "Not asked",
+    "settings.tab.general": "General",
+    "settings.tab.runners": "Runners",
+    "settings.tab.accounts": "Accounts",
+    "settings.token": "Token",
   ]
 
   /// Looks the key up in one complete language pack, and falls back to the

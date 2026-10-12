@@ -96,12 +96,19 @@ private func settingsSource(_ name: String) -> String {
   let source = settingsSource("SettingsView.swift")
   let compact = source.filter { !$0.isWhitespace }
 
-  #expect(!compact.contains("Form{"))
-  #expect(!compact.contains(".formStyle(.grouped)"))
-  #expect(!compact.contains("TabView"))
+  // Panes of grouped forms behind toolbar tabs, the way System Settings draws
+  // its own, rather than one long scrolling column of cards.
+  #expect(compact.contains("TabView(selection:"))
+  #expect(compact.contains(".formStyle(.grouped)"))
+  #expect(compact.contains(".tabItem"))
+  #expect(!compact.contains("ScrollView{"))
   #expect(!compact.contains("NavigationStack"))
   #expect(!compact.contains("NavigationSplitView"))
-  #expect(compact.contains("ScrollView{"))
+  // Not remembered across launches. A tab view keeps only the selected pane in
+  // the accessibility tree, so a launch that brought Settings back on Accounts
+  // would hide every switch the strict gate reads.
+  #expect(source.contains("@State private var pane"))
+  #expect(!compact.contains("@AppStorage(\"settings.pane\""))
   #expect(compact.contains("Image(nsImage:NSApplication.shared.applicationIconImage)"))
   #expect(
     compact.contains(
@@ -117,31 +124,92 @@ private func settingsSource(_ name: String) -> String {
       ".accessibilityIdentifier(SettingsAccessibility.version)"))
   #expect(compact.contains("supportingText(presentation.power)"))
   #expect(!compact.contains("ifsleep.isEnabled"))
-  // The row keeps the 44 pt pointer target and takes the whole card width, so
-  // every switch lands on one trailing edge. An intrinsically sized row hugs
-  // its own label instead, and the section reads as a ragged, centred stack.
-  // 32, not 44: 44 is the iPhone touch target this theme rejected once
-  // already — `controlMinimumHeight` is 28 because a pointer is not a thumb.
-  // A settings row still wants more air than a button, which is why it is not
-  // 28 either.
-  #expect(compact.contains(".frame(maxWidth:.infinity,minHeight:32)"))
+}
+
+@Test func theVersionSitsUnderGeneralsFormAndNotInAFooter() throws {
+  // A section with no rows draws an empty box, and a grouped form is a list:
+  // a footer scrolled out of sight can leave the accessibility tree, taking
+  // the gate's version identifier with it.
+  let compact = settingsSource("SettingsView.swift").filter { !$0.isWhitespace }
+  let general = try #require(compact.range(of: "structGeneralSettingsPane:View{"))
+  let form = try #require(
+    compact.range(of: ".formStyle(.grouped)", range: general.upperBound..<compact.endIndex))
+  let version = try #require(
+    compact.range(of: ".accessibilityIdentifier(SettingsAccessibility.version)"))
+  let frame = try #require(
+    compact.range(
+      of: "height:StandfastTheme.settingsGeneralHeight)",
+      range: general.upperBound..<compact.endIndex))
+
+  #expect(form.upperBound <= version.lowerBound)
+  #expect(version.upperBound <= frame.lowerBound)
+  #expect(!compact.contains("Section{}"))
+}
+
+@Test func eachTokenSectionSavesOnReturnAndOffersRemoveOnItsOwn() {
+  let compact = settingsSource("SettingsView.swift").filter { !$0.isWhitespace }
+
+  // Remove does not depend on Save: over http nothing is saved, and a token
+  // stored before that rule must still be removable.
+  #expect(compact.contains("ifpresentation.canRemove{Button(L10n.settingsGitHubRemove"))
   #expect(
     compact.contains(
-      "Label(title,systemImage:systemImage).foregroundStyle(palette.textPrimary.color)"
-        + ".frame(maxWidth:.infinity,alignment:.leading)"))
-  #expect(compact.contains("VStack(alignment:.leading,spacing:0){"))
+      ".disabled(draft.wrappedValue.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)"
+    ))
+  // Return in the field. A default button per section would put several in
+  // one window as soon as a GitLab instance has a section.
+  #expect(compact.contains(".onSubmit{save(draft,to:access)}"))
+  #expect(!compact.contains(".keyboardShortcut(.defaultAction)"))
+  // A grouped form draws the field borderless. Its label is what makes the row
+  // read as a field, so the prompt never stands in for one.
+  #expect(
+    compact.contains(
+      "SecureField(text:draft,prompt:Text(placeholder)){Text(L10n.settingsToken)}"))
+  #expect(!compact.contains(".labelsHidden()"))
+  #expect(compact.contains(".accessibilityIdentifier(identifiers.token)"))
+  #expect(compact.contains(".accessibilityIdentifier(identifiers.save)"))
+  #expect(compact.contains(".accessibilityIdentifier(identifiers.remove)"))
+  #expect(compact.contains(".accessibilityIdentifier(SettingsAccessibility.runnersAdd)"))
+  // Each GitLab section redraws when its own access object changes.
+  #expect(compact.contains("ObservingAccess(access:entry.access)"))
 }
 
 @Test func settingsGeometryUsesMeasuredThemeTokensAtTheViewAndScene() {
   let view = settingsSource("SettingsView.swift").filter { !$0.isWhitespace }
   let app = settingsSource("App.swift").filter { !$0.isWhitespace }
+  let settingsScene = app.components(separatedBy: "Settings{").last ?? ""
 
-  #expect(view.contains("minWidth:StandfastTheme.settingsMinimumWidth"))
-  #expect(view.contains("idealWidth:StandfastTheme.settingsIdealWidth"))
-  #expect(view.contains("maxWidth:StandfastTheme.settingsMaximumWidth"))
-  #expect(app.contains("width:StandfastTheme.settingsIdealWidth"))
-  #expect(app.contains("height:StandfastTheme.settingsDefaultHeight"))
+  // A height of its own on every pane: under `.contentSize` a form without
+  // one collapses.
+  for height in [
+    "settingsGeneralHeight)",
+    "settingsRunnersHeight(folders:manualRunners.directories.count))",
+    "settingsAccountsHeight(gitLabInstances:gitLab.cards.count))",
+  ] {
+    #expect(
+      view.contains(
+        ".frame(width:StandfastTheme.settingsPaneWidth,height:StandfastTheme." + height))
+  }
+  #expect(settingsScene.contains("width:StandfastTheme.settingsPaneWidth"))
+  #expect(settingsScene.contains(".windowResizability(.contentSize)"))
   #expect(app.contains("infoDictionary:Bundle.main.infoDictionary"))
+}
+
+@Test func aPaneGrowsWithWhatItListsUntilGeneralsHeight() {
+  // Literals, not built from the tokens: these are the measured numbers.
+  #expect(StandfastTheme.settingsPaneWidth == 520)
+  #expect(StandfastTheme.settingsGeneralHeight == 690)
+  // The empty line and one folder take the same room, then a row each.
+  #expect(StandfastTheme.settingsRunnersHeight(folders: 0) == 230)
+  #expect(StandfastTheme.settingsRunnersHeight(folders: 1) == 230)
+  #expect(StandfastTheme.settingsRunnersHeight(folders: 3) == 342)
+  // GitHub alone, then a section per GitLab instance.
+  #expect(StandfastTheme.settingsAccountsHeight(gitLabInstances: 0) == 300)
+  #expect(StandfastTheme.settingsAccountsHeight(gitLabInstances: 1) == 580)
+  // Past General's height the form scrolls instead, so no pane makes the
+  // window taller than General.
+  #expect(StandfastTheme.settingsRunnersHeight(folders: 40) == 690)
+  #expect(StandfastTheme.settingsAccountsHeight(gitLabInstances: 5) == 690)
 }
 
 // MARK: - GitHub access

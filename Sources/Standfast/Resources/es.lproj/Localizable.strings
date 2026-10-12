@@ -270,3 +270,7 @@
 "layer.remote.waitingToAppear" = "Esperando a aparecer";
 "layer.remote.notAskedStopped" = "Sin consultar mientras está detenido";
 "layer.remote.notAsked" = "Sin consultar";
+"settings.tab.general" = "General";
+"settings.tab.runners" = "Runners";
+"settings.tab.accounts" = "Cuentas";
+"settings.token" = "Token";

@@ -68,8 +68,9 @@ struct StandfastApp: App {
           target: .settings,
           registry: sceneActivation.windowRegistry))
     }
+    .windowResizability(.contentSize)
     .defaultSize(
-      width: StandfastTheme.settingsIdealWidth,
-      height: StandfastTheme.settingsDefaultHeight)
+      width: StandfastTheme.settingsPaneWidth,
+      height: StandfastTheme.settingsGeneralHeight)
   }
 }
