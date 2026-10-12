@@ -18,8 +18,29 @@ struct QuickMenuView: View {
     let elements = presentation.emission.elements
 
     ForEach(elements.indices, id: \.self) { index in
+      if Self.startsGroup(at: index, in: elements) { Divider() }
       row(elements[index])
     }
+  }
+
+  /// The runs a separator sets apart. Separators are drawn here and never
+  /// emitted, so the emitted rows stay one to one with the named records the
+  /// gate reads.
+  enum RowGroup { case runners, status, actions, quit }
+
+  static func group(_ element: QuickMenuPresentation.Emission.Element) -> RowGroup {
+    switch element {
+    case .runnerMenu: .runners
+    case .text: .status
+    case .refresh, .openControlCenter, .openSettings: .actions
+    case .quit: .quit
+    }
+  }
+
+  static func startsGroup(
+    at index: Int, in elements: [QuickMenuPresentation.Emission.Element]
+  ) -> Bool {
+    index > 0 && group(elements[index]) != group(elements[index - 1])
   }
 
   @ViewBuilder
@@ -31,7 +52,10 @@ struct QuickMenuView: View {
     case .runnerMenu(let runner):
       RunnerEchoMenu(runner: runner, fleet: fleet)
     case .refresh:
+      // A status menu's key equivalents answer only while it is open, so this
+      // never competes with the toolbar's ⌘R.
       Button(L10n.refreshNow) { fleet.refresh() }
+        .keyboardShortcut("r")
         .accessibilityIdentifier("dev.standfast.quick-menu.static")
     case .openControlCenter:
       Button(L10n.controlCenter) {
@@ -46,9 +70,11 @@ struct QuickMenuView: View {
           openSettings()
         }
       }
+      .keyboardShortcut(",")
       .accessibilityIdentifier("dev.standfast.quick-menu.static")
     case .quit:
       Button(L10n.quit) { NSApplication.shared.terminate(nil) }
+        .keyboardShortcut("q")
         .accessibilityIdentifier("dev.standfast.quick-menu.static")
     }
   }
@@ -75,7 +101,10 @@ private struct RunnerEchoMenu: View {
         }
       }
       if let operation = runner.operation {
+        // Icons belong to a whole group or to none of it, and none of this
+        // submenu's other lines has one.
         Label(operation.title, systemImage: operation.symbolName)
+          .labelStyle(.titleOnly)
           .accessibilityElement(children: .combine)
           .accessibilityLabel(operation.title)
           .accessibilityValue(operation.detail)
@@ -88,7 +117,10 @@ private struct RunnerEchoMenu: View {
         }
       }
     } label: {
-      Text(runner.title)
+      // The symbol repeats the state for the eye. The item's name stays the
+      // title alone, which the gate reads as `name · state`.
+      Label(runner.title, systemImage: runner.symbolName)
+        .labelStyle(.titleAndIcon)
     }
     .accessibilityIdentifier("dev.standfast.quick-menu.runner")
     .accessibilityLabel(runner.title)
