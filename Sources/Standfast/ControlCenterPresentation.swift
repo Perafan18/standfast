@@ -205,14 +205,6 @@ enum RunnerHistoryPresentation: Equatable {
   case unavailable(lastKnownRows: [JobRow])
 }
 
-enum RunnerFocusPresentation: Equatable {
-  case operation(ServiceOperationPresentation)
-  case currentJob(String)
-  case managedJob(ManagedFleetJobPresentation)
-  case lastJob(JobRow)
-  case state(String)
-}
-
 /// One runner's complete, read-only Control Center projection.
 ///
 /// The view receives no raw machine state. Service capabilities, operation
@@ -228,7 +220,10 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   let stateSymbolName: String
   let scope: String
   let tone: StateTone
-  let focus: RunnerFocusPresentation
+  /// The fleet job this slot is running, with its pull request and links, and
+  /// nil for any other runner. A runner of its own reports its job in
+  /// `progress`.
+  let managedJob: ManagedFleetJobPresentation?
   /// The process here and the service that hands it work, read apart.
   let layers: RunnerLayersPresentation
   /// What is waiting for this runner, and nil when there is nothing worth
@@ -315,18 +310,6 @@ extension RunnerCardPresentation {
     let historyRows = JobRow.building(visibleRecords, now: now)
     let isHistoryTruncated = pastRecords.count > RunnerRow.recentJobsShown
     let operation = snapshot.operation?.presentation
-    let focus: RunnerFocusPresentation
-    if let operation, operation.isInFlight {
-      focus = .operation(operation)
-    } else if let job = ManagedFleetJobPresentation.building(snapshot, now: now) {
-      focus = .managedJob(job)
-    } else if let progress = row.progress {
-      focus = .currentJob(progress)
-    } else if let lastJob = historyRows.first {
-      focus = .lastJob(lastJob)
-    } else {
-      focus = .state(snapshot.display.summary(for: snapshot.runner))
-    }
     return Self(
       id: snapshot.id,
       title: snapshot.runner.displayName,
@@ -338,7 +321,7 @@ extension RunnerCardPresentation {
       // instance, and the title alone is the raw name.
       scope: snapshot.qualifier ?? snapshot.runner.scope.displayName,
       tone: snapshot.display.tone,
-      focus: focus,
+      managedJob: ManagedFleetJobPresentation.building(snapshot, now: now),
       layers: .building(
         display: snapshot.display, installation: snapshot.runner.installation,
         scope: snapshot.runner.scope),

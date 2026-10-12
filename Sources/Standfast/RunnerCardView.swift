@@ -180,7 +180,7 @@ struct RunnerCardView: View {
   /// Recent jobs and the Status footer already say them.
   @ViewBuilder
   private var currentJob: some View {
-    if case .managedJob(let job) = card.focus {
+    if let job = card.managedJob {
       Section(L10n.controlCenterCurrentJob) {
         VStack(alignment: .leading, spacing: 2) {
           Text(job.context)

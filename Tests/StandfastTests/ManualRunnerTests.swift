@@ -150,7 +150,7 @@ private func gitLabSnapshot(
     return
   }
 
-  #expect(card.focus == .state(L10n.stateDisconnectedGitLab))
+  #expect(card.state == L10n.stateDisconnectedGitLab)
   for line in [card.state, snapshot.row.title, echo.longState] {
     #expect(line.contains(L10n.stateDisconnectedGitLab), "\(line)")
     #expect(!line.contains("GitHub"), "\(line)")

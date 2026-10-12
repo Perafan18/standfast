@@ -572,7 +572,9 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(subject.operation?.isInFlight == false)
 }
 
-@Test func anInFlightOperationIsTheOnlyThingThatOutranksTheCurrentJob() {
+@Test func anInFlightOperationSitsBesideTheCurrentJobRatherThanInPlaceOfIt() {
+  // The card's one focus line once had to choose between the two. The form
+  // has a row under Status for the order and a section for the job.
   let running = JobRecord(
     name: "deploy", startedAt: controlCenterNow.addingTimeInterval(-80))
   let operation = ServiceOperation(
@@ -582,7 +584,9 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
       .resolved(.busy), jobs: JobHistory(records: [running], running: running),
       operation: operation, isServiceActionReserved: true))
 
-  #expect(subject.focus == .operation(operation.presentation))
+  #expect(subject.operation == operation.presentation)
+  #expect(subject.operation?.isInFlight == true)
+  #expect(subject.progress == L10n.jobRunning("deploy", "1m 20s"))
   #expect(subject.operationFeedback == nil)
 }
 
@@ -597,18 +601,26 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
       .resolved(.busy), jobs: JobHistory(records: [running], running: running),
       operation: operation))
 
-  #expect(subject.focus == .currentJob(L10n.jobRunning("deploy", "1m 20s")))
+  #expect(subject.progress == L10n.jobRunning("deploy", "1m 20s"))
   #expect(subject.operationFeedback == operation.presentation)
 }
 
-@Test func lastPastJobOutranksTheLongStateWhenNothingIsRunning() {
+@Test func aFinishedJobHeadsRecentJobsAndIsNotACurrentOne() {
   let finished = JobRecord(
     name: "testflight", startedAt: controlCenterNow.addingTimeInterval(-3_600),
     finishedAt: controlCenterNow.addingTimeInterval(-3_433), result: .succeeded)
   let subject = card(
     controlCenterSnapshot(jobs: JobHistory(records: [finished])))
 
-  #expect(subject.focus == .lastJob(JobRow.building(finished, now: controlCenterNow)))
+  #expect(subject.progress == nil)
+  #expect(historyRows(subject).first == JobRow.building(finished, now: controlCenterNow))
+}
+
+/// The rows Recent Jobs lists, whether or not the history could be read.
+private func historyRows(_ card: RunnerCardPresentation) -> [JobRow] {
+  switch card.history {
+  case .available(let rows, _), .unavailable(let rows): rows
+  }
 }
 
 /// A job whose start line no completion followed, and the one before it.
@@ -628,7 +640,8 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
   let subject = card(
     controlCenterSnapshot(.resolved(.stopped), jobs: history, installation: .manual))
 
-  #expect(subject.focus == .lastJob(JobRow.building(lost, now: controlCenterNow)))
+  #expect(subject.progress == nil)
+  #expect(historyRows(subject).first == JobRow.building(lost, now: controlCenterNow))
   #expect(subject.recentJobs.first?.text == lost.historyLine)
   #expect(lost.outcomePresentation.label == L10n.jobInterrupted)
 }
@@ -639,13 +652,17 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
   let (lost, before, history) = cutOffHistory()
   let subject = card(controlCenterSnapshot(.resolved(.stopped), jobs: history))
 
-  #expect(subject.focus == .lastJob(JobRow.building(before, now: controlCenterNow)))
+  #expect(historyRows(subject).first == JobRow.building(before, now: controlCenterNow))
   #expect(!subject.recentJobs.contains { $0.text == lost.historyLine })
 }
 
-@Test func longStateIsTheFallbackWhenThereIsNoOperationOrJob() {
+@Test func aRunnerWithNoJobHasNoCurrentJobAndItsLongStateSaysTheRest() {
+  // No section to fill with the state a second time: the Status footer
+  // already says it in full.
   let subject = card(controlCenterSnapshot(.resolved(.disconnected)))
-  #expect(subject.focus == .state(L10n.stateDisconnected))
+  #expect(subject.progress == nil)
+  #expect(subject.managedJob == nil)
+  #expect(subject.state == L10n.stateDisconnected)
 }
 
 @Test func finishedJobHistoryReachesTheCardWithoutRepeatingTheActiveJob() {
