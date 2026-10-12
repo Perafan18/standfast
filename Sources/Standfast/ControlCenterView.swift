@@ -42,7 +42,8 @@ struct ControlCenterView: View {
             card: card, thermalLine: card.overrunThermalLine(thermalLines: thermalLines),
             performMaintenance: { kind in
               fleet.performMaintenance(kind, onRunnerID: card.id)
-            }
+            },
+            showLogs: { fleet.showLogs(onRunnerID: card.id) }
           )
           // Each runner opens its own sections, not the last one's.
           .id(card.id)
@@ -59,6 +60,8 @@ struct ControlCenterView: View {
           card: selected, refresh: { fleet.refresh() },
           perform: { kind, id in fleet.perform(kind, onRunnerID: id) })
       }
+      // The Runner menu acts on this, and only while this window is key.
+      .focusedSceneValue(\.selectedRunner, selected.map(RunnerCommandTarget.init))
       .frame(
         minWidth: StandfastTheme.controlCenterMinimumWidth,
         minHeight: StandfastTheme.controlCenterMinimumHeight)
@@ -90,6 +93,13 @@ struct ControlCenterView: View {
       }
     }
     .listStyle(.sidebar)
+    // A right-click leaves the selection where it was: the menu acts on the
+    // row clicked, which need not be the runner the detail shows.
+    .contextMenu(forSelectionType: ControlCenterSelection.self) { clicked in
+      if let card = presentation.cards.first(where: { clicked == [.runner($0.id)] }) {
+        RunnerContextMenu(target: RunnerCommandTarget(card), fleet: fleet)
+      }
+    }
     .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
   }
 

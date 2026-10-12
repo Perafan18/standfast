@@ -283,3 +283,7 @@
 "controlCenter.allRunners" = "All Runners";
 "controlCenter.details" = "Details…";
 "controlCenter.layers.value" = "%1$@: %2$@. %3$@: %4$@";
+"controlCenter.runnerMenu" = "Runner";
+"controlCenter.showLogs" = "Show logs in Finder";
+"controlCenter.copyName" = "Copy name";
+"controlCenter.openInBrowser" = "Open in browser";

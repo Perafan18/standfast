@@ -430,6 +430,9 @@ enum ControlCenterAccessibility {
     var github: String { "\(root).github" }
     var jobs: String { "\(root).jobs" }
     var maintenance: String { "\(root).maintenance" }
+    /// Show logs in Finder, beside the maintenance actions. Not one of their
+    /// kinds: it changes nothing on disk.
+    var logs: String { "\(root).logs" }
 
     func maintenanceAction(_ kind: MaintenanceOffer.Kind) -> String {
       let stableKind =

@@ -9,6 +9,7 @@ struct RunnerCardView: View {
   /// being throttled, and nil otherwise.
   let thermalLine: String?
   let performMaintenance: (MaintenanceOffer.Kind) -> Void
+  let showLogs: () -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   /// Open, because the jobs are what most people come to a runner for. The
@@ -315,6 +316,15 @@ struct RunnerCardView: View {
         }
         ForEach(card.maintenance.offers) { offer in
           maintenanceButton(offer)
+        }
+        // Left out, not greyed, where there is no folder: a GitLab runner or a
+        // fleet slot never has one of its own, and others have none until
+        // they first run.
+        if card.diagnosticsDirectory != nil {
+          Button(L10n.showLogsInFinder, action: showLogs)
+            .controlSize(.small)
+            .accessibilityLabel(L10n.runnerInScope(L10n.showLogsInFinder, card.title))
+            .accessibilityIdentifier(identifiers.logs)
         }
       } label: {
         disclosureLabel(isExpanded: $maintenanceExpanded) {

@@ -23,6 +23,8 @@ private func model(
   // Nor this one. The real opener hands the URL to the user's browser, so a
   // suite that reaches it buries whoever ran it in tabs pointed at a fixture.
   opener: FakeURLOpener = FakeURLOpener(),
+  // Nor this one, which would bring Finder forward over whoever ran the suite.
+  revealer: FakeFileRevealer = FakeFileRevealer(),
   // No ticker by default: these tests drive every refresh themselves. A test
   // that wants the freshness rule passes an interval long enough that the real
   // ticker cannot fire inside it, and calls `tick()` by hand.
@@ -52,6 +54,7 @@ private func model(
     // spend a real request on the queue.
     queues: sandbox.queuedWork,
     opener: opener,
+    revealer: revealer,
     serviceConfirmation: serviceConfirmation,
     clock: clock, monotonicClock: monotonicClock, probeDelay: probeDelay,
     refreshInterval: refreshInterval,
@@ -3061,7 +3064,7 @@ private func abandonedJobModel(
 }
 
 @Test func logFolderContainmentIsResolvedOffTheCooperativePool() {
-  // The same `realpath`, under `_diag` this time, for Show Logs in Finder.
+  // The same `realpath`, under `_diag` this time, for Show logs in Finder.
   let mentions = offPoolMentions(
     of: "runner.containedDiagnosticsDirectory",
     in: standfastSource("RunnerFleetModel.swift"))
@@ -3114,6 +3117,62 @@ private func abandonedJobModel(
   await fleet.quiesce()
 
   #expect(fleet.snapshots[0].containedDiagnosticsDirectory != nil)
+}
+
+@Test @MainActor func showLogsSelectsTheFolderTheLatestScanProved() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try FileManager.default.createDirectory(
+    at: directory.appendingPathComponent("_diag"), withIntermediateDirectories: true)
+  let revealer = FakeFileRevealer()
+  let fleet = model(box, revealer: revealer)
+  await fleet.quiesce()
+
+  fleet.showLogs(onRunnerID: fleet.snapshots[0].id)
+
+  #expect(
+    revealer.urls.map { $0.resolvingSymlinksInPath() }
+      == [directory.appendingPathComponent("_diag").resolvingSymlinksInPath()])
+}
+
+@Test @MainActor func showLogsRevealsNothingThatIsNotTheRunnersOwn() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  // Symlinked out of the runner: Finder would open somebody else's folder.
+  let linked = try box.addRunner(name: "linked")
+  let external = box.root.appendingPathComponent("external-diag")
+  try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: linked.appendingPathComponent("_diag"), withDestinationURL: external)
+  // Never run, so nothing to show yet.
+  try box.addRunner(name: "fresh")
+  let revealer = FakeFileRevealer()
+  let fleet = model(box, revealer: revealer)
+  await fleet.quiesce()
+  #expect(fleet.snapshots.count == 2)
+
+  for snapshot in fleet.snapshots { fleet.showLogs(onRunnerID: snapshot.id) }
+  fleet.showLogs(onRunnerID: "actions.runner.acme-widget.gone")
+
+  #expect(revealer.urls.isEmpty)
+}
+
+@Test @MainActor func showLogsOnAGitLabRunnerRevealsNothing() async throws {
+  // gitlab-runner keeps no `_diag`, so there is no folder of its own to show,
+  // and its directory is not a stand-in for one.
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  try box.addGitLabRunner()
+  let revealer = FakeFileRevealer()
+  let fleet = model(box, revealer: revealer)
+  await fleet.quiesce()
+  let runner = try #require(fleet.snapshots.first?.runner)
+  #expect(runner.installation == .gitLabService)
+
+  fleet.showLogs(onRunnerID: runner.label)
+
+  #expect(revealer.urls.isEmpty)
 }
 
 /// For each mention of `needle`, whether it sits inside a closure handed to

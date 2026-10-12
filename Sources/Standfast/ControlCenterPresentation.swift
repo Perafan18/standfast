@@ -251,7 +251,7 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   let needsAttention: Bool
   /// The running job against its usual time, and nil when nothing is running.
   let jobProgress: JobProgress?
-  /// The folder Show Logs in Finder reveals, and nil where there is no folder
+  /// The folder Show logs in Finder reveals, and nil where there is no folder
   /// of this runner's own to show.
   let diagnosticsDirectory: URL?
 }
@@ -288,6 +288,17 @@ extension RunnerSnapshot {
     display == .resolved(.stopped) && runner.installation == .manual
       ? nil : jobs.running
   }
+
+  /// The folder Show logs in Finder reveals: only one that is this runner's
+  /// own. A GitLab runner keeps no `_diag`, and a fleet slot's logs are its
+  /// supervisor's. The card offers it and the model reveals it by this one
+  /// rule.
+  var ownDiagnosticsDirectory: URL? {
+    switch runner.installation {
+    case .launchAgent, .manual: containedDiagnosticsDirectory
+    case .gitLabService, .managedFleet: nil
+    }
+  }
 }
 
 extension RunnerCardPresentation {
@@ -315,13 +326,6 @@ extension RunnerCardPresentation {
     } else {
       focus = .state(snapshot.display.summary(for: snapshot.runner))
     }
-    let diagnosticsDirectory: URL? =
-      switch snapshot.runner.installation {
-      // Only a folder that is this runner's own. A GitLab runner keeps no
-      // `_diag`, and a fleet slot's logs are its supervisor's.
-      case .launchAgent, .manual: snapshot.containedDiagnosticsDirectory
-      case .gitLabService, .managedFleet: nil
-      }
     return Self(
       id: snapshot.id,
       title: snapshot.runner.displayName,
@@ -359,7 +363,7 @@ extension RunnerCardPresentation {
       group: ControlCenterSidebar.Group(snapshot),
       needsAttention: snapshot.needsAttention,
       jobProgress: snapshot.jobProgress,
-      diagnosticsDirectory: diagnosticsDirectory)
+      diagnosticsDirectory: snapshot.ownDiagnosticsDirectory)
   }
 
   func action(_ kind: RunnerRow.Action.Kind) -> RunnerCardAction? {

@@ -108,7 +108,8 @@ private func detail(
 ) throws -> some View {
   let wanted = fleet.controlCenterPresentation(now: Date()).cards.first(where: isWanted)
   let card = try #require(wanted)
-  return RunnerCardView(card: card, thermalLine: nil, performMaintenance: { _ in })
+  return RunnerCardView(
+    card: card, thermalLine: nil, performMaintenance: { _ in }, showLogs: {})
 }
 
 @Test @MainActor func renderTheStatesAScreenshotOfAWorkingMacNeverShows() async throws {

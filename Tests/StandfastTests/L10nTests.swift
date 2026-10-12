@@ -171,6 +171,7 @@ private func l10nSource() -> String {
     L10n.controlCenterNeedsAttention, L10n.controlCenterDiscovery,
     L10n.controlCenterAllRunners, L10n.controlCenterDetails,
     L10n.controlCenterLayersValue("a", "b", "c", "d"),
+    L10n.runnerMenu, L10n.showLogsInFinder, L10n.copyName, L10n.openInBrowser,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -308,6 +309,8 @@ private func l10nSource() -> String {
       "controlCenter.currentJob", "controlCenter.lastAction",
       "controlCenter.needsAttention", "controlCenter.discovery",
       "controlCenter.allRunners", "controlCenter.details", "controlCenter.layers.value",
+      "controlCenter.runnerMenu", "controlCenter.showLogs", "controlCenter.copyName",
+      "controlCenter.openInBrowser",
     ])
   #expect(everyKey == reached)
 }
@@ -637,6 +640,36 @@ private func l10nSource() -> String {
   #expect(
     L10n.controlCenterLayersValue("This Mac", "Running", "GitHub", "Offline", in: [])
       == "This Mac: Running. GitHub: Offline")
+}
+
+@Test func theRunnerMenusOwnLinesAreExactInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+  // Sentence case, as every line beside them is: "View runs" and "Refresh now"
+  // in the same menus, "Delete old logs…" in the same Maintenance section.
+  let lines = [
+    ("controlCenter.runnerMenu", "Runner", "Runner"),
+    ("controlCenter.showLogs", "Show logs in Finder", "Mostrar los logs en el Finder"),
+    ("controlCenter.copyName", "Copy name", "Copiar nombre"),
+    ("controlCenter.openInBrowser", "Open in browser", "Abrir en el navegador"),
+  ]
+  for (key, en, es) in lines {
+    #expect(L10n.t(key, in: [english]) == en, "en/\(key)")
+    #expect(L10n.t(key, in: [spanish]) == es, "es/\(key)")
+    #expect(L10n.t(key, in: []) == en, "fallback/\(key)")
+  }
+  // The Maintenance rows beside Show logs say "Logs" and "Borrar los logs
+  // antiguos"; a button saying "registros" would read as another folder.
+  let logLines = try catalogue("es").filter {
+    $0.key.localizedCaseInsensitiveContains("logs")
+  }
+  #expect(logLines.keys.contains("controlCenter.showLogs"))
+  #expect(logLines.keys.contains("menu.maintenance.trimLogs"))
+  for (key, value) in logLines {
+    let named = value.range(
+      of: #"\blogs?\b"#, options: [.regularExpression, .caseInsensitive])
+    #expect(named != nil, "es/\(key)")
+  }
 }
 
 @Test func discoveryFailuresEndInAColonOnlyWhereAPathFollows() throws {

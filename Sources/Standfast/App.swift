@@ -60,6 +60,7 @@ struct StandfastApp: App {
       height: StandfastTheme.controlCenterDefaultHeight
     )
     .windowResizability(.contentMinSize)
+    .commands { RunnerCommands(fleet: fleet) }
 
     Settings {
       SettingsView(

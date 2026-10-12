@@ -13,3 +13,14 @@ protocol URLOpening: Sendable {
 struct WorkspaceURLOpener: URLOpening {
   func open(_ url: URL) { NSWorkspace.shared.open(url) }
 }
+
+/// Selecting a folder in Finder brings Finder forward over whatever somebody
+/// was doing: the same kind of effect as opening a URL, and kept out of the
+/// suite for the same reason.
+protocol FileRevealing: Sendable {
+  func reveal(_ url: URL)
+}
+
+struct WorkspaceFileRevealer: FileRevealing {
+  func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+}

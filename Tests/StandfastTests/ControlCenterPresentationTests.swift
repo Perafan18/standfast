@@ -127,6 +127,8 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(first.github.hasSuffix(".github"))
   #expect(first.jobs.hasSuffix(".jobs"))
   #expect(first.maintenance.hasSuffix(".maintenance"))
+  // Beside the maintenance actions, and not one of them: it deletes nothing.
+  #expect(first.logs == "dev.standfast.control-center.runner.612f62.logs")
 }
 
 @Test func trickyDurableLabelsProduceUniqueAccessibilityNamespaces() {

@@ -58,3 +58,15 @@ private let diag = URL(fileURLWithPath: "/tmp/build-mac/_diag")
       !standfastSource(name).contains("runner.containedDiagnosticsDirectory"), "\(name)")
   }
 }
+
+@Test func theCardOffersAndTheModelRevealsByOneRule() {
+  // The card decides whether Show logs is offered and the model, from the
+  // latest scan, what it opens. Two copies of the rule would let a GitLab
+  // runner's menu offer a folder the model then refuses, or the reverse.
+  #expect(
+    standfastSource("ControlCenterPresentation.swift").contains(
+      "diagnosticsDirectory: snapshot.ownDiagnosticsDirectory"))
+  #expect(
+    standfastSource("RunnerFleetModel.swift").contains(
+      "snapshots.first(where: { $0.id == id })?.ownDiagnosticsDirectory"))
+}

@@ -194,6 +194,7 @@ final class RunnerFleetModel: ObservableObject {
   private let queues: any QueuedWorkReading
   private let releases: any RunnerReleaseChecking
   private let opener: any URLOpening
+  private let revealer: any FileRevealing
   private let serviceConfirmation: any ServiceActionConfirming
   private let releaseInterval: TimeInterval
   /// When GitHub was last asked what the newest runner is, and nil until it
@@ -306,6 +307,7 @@ final class RunnerFleetModel: ObservableObject {
     releases: any RunnerReleaseChecking = TokenFirstGitHubClient.standard,
     queues: any QueuedWorkReading = TokenFirstGitHubClient.standard,
     opener: any URLOpening = WorkspaceURLOpener(),
+    revealer: any FileRevealing = WorkspaceFileRevealer(),
     serviceConfirmation: any ServiceActionConfirming,
     clock: @escaping @Sendable () -> Date = Date.init,
     monotonicClock: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
@@ -330,6 +332,7 @@ final class RunnerFleetModel: ObservableObject {
     self.releases = releases
     self.queues = queues
     self.opener = opener
+    self.revealer = revealer
     self.serviceConfirmation = serviceConfirmation
     self.clock = clock
     self.monotonicClock = monotonicClock
@@ -988,6 +991,15 @@ final class RunnerFleetModel: ObservableObject {
   private func openOnGitHub(_ snapshot: RunnerSnapshot) {
     guard snapshot.row.action(.openOnGitHub)?.isEnabled == true else { return }
     opener.open(snapshot.runner.scope.preferredGitHubURL)
+  }
+
+  /// Selects this runner's `_diag` in Finder: the folder the latest scan
+  /// proved is its own, never one a two-second-old card remembers.
+  func showLogs(onRunnerID id: String) {
+    guard
+      let folder = snapshots.first(where: { $0.id == id })?.ownDiagnosticsDirectory
+    else { return }
+    revealer.reveal(folder)
   }
 
   private func canPerformServiceAction(
