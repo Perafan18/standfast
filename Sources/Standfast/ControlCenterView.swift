@@ -126,9 +126,11 @@ struct ControlCenterToolbar: ToolbarContent {
     ToolbarItem(placement: .navigation) {
       Button(action: refresh) {
         Label(L10n.refreshNow, systemImage: "arrow.clockwise")
+          // Named on screen, unlike the runner's verbs: the state and receipt
+          // lines here say "Refresh now", and a toolbar draws icons alone.
+          .labelStyle(.titleAndIcon)
       }
       .keyboardShortcut("r")
-      .help(L10n.refreshNow)
       .accessibilityIdentifier(ControlCenterAccessibility.refresh)
     }
     if let card {

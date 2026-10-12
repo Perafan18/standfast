@@ -1042,6 +1042,23 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
       .contains("Label(L10n.refreshNow, systemImage: \"arrow.clockwise\")"))
 }
 
+@Test func theWindowShowsRefreshNowByTheNameItsLinesUse() throws {
+  // A receipt ends "Refresh now." and an unreadable service says to try it,
+  // in the window as in the quick menu. The window's toolbar draws icons only
+  // unless an item says otherwise, which left that name on no control in it.
+  let source = standfastSource("ControlCenterView.swift")
+  let start = try #require(source.range(of: "ToolbarItem(placement: .navigation)"))
+  let end = try #require(
+    source.range(of: ".accessibilityIdentifier(ControlCenterAccessibility.refresh)"))
+  let refresh = source[start.upperBound..<end.lowerBound]
+
+  #expect(refresh.contains("Label(L10n.refreshNow, systemImage: \"arrow.clockwise\")"))
+  #expect(refresh.contains(".labelStyle(.titleAndIcon)"))
+  // Only Refresh: the runner's verbs keep to their icons, and say their names
+  // in their tooltips.
+  #expect(source.components(separatedBy: ".labelStyle(").count == 2)
+}
+
 @Test func theHistoryBadgeSaysWhatItCounts() {
   // `5+` says neither what is being counted nor why it stops at five. It sits
   // beside a disclosure labelled "Trabajos recientes", so the number reads as

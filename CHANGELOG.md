@@ -33,7 +33,8 @@ sidebar, toolbar and grouped forms.
   where a disabled one still says why in its tooltip. While Standfast has a Dock tile they
   are also in a new Runner menu in the menu bar, beside Show logs in Finder and Refresh now.
   In the window, ⌘R belongs to the toolbar's Refresh now rather than the Runner menu's,
-  since the menu bar is missing without a Dock tile.
+  since the menu bar is missing without a Dock tile. Refresh now keeps its name beside its
+  icon, because the window's state and receipt lines tell you to use it by that name.
 - **A failed Start, Stop or Restart heads the runner's detail** for as long as its receipt
   lasts: until the next order, or until the nominal five-minute receipt window has passed.
   Any other receipt is a row under Status, beside the readings it explains.
