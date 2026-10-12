@@ -191,7 +191,8 @@ private func target(_ card: RunnerCardPresentation) -> RunnerCommandTarget {
 
 @Test func theSidebarsContextMenuActsOnTheRowClicked() {
   // A right-click does not move the selection, so the menu cannot read the
-  // runner the detail shows.
+  // runner the detail shows. On macOS 27 a real right-click on an unselected
+  // row hands the menu that row alone, and the selection stays.
   let source = standfastSource("ControlCenterView.swift")
 
   #expect(source.contains(".contextMenu(forSelectionType: ControlCenterSelection.self)"))
