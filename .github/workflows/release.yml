@@ -186,6 +186,30 @@ jobs:
           done
           echo "universal: $archs"
 
+      # macOS 26 and later draw a slice that claims an SDK below 26 without
+      # Liquid Glass, and Xcode 16 still builds this, so the Xcode selected on
+      # this Mac decides what the download looks like.
+      - name: Every slice claims a macOS 26 or later SDK
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          sdks="$(xcrun vtool -show-build .build/Standfast.app/Contents/MacOS/Standfast \
+            | awk '$1 == "sdk" { print $2 }' | sort -u)"
+          if [ -z "$sdks" ]; then
+            echo "::error::the executable names no SDK"
+            exit 1
+          fi
+          for sdk in $sdks; do
+            major="${sdk%%.*}"
+            case "$major" in
+              "" | *[!0-9]*) major=0 ;;
+            esac
+            if [ "$major" -lt 26 ]; then
+              echo "::error::a slice claims the macOS $sdk SDK, which macOS 26 and later draw without Liquid Glass; build the release with Xcode 26 or later"
+              exit 1
+            fi
+          done
+          echo "SDK: $sdks"
+
       - name: Notarise and staple
         if: steps.gate.outputs.configured == 'true'
         env:

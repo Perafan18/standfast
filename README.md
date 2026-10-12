@@ -206,7 +206,7 @@ move Standfast.app to Applications.
 ### Building it on your Mac instead
 
 The same tap has a formula that builds Standfast from source, and so needs Xcode 16 or
-later:
+later. Built with an Xcode older than 26, it runs without Liquid Glass on macOS 26 and later:
 
 ```sh
 brew install perafan18/tap/standfast
@@ -336,6 +336,7 @@ uploads `_diag` contents; see [SECURITY.md](SECURITY.md) for the complete bounda
 
 You need Xcode 16 or later; the Command Line Tools alone cannot build it, because from the
 macOS 27 SDK on SwiftUI's `@State` is a macro whose plugin ships only inside Xcode.app.
+macOS 26 and later draw Liquid Glass only for an app built with Xcode 26 or later.
 
 ```sh
 swift package clean && swift test  # about 1,250 tests; no installed runner required

@@ -188,6 +188,42 @@ else
   rm -rf "$tag_dir"
 fi
 
+# 9 ────────────────────────────────────────────────────────────────────────────
+# macOS 26 and later draw a slice that claims an SDK below 26 without Liquid
+# Glass. Xcode 16 still builds this, so the Xcode selected on the release Mac
+# decides, and build-app.sh's restamp would faithfully stamp a 15.
+glass_step="Every slice claims a macOS 26 or later SDK"
+glass_line="$(line_of "- name: $glass_step")"
+if [ -z "$glass_line" ] \
+  || [ "$glass_line" -lt "$(line_of "- name: Build and sign")" ] \
+  || [ "$glass_line" -gt "$(line_of "- name: Notarise and staple")" ]; then
+  fail "nothing checks the executable's SDK between building and notarising"
+else
+  glass_dir="$(mktemp -d "${TMPDIR:-/tmp}/standfast-release-sdk.XXXXXX")"
+  step_script "$glass_step" > "$glass_dir/check.sh"
+  mkdir -p "$glass_dir/bin"
+  # shellcheck disable=SC2016 # Expands when the fake runs.
+  printf '%s\n' '#!/bin/bash' 'printf "%b" "$STANDFAST_FAKE_SHOW_BUILD"' > "$glass_dir/bin/xcrun"
+  chmod +x "$glass_dir/bin/xcrun"
+  run_sdk_check() {
+    PATH="$glass_dir/bin:$PATH" STANDFAST_FAKE_SHOW_BUILD="$1" \
+      bash "$glass_dir/check.sh" >/dev/null 2>&1
+  }
+  slice() { printf ' platform MACOS\\n    minos 14.0\\n      sdk %s\\n' "$1"; }
+  if run_sdk_check "$(slice 27.0)$(slice 15.5)"; then
+    fail "the SDK check accepts a slice that claims the macOS 15.5 SDK"
+  elif run_sdk_check "$(slice n/a)"; then
+    fail "the SDK check accepts a slice whose SDK is not a version"
+  elif run_sdk_check ' platform MACOS\n    minos 14.0\n'; then
+    fail "the SDK check accepts an executable that names no SDK"
+  elif ! run_sdk_check "$(slice 26.0)$(slice 26.0)"; then
+    fail "the SDK check refuses an executable built with the macOS 26 SDK"
+  else
+    pass "the release refuses an executable macOS 26 would draw without Liquid Glass"
+  fi
+  rm -rf "$glass_dir"
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 if [ "$failures" -ne 0 ]; then
   printf '\n%s release contract assertion(s) failed\n' "$failures" >&2

@@ -14,7 +14,8 @@ make run       # assembles and launches it
 
 No dependencies, no `.xcodeproj`. Plain SwiftPM. You need Xcode 16 or later. The Command
 Line Tools alone are not enough: from the macOS 27 SDK on, SwiftUI's `@State` is a macro whose
-plugin ships only inside Xcode.app.
+plugin ships only inside Xcode.app. Xcode 26 or later is what makes macOS 26 and later draw
+the app with Liquid Glass; the release refuses a build without it.
 
 The test suite runs on a machine with **no runner installed** — that is deliberate, since
 CI has none. Every external command goes through the `CommandRunning` protocol so it can be

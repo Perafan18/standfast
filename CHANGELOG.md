@@ -10,7 +10,8 @@ A native redesign. Standfast now draws with macOS's own controls, text styles an
 colours, laid out the way System Settings lays out its own. On macOS 26 and later the system
 gives the sidebar, the toolbar, the menus and the Settings tabs their Liquid Glass;
 Standfast draws no glass of its own. macOS 14 and 15 run the same code and get their own
-sidebar, toolbar and grouped forms.
+sidebar, toolbar and grouped forms. The glass needs a build with Xcode 26 or later, which
+the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look.
 
 ### Changed
 
