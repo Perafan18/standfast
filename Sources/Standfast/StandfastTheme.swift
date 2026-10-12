@@ -399,6 +399,8 @@ enum ControlCenterAccessibility {
   static let overview = "dev.standfast.control-center.overview"
   static let refresh = "dev.standfast.control-center.refresh"
   static let notice = "dev.standfast.control-center.notice"
+  /// The Mac's heat, on the Overview or over the runner whose job it slows.
+  static let thermal = "dev.standfast.control-center.thermal"
   static let installGuide = "dev.standfast.control-center.install-guide"
 
   static func runner(_ durableLabel: String) -> RunnerIdentifiers {

@@ -62,7 +62,8 @@ private func l10nSource() -> String {
     L10n.notificationStoppedTitle, L10n.notificationJobFailedBody("a", "b"),
     L10n.notificationDisconnectedBody("a"), L10n.notificationStoppedBody("a"),
     L10n.noRunnersFound, L10n.checkingRunners, L10n.launchAgentsUnreadable,
-    L10n.someRunnersUnreadable,
+    L10n.someRunnersUnreadable, L10n.launchAgentsUnreadableTitle,
+    L10n.someRunnersUnreadableTitle,
     L10n.moreUnreadable,
     L10n.stateIdle, L10n.stateBusy, L10n.stateDisconnected, L10n.stateStopped,
     L10n.stateStarting, L10n.stateUnknownNoCLI, L10n.stateUnknownNotAuthenticated,
@@ -167,6 +168,9 @@ private func l10nSource() -> String {
     L10n.settingsTabGeneral, L10n.settingsTabRunners, L10n.settingsTabAccounts,
     L10n.settingsToken, L10n.controlCenterOverview, L10n.controlCenterWaiting,
     L10n.controlCenterCurrentJob, L10n.controlCenterLastAction,
+    L10n.controlCenterNeedsAttention, L10n.controlCenterDiscovery,
+    L10n.controlCenterAllRunners, L10n.controlCenterDetails,
+    L10n.controlCenterLayersValue("a", "b", "c", "d"),
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -198,7 +202,7 @@ private func l10nSource() -> String {
       "notification.disconnected.body", "notification.stopped.title",
       "notification.stopped.body",
       "state.noRunners", "state.checking", "state.launchAgentsUnreadable",
-      "state.unreadable",
+      "state.unreadable", "state.launchAgentsUnreadable.title", "state.unreadable.title",
       "state.unreadable.more", "state.idle",
       "state.busy", "state.disconnected", "state.stopped", "state.starting",
       "state.short.ready", "state.short.running", "state.short.disconnected",
@@ -302,6 +306,8 @@ private func l10nSource() -> String {
       "settings.tab.general", "settings.tab.runners", "settings.tab.accounts",
       "settings.token", "controlCenter.overview", "controlCenter.waiting",
       "controlCenter.currentJob", "controlCenter.lastAction",
+      "controlCenter.needsAttention", "controlCenter.discovery",
+      "controlCenter.allRunners", "controlCenter.details", "controlCenter.layers.value",
     ])
   #expect(everyKey == reached)
 }
@@ -602,6 +608,65 @@ private func l10nSource() -> String {
   for (key, value) in spanish {
     let found = value.range(of: flota, options: [.regularExpression, .caseInsensitive])
     #expect(found == nil, "es/\(key)")
+  }
+}
+
+@Test func theOverviewIsExactInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+  let headings = [
+    ("controlCenter.needsAttention", "Needs Attention", "Requiere atención"),
+    ("controlCenter.discovery", "Discovery", "Detección"),
+    ("controlCenter.allRunners", "All Runners", "Todos los runners"),
+    ("controlCenter.details", "Details…", "Detalles…"),
+  ]
+  for (key, en, es) in headings {
+    #expect(L10n.t(key, in: [english]) == en, "en/\(key)")
+    #expect(L10n.t(key, in: [spanish]) == es, "es/\(key)")
+  }
+  // Each reading after its own layer's name, in the order the columns draw
+  // them. A format that dropped a name leaves "Running. Offline", and nobody
+  // listening can tell which half is down.
+  #expect(
+    L10n.controlCenterLayersValue("This Mac", "Running", "GitHub", "Offline", in: [english])
+      == "This Mac: Running. GitHub: Offline")
+  #expect(
+    L10n.controlCenterLayersValue(
+      "Esta Mac", "En marcha", "GitLab", "Sin conexión", in: [spanish])
+      == "Esta Mac: En marcha. GitLab: Sin conexión")
+  #expect(
+    L10n.controlCenterLayersValue("This Mac", "Running", "GitHub", "Offline", in: [])
+      == "This Mac: Running. GitHub: Offline")
+}
+
+@Test func discoveryFailuresEndInAColonOnlyWhereAPathFollows() throws {
+  // The menu prints the path on the same line; the Control Center's headings
+  // keep the paths behind a button or under the title, so a colon there
+  // points at nothing.
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+  let copy = [
+    (
+      "state.launchAgentsUnreadable", "The LaunchAgents directory could not be read:",
+      "No se pudo leer el directorio LaunchAgents:"
+    ),
+    (
+      "state.launchAgentsUnreadable.title", "The LaunchAgents directory could not be read",
+      "No se pudo leer el directorio LaunchAgents"
+    ),
+    (
+      "state.unreadable", "Some runner files could not be read:",
+      "No se pudieron leer algunos archivos de runner:"
+    ),
+    (
+      "state.unreadable.title", "Some runner files could not be read",
+      "No se pudieron leer algunos archivos de runner"
+    ),
+  ]
+  for (key, en, es) in copy {
+    #expect(L10n.t(key, in: [english]) == en, "en/\(key)")
+    #expect(L10n.t(key, in: [spanish]) == es, "es/\(key)")
+    #expect(L10n.t(key, in: []) == en, "fallback/\(key)")
   }
 }
 

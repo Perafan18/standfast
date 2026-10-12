@@ -48,8 +48,8 @@ struct ControlCenterView: View {
           .id(card.id)
         } else {
           ControlCenterOverview(
-            header: presentation.header, notice: presentation.notice,
-            thermalLines: thermalLines)
+            presentation: presentation, thermalLines: thermalLines,
+            select: { storedSelection = ControlCenterSelection.runner($0).stored })
         }
       }
       .navigationTitle(selected?.title ?? L10n.controlCenterOverview)
@@ -264,15 +264,22 @@ private struct RunnerSidebarRow: View {
   }
 }
 
-/// What the whole fleet is doing, what discovery could not read, and how hot
-/// the Mac is.
+/// The whole fleet on one page: who needs somebody first, what discovery could
+/// not read, how hot the Mac is, and every runner with both of its layers.
 struct ControlCenterOverview: View {
-  let header: ControlCenterHeaderPresentation
-  let notice: ControlCenterNoticePresentation?
+  let presentation: ControlCenterPresentation
   /// Empty unless the Mac is being throttled.
-  var thermalLines: [String] = []
+  let thermalLines: [String]
+  /// Opens one runner's detail, as its sidebar row does.
+  let select: (_ runnerID: String) -> Void
 
   var body: some View {
+    let header = presentation.header
+    // The runners the header counts, so its number and this list never
+    // disagree: a healthy runner whose last order failed is in it, and one
+    // somebody stopped on purpose is not.
+    let attention = presentation.runnersNeedingAttention
+
     Form {
       Section {
         HStack(alignment: .top, spacing: 12) {
@@ -301,14 +308,20 @@ struct ControlCenterOverview: View {
         .accessibilityIdentifier(ControlCenterAccessibility.header)
       }
 
-      if let notice {
-        Section {
-          noticeRow(notice)
+      if !attention.isEmpty {
+        Section(L10n.controlCenterNeedsAttention) {
+          ForEach(attention) { OverviewRunnerRow(card: $0, select: select) }
+        }
+      }
+
+      if let notice = presentation.notice {
+        Section(L10n.controlCenterDiscovery) {
+          DiscoveryNoticeRow(notice: notice)
         }
       }
 
       if !thermalLines.isEmpty {
-        Section {
+        Section(L10n.controlCenterThisMac) {
           Label {
             VStack(alignment: .leading, spacing: 2) {
               ForEach(thermalLines, id: \.self) { Text($0) }
@@ -318,38 +331,166 @@ struct ControlCenterOverview: View {
               .foregroundStyle(.orange)
           }
           .accessibilityElement(children: .combine)
+          .accessibilityIdentifier(ControlCenterAccessibility.thermal)
+        }
+      }
+
+      if !presentation.cards.isEmpty {
+        Section(L10n.controlCenterAllRunners) {
+          ForEach(presentation.runnersByAttention) {
+            OverviewRunnerRow(card: $0, select: select)
+          }
         }
       }
     }
     .formStyle(.grouped)
   }
+}
 
-  private func noticeRow(_ notice: ControlCenterNoticePresentation) -> some View {
-    let content: (title: String, lines: [String]) =
-      switch notice {
-      case .launchAgentsUnavailable(let directory):
-        (L10n.launchAgentsUnreadable, [directory])
-      case .unreadableRunners(let paths):
-        (L10n.someRunnersUnreadable, paths)
-      }
+/// One runner on the Overview: its name and where it is registered, then each
+/// layer in a column of its own, so a whole fleet reads down the page.
+private struct OverviewRunnerRow: View {
+  let card: RunnerCardPresentation
+  let select: (_ runnerID: String) -> Void
 
-    // The triangle carries the colour; the words stay primary.
-    return Label {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(content.title)
-        ForEach(content.lines, id: \.self) { line in
-          Text(line)
-            .font(.subheadline)
-            .monospaced()
-            .foregroundStyle(.secondary)
+  /// Fixed, so each layer lines up from row to row. A grid cannot reach
+  /// across rows that are buttons, so every row is its own stack. Readings
+  /// longer than this wrap, as Spanish ones do.
+  @ScaledMetric(relativeTo: .body) private var localColumnWidth: CGFloat = 110
+  @ScaledMetric(relativeTo: .body) private var remoteColumnWidth: CGFloat = 170
+  /// The least the name keeps beside the columns. The same for every row, so
+  /// a section switches to stacking all at once rather than row by row.
+  @ScaledMetric(relativeTo: .body) private var nameColumnWidth: CGFloat = 150
+
+  var body: some View {
+    Button {
+      select(card.id)
+    } label: {
+      // A narrow detail, with the window at its minimum or the sidebar wide,
+      // leaves the columns no room: they would squeeze the name to a few
+      // letters a line or push the row out of its section. There the
+      // readings go under the name instead.
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+          Label {
+            name
+          } icon: {
+            stateSymbol
+          }
+          .frame(idealWidth: nameColumnWidth, maxWidth: .infinity, alignment: .leading)
+          localReading
+            .frame(width: localColumnWidth, alignment: .leading)
+          remoteReading
+            .frame(width: remoteColumnWidth, alignment: .leading)
+          chevron
+        }
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+          Label {
+            VStack(alignment: .leading, spacing: 4) {
+              name
+              localReading
+              remoteReading
+            }
+          } icon: {
+            stateSymbol
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          chevron
         }
       }
-    } icon: {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .symbolRenderingMode(.multicolor)
+      // The whole row, not only its words, the way a sidebar row selects.
+      .contentShape(Rectangle())
     }
-    .accessibilityElement(children: .combine)
+    .buttonStyle(.plain)
+    // The scope as well as the name: one Mac can serve two repositories with
+    // runners of the same name, and the sidebar row says it too.
+    .accessibilityLabel(L10n.runnerInScope(card.title, card.scope))
+    .accessibilityValue(card.layers.accessibilityValue)
+  }
+
+  private var name: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(card.title)
+      Text(card.scope)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+  }
+
+  private var stateSymbol: some View {
+    Image(systemName: card.stateSymbolName)
+      .symbolRenderingMode(.hierarchical)
+      .foregroundStyle(card.tone.color)
+  }
+
+  private var localReading: some View {
+    StatusLabel(reading: card.layers.local)
+      .help(card.layers.localName)
+  }
+
+  private var remoteReading: some View {
+    StatusLabel(reading: card.layers.remote)
+      .help(card.layers.remoteName)
+  }
+
+  private var chevron: some View {
+    Image(systemName: "chevron.right")
+      .foregroundStyle(.tertiary)
+  }
+}
+
+/// What discovery could not read, with the paths one click away rather than
+/// stacked under it: one unreadable file is a line, and forty are the page.
+private struct DiscoveryNoticeRow: View {
+  let notice: ControlCenterNoticePresentation
+
+  @State private var showsPaths = false
+  /// Past this the paths scroll: discovery reports every file it could not
+  /// read, and a popover taller than the screen leaves the last ones out of
+  /// reach.
+  @ScaledMetric(relativeTo: .body) private var popoverMaximumHeight: CGFloat = 300
+
+  var body: some View {
+    HStack {
+      // The triangle carries the colour; the words stay primary.
+      Label {
+        Text(notice.title)
+      } icon: {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .symbolRenderingMode(.multicolor)
+      }
+      Spacer()
+      Button(L10n.controlCenterDetails) { showsPaths = true }
+        .popover(isPresented: $showsPaths) {
+          ScrollView {
+            PathList(paths: notice.detailLines)
+              .padding()
+          }
+          .scrollBounceBehavior(.basedOnSize)
+          // As tall as the paths, up to the cap: a scroll view alone takes all
+          // the height it is offered.
+          .frame(maxHeight: popoverMaximumHeight)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier(ControlCenterAccessibility.notice)
+  }
+}
+
+/// Paths somebody is going to open in Finder or paste into a terminal: whole,
+/// in monospace, and selectable.
+private struct PathList: View {
+  let paths: [String]
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      ForEach(paths, id: \.self) { path in
+        Text(path)
+          .monospaced()
+      }
+    }
+    .textSelection(.enabled)
   }
 }
 
@@ -360,30 +501,49 @@ struct ControlCenterEmptyView: View {
   let header: ControlCenterHeaderPresentation
 
   var body: some View {
-    VStack(spacing: 12) {
-      Image(systemName: empty.symbolName)
-        .font(.largeTitle)
-        .foregroundStyle(.secondary)
-        .accessibilityHidden(true)
+    switch empty {
+    case .checking:
+      ProgressView {
+        Text(L10n.checkingRunners)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    case .noRunnersInstalled, .launchAgentsUnavailable, .unreadableRunners:
+      // Centred while it fits. Forty files that would not read do not, and
+      // the system view does not shrink its description to the room left, so
+      // then the whole of it scrolls and the last path stays reachable.
+      ViewThatFits(in: .vertical) {
+        unavailable
+        ScrollView { unavailable }
+      }
+    }
+  }
+
+  private var unavailable: some View {
+    ContentUnavailableView {
       // UI-031 leaves the title out where the header says the same sentence.
       // There is no header above this any more, so here the header's words
       // are the title.
-      Text(empty.title ?? header.shortSummary)
-        .font(.title2.weight(.semibold))
-      ForEach(empty.detailLines, id: \.self) { detail in
-        Text(detail)
-          .foregroundStyle(.secondary)
-          .multilineTextAlignment(.center)
+      Label(empty.title ?? header.shortSummary, systemImage: empty.symbolName)
+    } description: {
+      if case .noRunnersInstalled = empty {
+        Text(empty.detailLines.joined(separator: "\n"))
+      } else {
+        // A directory or files that would not read: paths to open, not prose.
+        PathList(paths: empty.detailLines)
       }
+    } actions: {
       // UI-039: the one screen where a new user has nothing else to go on.
       if let guide = empty.guide {
         Link(L10n.controlCenterInstallGuide, destination: guide)
           .buttonStyle(.borderedProminent)
-          .padding(.top, 8)
           .accessibilityIdentifier(ControlCenterAccessibility.installGuide)
+        // Named for where it goes, as the line above it is. Settings opens on
+        // General, and a button promising to add a folder would leave
+        // somebody hunting for the tab that does.
+        SettingsLink {
+          Text(L10n.settings)
+        }
       }
     }
-    .padding()
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

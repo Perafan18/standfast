@@ -75,8 +75,8 @@ enum ControlCenterEmptyPresentation: Equatable {
     switch self {
     case .checking: L10n.checkingRunners
     case .noRunnersInstalled: nil
-    case .launchAgentsUnavailable: L10n.launchAgentsUnreadable
-    case .unreadableRunners: L10n.someRunnersUnreadable
+    case .launchAgentsUnavailable: L10n.launchAgentsUnreadableTitle
+    case .unreadableRunners: L10n.someRunnersUnreadableTitle
     }
   }
 
@@ -139,6 +139,23 @@ enum ControlCenterNoticePresentation: Equatable {
       .unreadableRunners(paths: paths)
     case nil:
       nil
+    }
+  }
+
+  /// What could not be read, in the words the empty state uses for the same
+  /// failure. A heading: the paths are a button away, not after it.
+  var title: String {
+    switch self {
+    case .launchAgentsUnavailable: L10n.launchAgentsUnreadableTitle
+    case .unreadableRunners: L10n.someRunnersUnreadableTitle
+    }
+  }
+
+  /// Every path, none summarised: these are what somebody goes and opens.
+  var detailLines: [String] {
+    switch self {
+    case .launchAgentsUnavailable(let directory): [directory]
+    case .unreadableRunners(let paths): paths
     }
   }
 }

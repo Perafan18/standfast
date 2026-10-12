@@ -407,10 +407,12 @@ enum FleetRecoveryPresentation: Equatable {
     }
   }
 
+  /// A heading: the fleet's summary and the Control Center say it with
+  /// nothing after it on the line.
   var title: String {
     switch self {
-    case .launchAgentsUnavailable: L10n.launchAgentsUnreadable
-    case .unreadableRunners: L10n.someRunnersUnreadable
+    case .launchAgentsUnavailable: L10n.launchAgentsUnreadableTitle
+    case .unreadableRunners: L10n.someRunnersUnreadableTitle
     }
   }
 
@@ -421,14 +423,18 @@ enum FleetRecoveryPresentation: Equatable {
     }
   }
 
+  /// The menu's one line, where a path does follow the words.
   var quickMenuLine: String {
     switch self {
     case .launchAgentsUnavailable(let directory):
-      [title, directory].joined(separator: " ")
+      [L10n.launchAgentsUnreadable, directory].joined(separator: " ")
     case .unreadableRunners(let paths):
-      [title, paths.first, paths.count > 1 ? L10n.moreUnreadable : nil]
-        .compactMap { $0 }
-        .joined(separator: " ")
+      [
+        L10n.someRunnersUnreadable, paths.first,
+        paths.count > 1 ? L10n.moreUnreadable : nil,
+      ]
+      .compactMap { $0 }
+      .joined(separator: " ")
     }
   }
 }

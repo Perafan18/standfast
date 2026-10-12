@@ -121,7 +121,9 @@ private func discoveryLines(
   let empty = try #require(subject.empty)
 
   #expect(subject.overview.state == .unavailable)
-  #expect(subject.overview.summary == L10n.launchAgentsUnreadable)
+  // Alone it is a heading. Only the menu puts the path after it, and only the
+  // menu's words end in a colon.
+  #expect(subject.overview.summary == L10n.launchAgentsUnreadableTitle)
   #expect(subject.overview.symbolName == "exclamationmark.triangle")
   #expect(subject.overview.tone == .attention)
   #expect(
@@ -130,10 +132,10 @@ private func discoveryLines(
   #expect(
     discoveryLines(in: subject.quickMenu)
       == [L10n.launchAgentsUnreadable + " /tmp/Library/LaunchAgents"])
-  #expect(subject.header.summary == L10n.launchAgentsUnreadable)
+  #expect(subject.header.summary == L10n.launchAgentsUnreadableTitle)
   #expect(subject.header.symbolName == "exclamationmark.triangle")
   #expect(subject.header.tone == .attention)
-  #expect(empty.title == L10n.launchAgentsUnreadable)
+  #expect(empty.title == L10n.launchAgentsUnreadableTitle)
   #expect(empty.detailLines == ["/tmp/Library/LaunchAgents"])
   #expect(empty.symbolName == "exclamationmark.triangle")
   #expect(subject.notice == nil)
@@ -150,7 +152,7 @@ private func discoveryLines(
   let empty = try #require(subject.empty)
 
   #expect(subject.overview.state == .unavailable)
-  #expect(subject.overview.summary == L10n.someRunnersUnreadable)
+  #expect(subject.overview.summary == L10n.someRunnersUnreadableTitle)
   #expect(subject.overview.symbolName == "exclamationmark.triangle")
   #expect(subject.overview.tone == .attention)
   #expect(
@@ -164,8 +166,8 @@ private func discoveryLines(
         L10n.someRunnersUnreadable + " /tmp/actions.runner.a.plist "
           + L10n.moreUnreadable
       ])
-  #expect(subject.header.summary == L10n.someRunnersUnreadable)
-  #expect(empty.title == L10n.someRunnersUnreadable)
+  #expect(subject.header.summary == L10n.someRunnersUnreadableTitle)
+  #expect(empty.title == L10n.someRunnersUnreadableTitle)
   #expect(
     empty.detailLines
       == ["/tmp/actions.runner.a.plist", "/tmp/actions.runner.b.plist"])

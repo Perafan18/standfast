@@ -155,6 +155,8 @@
 "state.launchAgentsUnreadable" = "No se pudo leer el directorio LaunchAgents:";
 "state.unreadable" = "No se pudieron leer algunos archivos de runner:";
 "state.unreadable.more" = "…y más";
+"state.launchAgentsUnreadable.title" = "No se pudo leer el directorio LaunchAgents";
+"state.unreadable.title" = "No se pudieron leer algunos archivos de runner";
 
 "state.idle" = "Listo — sin trabajo ahora mismo";
 "state.busy" = "Ejecutando un job";
@@ -276,3 +278,8 @@
 "controlCenter.waiting" = "En cola";
 "controlCenter.currentJob" = "Trabajo actual";
 "controlCenter.lastAction" = "Última acción";
+"controlCenter.needsAttention" = "Requiere atención";
+"controlCenter.discovery" = "Detección";
+"controlCenter.allRunners" = "Todos los runners";
+"controlCenter.details" = "Detalles…";
+"controlCenter.layers.value" = "%1$@: %2$@. %3$@: %4$@";

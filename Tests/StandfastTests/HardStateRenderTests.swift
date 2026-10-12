@@ -57,6 +57,10 @@ private func render(
     rootView:
       view
       .frame(width: size.width, height: size.height)
+      // Offscreen there is no window behind the view, and a view that draws
+      // no background of its own, as the system's empty state does not,
+      // would sit on a canvas of the wrong appearance.
+      .background(Color(nsColor: .windowBackgroundColor))
       .environment(\.colorScheme, appearance.scheme))
   hosting.frame = NSRect(origin: .zero, size: size)
   hosting.layoutSubtreeIfNeeded()
@@ -302,6 +306,26 @@ private func detail(
     ControlCenterEmptyView(empty: emptyState, header: emptyPresentation.header),
     to: directory.appendingPathComponent("E-sin-runners.png"), appearance: .light)
 
+  // 5b. Discovery that could not list where runners live: the path is the
+  // whole message, so it has to fit and stay selectable.
+  try render(
+    ControlCenterEmptyView(
+      empty: .launchAgentsUnavailable(directory: "~/Library/LaunchAgents"),
+      header: emptyPresentation.header),
+    to: directory.appendingPathComponent("E2-launchagents-ilegible.png"))
+
+  // 5c. Forty runner files that would not read, at the window's least height:
+  // the empty state scrolls, icon and title first, rather than run off the
+  // window with its last paths.
+  try render(
+    ControlCenterEmptyView(
+      empty: .unreadableRunners(
+        paths: (1...40).map { "~/Library/LaunchAgents/actions.runner.acme.mac-\($0).plist" }
+      ),
+      header: emptyPresentation.header),
+    to: directory.appendingPathComponent("E3-muchos-ilegibles.png"),
+    height: StandfastTheme.controlCenterMinimumHeight)
+
   // 6. An action that fails. No `svc.sh` means the controller refuses before
   // running anything, which is the honest way to stage a failed Stop.
   let failing = try FleetSandbox(serviceRunning: true)
@@ -318,6 +342,76 @@ private func detail(
   try render(
     detail(of: failingFleet),
     to: directory.appendingPathComponent("F-accion-fallida.png"), appearance: .light)
+
+  // 7. The Overview with every kind of runner on it at once, a file discovery
+  // could not read and a hot Mac: where somebody decides which runner to open.
+  try render(
+    ControlCenterOverview(
+      presentation: crowdedOverview(),
+      thermalLines: ThermalNotice.lines(pressure: .serious, overrunning: true),
+      select: { _ in }),
+    to: directory.appendingPathComponent("G-resumen.png"))
+  try render(
+    ControlCenterOverview(
+      presentation: crowdedOverview(),
+      thermalLines: ThermalNotice.lines(pressure: .serious, overrunning: true),
+      select: { _ in }),
+    to: directory.appendingPathComponent("G-resumen.png"), appearance: .light)
+
+  // 7b. The same Overview as narrow as the detail gets: the window at its
+  // least width with the sidebar at its widest. The columns have no room
+  // there, and each reading goes under its runner's name.
+  try render(
+    ControlCenterOverview(
+      presentation: crowdedOverview(),
+      thermalLines: ThermalNotice.lines(pressure: .serious, overrunning: true),
+      select: { _ in }),
+    to: directory.appendingPathComponent("G2-resumen-estrecho.png"), width: 360)
+}
+
+/// One runner in each state the Overview orders by, on both services and a
+/// fleet slot. Built from snapshots rather than a sandbox, which reads every
+/// runner on it the same way.
+private func crowdedOverview() -> ControlCenterPresentation {
+  let now = Date()
+  let gitLab = RunnerScope.gitLab(
+    instance: GitLabInstance(url: "https://gitlab.example.com")!)
+  func snapshot(
+    _ name: String, _ display: DisplayState,
+    scope: RunnerScope = .repository(owner: "acme", name: "widget"),
+    installation: RunnerInstallation = .launchAgent
+  ) -> RunnerSnapshot {
+    RunnerSnapshot(
+      runner: DiscoveredRunner(
+        label: "actions.runner.acme-widget.\(name)",
+        directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: 7,
+        agentName: name, scope: scope, installation: installation),
+      display: display, readAt: now)
+  }
+  let snapshots = [
+    snapshot("mac-mini-m4", .resolved(.idle)),
+    snapshot("mac-mini-m4-build", .resolved(.busy)),
+    snapshot("deploy-mac", .resolved(.unknown(.noAnswer))),
+    snapshot(
+      "mac-gitlab", .resolved(.stopped), scope: gitLab, installation: .gitLabService),
+    snapshot("test-mac", .resolved(.disconnected)),
+    snapshot(
+      "fleet-slot-1", .resolved(.unknown(.managedFleetWaiting)),
+      scope: .organization("acme"), installation: .managedFleet),
+  ]
+  let overview = FleetOverviewPresentation.building(
+    snapshots: snapshots,
+    notice: .unreadable([
+      URL(fileURLWithPath: "/Users/ci/Library/LaunchAgents/actions.runner.acme.old.plist")
+    ]))
+  return ControlCenterPresentation(
+    header: .building(overview: overview, readAt: now, now: now),
+    cards: snapshots.map {
+      RunnerCardPresentation.building(
+        $0, measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
+        maintenanceNotice: nil, now: now)
+    },
+    empty: nil, notice: .building(overview: overview))
 }
 
 /// A token that never leaves memory. The render harness must not read or write

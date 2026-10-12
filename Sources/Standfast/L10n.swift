@@ -89,6 +89,22 @@ enum L10n {
   static let controlCenterWaiting = t("controlCenter.waiting")
   static let controlCenterCurrentJob = t("controlCenter.currentJob")
   static let controlCenterLastAction = t("controlCenter.lastAction")
+  /// The Overview's sections, and the button that shows the paths discovery
+  /// could not read.
+  static let controlCenterNeedsAttention = t("controlCenter.needsAttention")
+  static let controlCenterDiscovery = t("controlCenter.discovery")
+  static let controlCenterAllRunners = t("controlCenter.allRunners")
+  static let controlCenterDetails = t("controlCenter.details")
+  /// Both layers of an Overview row, each with its name, for VoiceOver: on
+  /// screen the column says which layer a reading is.
+  static func controlCenterLayersValue(
+    _ localName: String, _ local: String, _ remoteName: String, _ remote: String,
+    in bundles: [Bundle]? = nil
+  ) -> String {
+    String(
+      format: t("controlCenter.layers.value", in: bundles), localName, local, remoteName,
+      remote)
+  }
   static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
   static let openRunnerSettings = t("controlCenter.openRunnerSettings")
   static let openGitLab = t("controlCenter.openGitLab")
@@ -209,6 +225,10 @@ enum L10n {
   static let launchAgentsUnreadable = t("state.launchAgentsUnreadable")
   static let someRunnersUnreadable = t("state.unreadable")
   static let moreUnreadable = t("state.unreadable.more")
+  /// The same two failures as a heading, with no path after them on the line:
+  /// a colon there points at nothing.
+  static let launchAgentsUnreadableTitle = t("state.launchAgentsUnreadable.title")
+  static let someRunnersUnreadableTitle = t("state.unreadable.title")
 
   static let stateIdle = t("state.idle")
   static let stateBusy = t("state.busy")
@@ -890,6 +910,8 @@ enum L10n {
     "state.launchAgentsUnreadable": "The LaunchAgents directory could not be read:",
     "state.unreadable": "Some runner files could not be read:",
     "state.unreadable.more": "…and more",
+    "state.launchAgentsUnreadable.title": "The LaunchAgents directory could not be read",
+    "state.unreadable.title": "Some runner files could not be read",
     "state.idle": "Ready — no job right now",
     "state.busy": "Running a job",
     "state.disconnected": "Running locally, but GitHub cannot see it",
@@ -1028,6 +1050,11 @@ enum L10n {
     "controlCenter.waiting": "Waiting",
     "controlCenter.currentJob": "Current Job",
     "controlCenter.lastAction": "Last Action",
+    "controlCenter.needsAttention": "Needs Attention",
+    "controlCenter.discovery": "Discovery",
+    "controlCenter.allRunners": "All Runners",
+    "controlCenter.details": "Details…",
+    "controlCenter.layers.value": "%1$@: %2$@. %3$@: %4$@",
   ]
 
   /// Looks the key up in one complete language pack, and falls back to the

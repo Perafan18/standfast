@@ -47,6 +47,8 @@ struct RunnerCardView: View {
         Image(systemName: "thermometer.high")
           .foregroundStyle(.orange)
       }
+      .accessibilityElement(children: .combine)
+      .accessibilityIdentifier(ControlCenterAccessibility.thermal)
     }
     // Presence only: a receipt arriving or leaving. State and elapsed times
     // redraw every two seconds, and interpolating them would tween the age of

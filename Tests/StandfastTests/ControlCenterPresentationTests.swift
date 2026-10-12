@@ -109,6 +109,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(ControlCenterAccessibility.overview == "dev.standfast.control-center.overview")
   #expect(ControlCenterAccessibility.refresh == "dev.standfast.control-center.refresh")
   #expect(ControlCenterAccessibility.notice == "dev.standfast.control-center.notice")
+  #expect(ControlCenterAccessibility.thermal == "dev.standfast.control-center.thermal")
 }
 
 @Test func runnerAccessibilityIDsUseReversibleUTF8InsteadOfRuntimeHashing() {

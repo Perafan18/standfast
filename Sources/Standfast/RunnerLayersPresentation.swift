@@ -47,6 +47,12 @@ struct RunnerLayersPresentation: Equatable, Sendable {
       local: local, remoteName: remoteName, remote: remote)
   }
 
+  /// Both readings, each after its layer's name. Where the two sit in columns
+  /// the position names the layer, and VoiceOver hears no position.
+  var accessibilityValue: String {
+    L10n.controlCenterLayersValue(localName, local.text, remoteName, remote.text)
+  }
+
   private static let running = LayerReading(text: L10n.layerLocalRunning, tone: .ok)
 
   private static func readings(of display: DisplayState) -> (LayerReading, LayerReading) {
