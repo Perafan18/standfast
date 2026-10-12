@@ -146,11 +146,13 @@ struct ControlCenterHeaderPresentation: Equatable {
   let symbolName: String
   let tone: StateTone
   let attention: String?
+  /// How many runners the state speaks for, and nil with none to count.
+  let runnerCount: String?
   let freshness: String
 
   static func building(
     overview: FleetOverviewPresentation, readAt: Date?, now: Date,
-    isScanning: Bool = false, lastAttemptFailed: Bool = false
+    isScanning: Bool = false, lastAttemptFailed: Bool = false, runnerCount: Int = 0
   ) -> Self {
     return Self(
       summary: overview.summary,
@@ -158,9 +160,16 @@ struct ControlCenterHeaderPresentation: Equatable {
       symbolName: overview.symbolName,
       tone: overview.tone,
       attention: overview.attention,
+      runnerCount: runnerCount == 0 ? nil : L10n.controlCenterRunnerCount(runnerCount),
       freshness: FleetStatus.lastCheckedLine(
         readAt: readAt, now: now, isScanning: isScanning,
         lastAttemptFailed: lastAttemptFailed))
+  }
+
+  /// The Overview row's state, and nil when the fleet is ready with nothing
+  /// to warn of: then its symbol says it, as a calm runner's row leaves it.
+  func sidebarState(warningCount: Int) -> String? {
+    tone == .healthy && warningCount == 0 && attention == nil ? nil : shortSummary
   }
 }
 
@@ -192,7 +201,11 @@ enum RunnerHistoryPresentation: Equatable {
 /// existing presentation values this card composes.
 struct RunnerCardPresentation: Equatable, Identifiable {
   let id: String
+  /// What the sidebar, the window and the detail call it: the quick menu's
+  /// identity, so four runners named after one Mac read apart.
   let title: String
+  /// The name it was registered with, which Copy Name copies.
+  let name: String
   /// The compact copy under the sidebar name; `state` keeps the full recovery
   /// detail.
   let compactState: String
@@ -268,6 +281,20 @@ extension RunnerCardPresentation {
     return failedReceipt
   }
 
+  /// Ready, online and waiting, with nothing in flight, failed or queued: the
+  /// state its symbol and its two layer rows already say.
+  private var isCalm: Bool {
+    tone == .healthy && sidebarReceipt == nil && !needsAttention && queued == nil
+  }
+
+  /// The state under the sidebar name, and nil for a calm runner, so the rows
+  /// that say something are the ones that have something to say.
+  var sidebarState: String? { isCalm ? nil : compactState }
+
+  /// The sentence under Status, remedy included, and nil for a calm runner,
+  /// where it would restate the two rows above it.
+  var statusSentence: String? { isCalm ? nil : state }
+
   /// The sidebar row's spoken value: the identity, then that order.
   var sidebarAccessibilityValue: String {
     guard let receipt = sidebarReceipt else { return identityAccessibilityValue }
@@ -305,8 +332,10 @@ extension RunnerSnapshot {
 }
 
 extension RunnerCardPresentation {
+  /// `title` is the runner's identity among the others, from
+  /// `QuickMenuPresentation.identityNames`; alone, its name.
   static func building(
-    _ snapshot: RunnerSnapshot, measurement: DiskMeasurement?,
+    _ snapshot: RunnerSnapshot, title: String? = nil, measurement: DiskMeasurement?,
     latestRelease: RunnerVersion?, isMaintenanceWorking: Bool,
     maintenanceNotice: String?, now: Date
   ) -> Self {
@@ -319,7 +348,8 @@ extension RunnerCardPresentation {
     let operation = snapshot.operation?.presentation
     return Self(
       id: snapshot.id,
-      title: snapshot.runner.displayName,
+      title: title ?? snapshot.runner.displayName,
+      name: snapshot.runner.displayName,
       compactState: snapshot.display.shortSummary,
       state: snapshot.display.summary(for: snapshot.runner),
       stateSymbolName: snapshot.display.symbolName,

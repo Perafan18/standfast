@@ -40,12 +40,16 @@ struct QuickMenuPresentation: Equatable {
     let runner: @Sendable (String, String) -> String
     let runnerInScope: @Sendable (String, String, String) -> String
     let scopeWithID: @Sendable (String, Int) -> String
+    /// The name and its qualifier with no state, as the Control Center titles
+    /// a runner.
+    let identity: @Sendable (String, String) -> String
 
     static var localized: Self {
       Self(
         runner: { L10n.quickMenuRunner($0, $1) },
         runnerInScope: { L10n.quickMenuRunnerInScope($0, $1, $2) },
-        scopeWithID: { L10n.quickMenuScopeWithID($0, $1) })
+        scopeWithID: { L10n.quickMenuScopeWithID($0, $1) },
+        identity: { L10n.runnerIdentity($0, $1) })
     }
   }
 
@@ -138,10 +142,32 @@ extension QuickMenuPresentation {
       }
       return identityFormatting.runner(qualified, state)
     }
+
+    func rendered(identityFormatting: RunnerIdentityFormatting) -> String {
+      guard let qualifier else {
+        return discriminators.reduce(name) { identityFormatting.scopeWithID($0, $1) }
+      }
+      let qualified = discriminators.reduce(qualifier) {
+        identityFormatting.scopeWithID($0, $1)
+      }
+      return identityFormatting.identity(name, qualified)
+    }
   }
 
   private static let thermalLinesShown = 2
   private static let collisionStatePlaceholder = "\u{0}standfast-state\u{0}"
+
+  /// What each runner is called wherever it sits beside the others: its
+  /// name, and only where another runner here shares it, what tells them
+  /// apart. The Control Center titles runners with these, so a runner reads
+  /// the same there as in this menu.
+  static func identityNames(
+    for snapshots: [RunnerSnapshot],
+    identityFormatting: RunnerIdentityFormatting = .localized
+  ) -> [String] {
+    runnerIdentities(for: snapshots, identityFormatting: identityFormatting)
+      .map { $0.rendered(identityFormatting: identityFormatting) }
+  }
 
   private static func runnerIdentities(
     for snapshots: [RunnerSnapshot],

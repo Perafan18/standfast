@@ -318,6 +318,7 @@ private func l10nSource() -> String {
       "menuItem.viewSettings", "menuItem.openGitLab", "menuItem.openInBrowser",
       "menuItem.showLogsInFinder", "menuItem.copyName", "menuItem.refreshNow",
       "menuItem.openJob", "menuItem.openRun", "menuItem.openPR",
+      "controlCenter.runnerCount.one", "controlCenter.runnerCount", "runner.identity",
     ])
   #expect(everyKey == reached)
 }
@@ -1166,4 +1167,19 @@ private func specifiers(in format: String) -> [Character] {
   // The `una` of the second sentence stands for the noun the first one names.
   #expect(spanish["cleanup.toolCache.effect"]?.contains("las toolchains") == true)
   #expect(spanish["menu.preventSleep.lid"] == "Aun así, cerrar la tapa la pone en reposo")
+}
+
+@Test func theOverviewCountAndARunnersIdentityReadTheSameInBothLanguages() throws {
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+  #expect(L10n.controlCenterRunnerCount(1, in: [english]) == "1 runner on this Mac")
+  #expect(L10n.controlCenterRunnerCount(5, in: [english]) == "5 runners on this Mac")
+  #expect(L10n.controlCenterRunnerCount(1, in: [spanish]) == "1 runner en esta Mac")
+  #expect(L10n.controlCenterRunnerCount(5, in: [spanish]) == "5 runners en esta Mac")
+  #expect(L10n.controlCenterRunnerCount(5, in: []) == "5 runners on this Mac")
+  for bundles in [[english], [spanish], []] {
+    #expect(
+      L10n.runnerIdentity("mac-mini-m4", "widget-factory", in: bundles)
+        == "mac-mini-m4 · widget-factory")
+  }
 }

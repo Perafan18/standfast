@@ -103,7 +103,9 @@ struct ControlCenterView: View {
         RunnerContextMenu(target: RunnerCommandTarget(card), fleet: fleet)
       }
     }
-    .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
+    // Room for a shared name and its repository, "mac-mini-m4 ·
+    // widget-factory", before the end of the title is cut off.
+    .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 320)
   }
 
   private func runnerRows(_ section: ControlCenterSidebar.Section) -> some View {
@@ -219,10 +221,12 @@ private struct OverviewSidebarRow: View {
     Label {
       VStack(alignment: .leading, spacing: 2) {
         Text(L10n.controlCenterOverview)
-        Text(header.shortSummary)
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .lineLimit(2)
+        if let state = header.sidebarState(warningCount: warningCount) {
+          Text(state)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+        }
       }
     } icon: {
       Image(systemName: header.symbolName)
@@ -237,8 +241,9 @@ private struct OverviewSidebarRow: View {
   }
 }
 
-/// One runner in the sidebar: its name, its state in a word or two, an order
-/// still in flight or failed, and where it is registered.
+/// One runner in the sidebar: what it is called here, its state in a word or
+/// two unless it is calm, an order still in flight or failed, and where it is
+/// registered.
 private struct RunnerSidebarRow: View {
   let card: RunnerCardPresentation
 
@@ -247,10 +252,12 @@ private struct RunnerSidebarRow: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(card.title)
         // Two lines, not one: the Spanish state words run long.
-        Text(card.compactState)
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .lineLimit(2)
+        if let state = card.sidebarState {
+          Text(state)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+        }
         if let receipt = card.sidebarReceipt {
           // Weight rather than colour marks the failure, as on the queue line.
           Text(receipt.title)
@@ -326,6 +333,10 @@ struct ControlCenterOverview: View {
             Text(header.shortSummary)
               .font(.title2.weight(.semibold))
               .accessibilityLabel(header.summary)
+            if let count = header.runnerCount {
+              Text(count)
+                .foregroundStyle(.secondary)
+            }
             if let attention = header.attention {
               Label {
                 Text(attention)
@@ -391,8 +402,9 @@ private struct OverviewRunnerRow: View {
   @ScaledMetric(relativeTo: .body) private var localColumnWidth: CGFloat = 110
   @ScaledMetric(relativeTo: .body) private var remoteColumnWidth: CGFloat = 170
   /// The least the name keeps beside the columns. The same for every row, so
-  /// a section switches to stacking all at once rather than row by row.
-  @ScaledMetric(relativeTo: .body) private var nameColumnWidth: CGFloat = 150
+  /// a section switches to stacking all at once rather than row by row. Wide
+  /// enough for a shared name and its repository on one line.
+  @ScaledMetric(relativeTo: .body) private var nameColumnWidth: CGFloat = 200
 
   var body: some View {
     Button {
@@ -405,7 +417,7 @@ private struct OverviewRunnerRow: View {
       ViewThatFits(in: .horizontal) {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
           Label {
-            name
+            name(lineLimit: 1)
           } icon: {
             stateSymbol
           }
@@ -419,7 +431,7 @@ private struct OverviewRunnerRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
           Label {
             VStack(alignment: .leading, spacing: 4) {
-              name
+              name(lineLimit: nil)
               localReading
               remoteReading
             }
@@ -440,9 +452,13 @@ private struct OverviewRunnerRow: View {
     .accessibilityValue(card.layers.accessibilityValue)
   }
 
-  private var name: some View {
+  /// One line beside the columns, where a long title would break at a hyphen
+  /// in the repository's name; the scope under it says that name in full.
+  private func name(lineLimit: Int?) -> some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(card.title)
+        .lineLimit(lineLimit)
+        .help(card.title)
       Text(card.scope)
         .font(.caption)
         .foregroundStyle(.secondary)

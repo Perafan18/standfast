@@ -211,7 +211,32 @@ private func target(_ card: RunnerCardPresentation) -> RunnerCommandTarget {
 
   #expect(cleared != nil && written != nil)
   if let cleared, let written { #expect(cleared.upperBound <= written.lowerBound) }
-  #expect(source.contains("Button(L10n.menuItemCopyName) { copy(target.title) }"))
+  #expect(source.contains("Button(L10n.menuItemCopyName) { copy(target.name) }"))
+}
+
+@Test func copyNameCopiesTheNameNotTheTitleThatTellsItApart() {
+  // Titled "build-mac · widget" beside another build-mac; the name GitHub,
+  // launchctl and _diag know it by is still build-mac.
+  let card = RunnerCardPresentation.building(
+    RunnerSnapshot(
+      runner: DiscoveredRunner(
+        label: "actions.runner.acme-widget.build-mac",
+        directory: URL(fileURLWithPath: "/tmp/build-mac"), agentId: 7,
+        agentName: "build-mac", scope: .repository(owner: "acme", name: "widget"),
+        installation: .launchAgent),
+      display: .resolved(.idle), readAt: commandsNow),
+    title: "build-mac · widget", measurement: nil, latestRelease: nil,
+    isMaintenanceWorking: false, maintenanceNotice: nil, now: commandsNow)
+
+  #expect(target(card).title == "build-mac · widget")
+  #expect(target(card).name == "build-mac")
+}
+
+@Test func aContextMenuWithNothingToDoOpensOnItsLogsNotOnALine() {
+  // A runner whose service cannot be read offers no verb, and a separator
+  // with nothing above it would be the menu's first line.
+  let source = standfastSource("RunnerCommands.swift").filter { !$0.isWhitespace }
+  #expect(source.contains("if!target.availableActions.isEmpty{Divider()}"))
 }
 
 @Test func theDetailShowsTheLogFolderBesideMaintenanceOnlyWhereThereIsOne() {

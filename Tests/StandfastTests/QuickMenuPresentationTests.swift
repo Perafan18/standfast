@@ -121,7 +121,8 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
     runnerInScope: { name, scope, state in
       "three<\(name)|\(scope)|\(state)>"
     },
-    scopeWithID: { scope, id in "identity<\(scope)|\(id)>" })
+    scopeWithID: { scope, id in "identity<\(scope)|\(id)>" },
+    identity: { name, scope in "title<\(name)|\(scope)>" })
   let snapshots = [
     quickSnapshot("solo", .resolved(.idle)),
     quickSnapshot(
@@ -142,6 +143,11 @@ private func discoveryLines(in presentation: QuickMenuPresentation) -> [String] 
       "two<solo|\(L10n.stateReadyShort)>",
       "three<build|widget|\(L10n.stateReadyShort)>",
       "three<build|gadget|\(L10n.stateStoppedShort)>",
+    ])
+  // The Control Center's titles: the same identities, with no state.
+  #expect(
+    QuickMenuPresentation.identityNames(for: snapshots, identityFormatting: formatting) == [
+      "solo", "title<build|widget>", "title<build|gadget>",
     ])
 }
 

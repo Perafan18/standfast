@@ -111,7 +111,9 @@ struct RunnerCardView: View {
       // The whole sentence, remedy included, under the readings it explains.
       // Then why the toolbar's service controls do nothing, when they do not.
       VStack(alignment: .leading, spacing: 4) {
-        Text(card.state)
+        if let sentence = card.statusSentence {
+          Text(sentence)
+        }
         if let note = card.serviceNote {
           Text(note)
         }

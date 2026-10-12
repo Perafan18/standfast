@@ -205,7 +205,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(
     compact.contains(
       "header:.building(overview:overview,readAt:lastReadAt,now:now,isScanning:isScanning,"
-        + "lastAttemptFailed:lastAttemptFailed)"
+        + "lastAttemptFailed:lastAttemptFailed,runnerCount:cards.count)"
     ))
 }
 
@@ -1267,4 +1267,98 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
   #expect(
     compact.contains(
       "Image(systemName:feedback.symbolName).foregroundStyle(feedback.tone.color)"))
+}
+
+// MARK: - A runner reads the same in the sidebar as in the menu
+
+@Test @MainActor func runnersSharingANameAreTitledAsTheMenuNamesThem() async throws {
+  // config.sh proposes the hostname, so one Mac serving two repositories has
+  // two runners called mac-mini-m4. Four bold rows saying it, the repository
+  // in the faintest line, was the sidebar on the machine this was found on.
+  let sandbox = try FleetSandbox(serviceRunning: true)
+  defer { sandbox.cleanUp() }
+  try sandbox.addRunner(name: "mac-mini-m4", scope: "widget", agentId: 1)
+  try sandbox.addRunner(name: "mac-mini-m4", scope: "gadget", agentId: 2)
+  try sandbox.addRunner(name: "solo", scope: "gizmo", agentId: 3)
+  let fleet = presentationModel(sandbox)
+  await fleet.quiesce()
+
+  let cards = fleet.controlCenterCards(now: controlCenterNow)
+  #expect(
+    Set(cards.map(\.title)) == ["mac-mini-m4 · widget", "mac-mini-m4 · gadget", "solo"])
+  // Copy Name and the confirmations want the name the runner was given.
+  #expect(Set(cards.map(\.name)) == ["mac-mini-m4", "solo"])
+
+  let echoes = fleet.quickMenuPresentation(thermalLines: [], now: controlCenterNow)
+    .items.compactMap { item -> QuickMenuPresentation.RunnerEcho? in
+      guard case .runner(let echo) = item else { return nil }
+      return echo
+    }
+  #expect(echoes.map(\.id) == cards.map(\.id))
+  for (echo, card) in zip(echoes, cards) {
+    #expect(echo.title.hasPrefix(card.title + " · "), "\(echo.title) / \(card.title)")
+  }
+}
+
+@Test func aRunnerAloneIsTitledWithItsOwnName() {
+  let subject = card(controlCenterSnapshot(.resolved(.idle)))
+  #expect(subject.title == "build-mac")
+  #expect(subject.name == "build-mac")
+}
+
+// MARK: - Ready is said once
+
+@Test func aCalmRunnerLeavesItsStateToItsSymbolAndItsTwoRows() {
+  // Ready, online and waiting: the sidebar's line and the Status footer would
+  // only repeat the symbol and the two layer rows, five times down a sidebar.
+  let calm = card(controlCenterSnapshot(.resolved(.idle)))
+  #expect(calm.sidebarState == nil)
+  #expect(calm.statusSentence == nil)
+  // VoiceOver still hears it.
+  #expect(calm.sidebarAccessibilityValue.hasPrefix(calm.compactState))
+
+  for display: DisplayState in [
+    .resolved(.busy), .resolved(.stopped), .resolved(.disconnected),
+    .resolved(.unknown(.noAnswer)),
+  ] {
+    let subject = card(controlCenterSnapshot(display))
+    #expect(subject.sidebarState == subject.compactState, "\(display)")
+    #expect(subject.statusSentence == subject.state, "\(display)")
+  }
+
+  // Ready, and its last order failed: that is news, and the row says it.
+  let failed = card(
+    controlCenterSnapshot(
+      .resolved(.idle),
+      operation: ServiceOperation(
+        action: .stop, phase: .failed(.scriptMissing), changedAt: controlCenterNow)))
+  #expect(failed.sidebarState == failed.compactState)
+  #expect(failed.statusSentence == failed.state)
+}
+
+@Test func theSidebarAndTheFormReadTheCalmRuleFromTheCard() {
+  let sidebar = standfastSource("ControlCenterView.swift")
+  let detail = standfastSource("RunnerCardView.swift")
+  #expect(sidebar.contains("if let state = card.sidebarState"))
+  #expect(!sidebar.contains("Text(card.compactState)"))
+  #expect(detail.contains("if let sentence = card.statusSentence"))
+  #expect(!detail.contains("Text(card.state)"))
+}
+
+@Test func theOverviewSaysHowManyRunnersItCounts() {
+  let overview = FleetOverviewPresentation.building(
+    snapshots: [controlCenterSnapshot(.resolved(.idle))], notice: nil)
+  let header = ControlCenterHeaderPresentation.building(
+    overview: overview, readAt: controlCenterNow, now: controlCenterNow, runnerCount: 5)
+  #expect(header.runnerCount == L10n.controlCenterRunnerCount(5))
+  // Nothing to count, nothing said: the empty state is the page.
+  let empty = ControlCenterHeaderPresentation.building(
+    overview: overview, readAt: controlCenterNow, now: controlCenterNow, runnerCount: 0)
+  #expect(empty.runnerCount == nil)
+  // Its sidebar row: ready says nothing, a warning brings the state back.
+  #expect(header.sidebarState(warningCount: 0) == nil)
+  #expect(header.sidebarState(warningCount: 1) == header.shortSummary)
+  #expect(
+    standfastSource("ControlCenterView.swift").contains("if let count = header.runnerCount")
+  )
 }

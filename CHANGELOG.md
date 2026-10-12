@@ -24,6 +24,15 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
   that named it — the log cleanup and confirmation messages among it — now names the app.
   It opens at 820×600 and stops shrinking at 680×440, where sidebar and detail still fit
   side by side.
+- **Runners that share a name read apart.** `config.sh` proposes the Mac's hostname, so one
+  Mac serving several repositories had several sidebar rows with the same bold name and the
+  repository in the faintest line. The sidebar, the window title and the detail now call
+  each runner what the menu calls it, such as `mac-mini · web-app`, and keep a unique name
+  bare. Copy Name still copies the name the runner was registered with.
+- **Ready is said once.** A runner that is ready and waiting shows no state word under its
+  name, and its Status section no sentence restating its two rows: the symbol says it, and
+  VoiceOver still hears it. The Overview row does the same for a ready fleet, and the
+  Overview says how many runners it counts.
 - **Two questions, two rows.** A runner's detail answers "is it running on this Mac?" and
   "will GitHub (or GitLab) give it work?" on rows of their own, each a dot and the words
   that say it without the dot. Only an Offline answer is red; every way of not knowing —
@@ -98,6 +107,8 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
 - Built with Swift 6.4's default build system, the app claimed it was linked against the
   macOS 14 SDK, so macOS 26 and later drew it without Liquid Glass. `build-app.sh` now
   stamps the SDK it really used, and `check-app.sh` fails a bundle that claims another.
+- A sidebar row's context menu for a runner with nothing to start, stop or restart opened
+  on a separator.
 
 ## [0.5.0] — 2026-10-09
 

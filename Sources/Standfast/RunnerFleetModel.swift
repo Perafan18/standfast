@@ -842,9 +842,10 @@ final class RunnerFleetModel: ObservableObject {
   /// The complete card projection, built only from model and housekeeping
   /// memory. Reading it never probes GitHub, launchd, or disk.
   func controlCenterCards(now: Date = Date()) -> [RunnerCardPresentation] {
-    snapshots.map { snapshot in
+    zip(snapshots, QuickMenuPresentation.identityNames(for: snapshots)).map {
+      snapshot, title in
       RunnerCardPresentation.building(
-        snapshot, measurement: housekeeping.measurement(for: snapshot.runner),
+        snapshot, title: title, measurement: housekeeping.measurement(for: snapshot.runner),
         latestRelease: latestRelease,
         isMaintenanceWorking: housekeeping.isWorking(on: snapshot.runner),
         maintenanceNotice: housekeeping.notice(for: snapshot.runner), now: now)
@@ -859,7 +860,7 @@ final class RunnerFleetModel: ObservableObject {
     return ControlCenterPresentation(
       header: .building(
         overview: overview, readAt: lastReadAt, now: now, isScanning: isScanning,
-        lastAttemptFailed: lastAttemptFailed),
+        lastAttemptFailed: lastAttemptFailed, runnerCount: cards.count),
       cards: cards,
       empty: cards.isEmpty ? .building(overview: overview) : nil,
       notice: cards.isEmpty ? nil : .building(overview: overview))

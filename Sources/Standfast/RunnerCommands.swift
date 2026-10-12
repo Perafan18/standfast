@@ -15,6 +15,9 @@ struct RunnerCommandTarget: Equatable {
 
   let id: String
   let title: String
+  /// The registered name, which Copy Name copies: `title` may carry the
+  /// repository that tells it apart here.
+  let name: String
   /// Start, Stop, Restart and the destination, enabled as the toolbar has
   /// them and named in its words, in a menu item's title case.
   let actions: [Action]
@@ -25,6 +28,7 @@ struct RunnerCommandTarget: Equatable {
   init(_ card: RunnerCardPresentation) {
     id = card.id
     title = card.title
+    name = card.name
     actions = card.actions.map {
       Action(
         kind: $0.kind, label: Self.label($0.kind, opening: card.githubDestination),
@@ -125,11 +129,11 @@ struct RunnerContextMenu: View {
     ForEach(target.availableActions) { action in
       Button(action.label) { fleet.perform(action.kind, onRunnerID: target.id) }
     }
-    Divider()
+    if !target.availableActions.isEmpty { Divider() }
     if target.canShowLogs {
       Button(L10n.menuItemShowLogsInFinder) { fleet.showLogs(onRunnerID: target.id) }
     }
-    Button(L10n.menuItemCopyName) { copy(target.title) }
+    Button(L10n.menuItemCopyName) { copy(target.name) }
   }
 
   private func copy(_ name: String) {

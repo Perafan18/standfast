@@ -58,7 +58,10 @@ history, maintenance, preferences and confirmations do not live there.
 
 **Open Standfast** brings forward one persistent window, named Standfast: a sidebar of your
 runners beside a detail form for the one you select. The sidebar keeps discovery order, and
-groups runners under GitHub, GitLab and Managed Fleet once there is more than one kind. The
+groups runners under GitHub, GitLab and Managed Fleet once there is more than one kind.
+Runners that share a name, as the Mac's hostname often makes them, are titled with what
+tells them apart, as in the menu: `mac-mini · web-app`. A row that is ready and waiting
+leaves its state to its symbol, so the rows with words are the ones to look at. The
 detail answers the two questions on rows of their own — is it running on this Mac, and will
 GitHub or GitLab give it work — then shows its current job, the latest operation outcome,
 recent history, installed version, manual disk measurement and safe cleanup, and its logs.

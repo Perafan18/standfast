@@ -12,6 +12,8 @@
 "controlCenter.openRunnerSettings" = "Abrir configuración del runner";
 "controlCenter.attention.one" = "%lld runner requiere atención";
 "controlCenter.attention" = "%lld runners requieren atención";
+"controlCenter.runnerCount.one" = "%lld runner en esta Mac";
+"controlCenter.runnerCount" = "%lld runners en esta Mac";
 "controlCenter.viewRuns" = "Ver ejecuciones";
 "controlCenter.viewSettings" = "Ver configuración";
 "controlCenter.history.empty" = "Sin trabajos registrados";
@@ -110,6 +112,7 @@
 "menu.quickRunner" = "%@ · %@";
 "menu.quickRunnerScoped" = "%@ · %@ · %@";
 "menu.quickRunnerScopeID" = "%@ · #%lld";
+"runner.identity" = "%@ · %@";
 
 "disk.toolCache" = "Caché de herramientas — %@";
 "disk.actionCache" = "Acciones descargadas — %@";

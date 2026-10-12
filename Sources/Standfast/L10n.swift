@@ -275,6 +275,14 @@ enum L10n {
     return String(format: t(key, in: bundles), Int64(count))
   }
 
+  /// Under the Overview's state: how many runners it speaks for.
+  static func controlCenterRunnerCount(
+    _ count: Int, in bundles: [Bundle]? = nil
+  ) -> String {
+    let key = count == 1 ? "controlCenter.runnerCount.one" : "controlCenter.runnerCount"
+    return String(format: t(key, in: bundles), Int64(count))
+  }
+
   static func viewRuns(in bundles: [Bundle]? = nil) -> String {
     t("controlCenter.viewRuns", in: bundles)
   }
@@ -706,6 +714,14 @@ enum L10n {
     String(format: t("menu.runnerInScope"), name, scope)
   }
 
+  /// A runner's name and what tells it apart from another of that name here,
+  /// as the quick menu writes it ahead of the state.
+  static func runnerIdentity(
+    _ name: String, _ qualifier: String, in bundles: [Bundle]? = nil
+  ) -> String {
+    String(format: t("runner.identity", in: bundles), name, qualifier)
+  }
+
   /// The English this app carries inside its own binary, keyed the same way as
   /// the catalogues.
   ///
@@ -733,6 +749,8 @@ enum L10n {
     "controlCenter.openRunnerSettings": "Open runner settings",
     "controlCenter.attention.one": "%lld runner needs attention",
     "controlCenter.attention": "%lld runners need attention",
+    "controlCenter.runnerCount.one": "%lld runner on this Mac",
+    "controlCenter.runnerCount": "%lld runners on this Mac",
     "controlCenter.viewRuns": "View runs",
     "controlCenter.viewSettings": "View settings",
     "controlCenter.history.empty": "No jobs recorded",
@@ -866,6 +884,7 @@ enum L10n {
     "menu.quickRunner": "%@ · %@",
     "menu.quickRunnerScoped": "%@ · %@ · %@",
     "menu.quickRunnerScopeID": "%@ · #%lld",
+    "runner.identity": "%@ · %@",
     "disk.toolCache": "Tool cache — %@",
     "disk.actionCache": "Downloaded actions — %@",
     "disk.checkout": "Repository checkouts — %@",
