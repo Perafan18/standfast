@@ -58,6 +58,8 @@ sidebar, toolbar and grouped forms.
 - **The quick menu is grouped by separators,** each runner item wears its state's symbol,
   and Refresh now, Settings and Quit take ⌘R, ⌘, and ⌘Q. The item names are unchanged:
   Open Standfast, Settings and Quit, or Abrir Standfast, Ajustes and Salir.
+- **English menu items are in title case,** as the HIG asks: Refresh Now, Show Logs in
+  Finder, Start Service. Buttons, the toolbar and Spanish keep sentence case.
 - **The only animation is an operation receipt appearing,** and it becomes an immediate
   change under Reduce Motion. No state depends on colour or motion alone.
 

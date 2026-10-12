@@ -42,9 +42,34 @@ private func target(_ card: RunnerCardPresentation) -> RunnerCommandTarget {
   #expect(lines.map(\.kind) == [.start, .stop, .restart, .openOnGitHub])
   // The toolbar's own words and enablement, line for line: a menu that
   // disagreed with the button beside it would be the one somebody believed.
-  #expect(lines.map(\.label) == card.actions.map(\.label))
+  // Only the case is the menu's own.
+  #expect(lines.map { $0.label.lowercased() } == card.actions.map { $0.label.lowercased() })
   #expect(lines.map(\.isEnabled) == [true, false, false, true])
-  #expect(lines.last?.label == L10n.viewRuns())
+  #expect(
+    lines.map(\.label)
+      == [
+        L10n.menuItemStartService, L10n.menuItemStopService, L10n.menuItemRestartService,
+        L10n.menuItemViewRuns,
+      ])
+}
+
+@Test func theDestinationLineNamesThePageItOpensAsTheToolbarDoes() {
+  // Mapped by kind, not taken from the card, whose label is a button's.
+  let gitLab = RunnerScope.gitLab(
+    instance: GitLabInstance(url: "https://gitlab.example.com")!)
+  let destinations: [(RunnerScope, RunnerInstallation, String)] = [
+    (.repository(owner: "acme", name: "widget"), .launchAgent, L10n.menuItemViewRuns),
+    (.organization("acme"), .launchAgent, L10n.menuItemViewSettings),
+    (gitLab, .gitLabService, L10n.menuItemOpenGitLab),
+  ]
+  for (scope, installation, label) in destinations {
+    let card = commandCard(.resolved(.idle), installation: installation, scope: scope)
+    let line = target(card).actions.first { $0.kind == .openOnGitHub }
+
+    #expect(line?.label == label, "\(scope)")
+    #expect(line?.label.lowercased() == card.action(.openOnGitHub)?.label.lowercased())
+    #expect(line?.isEnabled == card.action(.openOnGitHub)?.isEnabled)
+  }
 }
 
 @Test func withNothingSelectedTheRunnerMenuKeepsEveryLineAndGreysThemAll() {
@@ -56,7 +81,10 @@ private func target(_ card: RunnerCardPresentation) -> RunnerCommandTarget {
   #expect(lines.allSatisfy { !$0.isEnabled })
   #expect(
     lines.map(\.label)
-      == [L10n.serviceStart, L10n.serviceStop, L10n.serviceRestart, L10n.openInBrowser])
+      == [
+        L10n.menuItemStartService, L10n.menuItemStopService, L10n.menuItemRestartService,
+        L10n.menuItemOpenInBrowser,
+      ])
   // Which host the destination opens is the runner's to say; a Mac with only
   // GitLab runners must not be offered GitHub.
   let destination = lines.last?.label ?? ""
@@ -138,7 +166,7 @@ private func target(_ card: RunnerCardPresentation) -> RunnerCommandTarget {
   #expect(!commands.contains(".keyboardShortcut("))
   #expect(!app.contains(".keyboardShortcut("))
   #expect(controlCenter.components(separatedBy: ".keyboardShortcut(\"r\")").count - 1 == 1)
-  #expect(commands.contains("Button(L10n.refreshNow) { fleet.refresh() }"))
+  #expect(commands.contains("Button(L10n.menuItemRefreshNow) { fleet.refresh() }"))
 }
 
 @Test func everyRouteActsThroughTheModelThatRechecksIt() {
@@ -175,14 +203,14 @@ private func target(_ card: RunnerCardPresentation) -> RunnerCommandTarget {
 
 @Test func copyNameReplacesWhatWasOnThePasteboard() {
   // AppKit refuses a write to a pasteboard whose old contents were not
-  // cleared first, and Copy name would copy nothing and say nothing.
+  // cleared first, and Copy Name would copy nothing and say nothing.
   let source = standfastSource("RunnerCommands.swift")
   let cleared = source.range(of: "pasteboard.clearContents()")
   let written = source.range(of: "pasteboard.setString(name, forType: .string)")
 
   #expect(cleared != nil && written != nil)
   if let cleared, let written { #expect(cleared.upperBound <= written.lowerBound) }
-  #expect(source.contains("Button(L10n.copyName) { copy(target.title) }"))
+  #expect(source.contains("Button(L10n.menuItemCopyName) { copy(target.title) }"))
 }
 
 @Test func theDetailShowsTheLogFolderBesideMaintenanceOnlyWhereThereIsOne() {

@@ -95,14 +95,29 @@ enum L10n {
   static let controlCenterDiscovery = t("controlCenter.discovery")
   static let controlCenterAllRunners = t("controlCenter.allRunners")
   static let controlCenterDetails = t("controlCenter.details")
-  /// The menu bar's Runner menu and a sidebar row's context menu: what they
-  /// add to the toolbar's verbs.
+  /// The menu bar's Runner menu, and the detail's button beside Maintenance.
   static let runnerMenu = t("controlCenter.runnerMenu")
   static let showLogsInFinder = t("controlCenter.showLogs")
-  static let copyName = t("controlCenter.copyName")
+  /// A menu item's own name, in title case as the HIG asks of menus. Buttons
+  /// and sentences keep sentence case, so a line both say has a key in each.
+  /// Spanish writes both in sentence case.
+  static let menuItemStartService = t("menuItem.startService")
+  static let menuItemStopService = t("menuItem.stopService")
+  static let menuItemRestartService = t("menuItem.restartService")
+  static let menuItemViewRuns = t("menuItem.viewRuns")
+  static let menuItemViewSettings = t("menuItem.viewSettings")
+  static let menuItemOpenGitLab = t("menuItem.openGitLab")
   /// The Runner menu's destination with nothing selected. Which page it opens,
   /// and on which host, is the selected runner's to say.
-  static let openInBrowser = t("controlCenter.openInBrowser")
+  static let menuItemOpenInBrowser = t("menuItem.openInBrowser")
+  static let menuItemShowLogsInFinder = t("menuItem.showLogsInFinder")
+  static let menuItemCopyName = t("menuItem.copyName")
+  static let menuItemRefreshNow = t("menuItem.refreshNow")
+  static let menuItemOpenJob = t("menuItem.openJob")
+  static let menuItemOpenRun = t("menuItem.openRun")
+  static func menuItemOpenPR(_ number: Int) -> String {
+    String(format: t("menuItem.openPR"), number)
+  }
   /// Both layers of an Overview row, each with its name, for VoiceOver: on
   /// screen the column says which layer a reading is.
   static func controlCenterLayersValue(
@@ -1065,8 +1080,19 @@ enum L10n {
     "controlCenter.layers.value": "%1$@: %2$@. %3$@: %4$@",
     "controlCenter.runnerMenu": "Runner",
     "controlCenter.showLogs": "Show logs in Finder",
-    "controlCenter.copyName": "Copy name",
-    "controlCenter.openInBrowser": "Open in browser",
+    "menuItem.startService": "Start Service",
+    "menuItem.stopService": "Stop Service",
+    "menuItem.restartService": "Restart Service",
+    "menuItem.viewRuns": "View Runs",
+    "menuItem.viewSettings": "View Settings",
+    "menuItem.openGitLab": "Open GitLab",
+    "menuItem.openInBrowser": "Open in Browser",
+    "menuItem.showLogsInFinder": "Show Logs in Finder",
+    "menuItem.copyName": "Copy Name",
+    "menuItem.refreshNow": "Refresh Now",
+    "menuItem.openJob": "Open Job on GitHub",
+    "menuItem.openRun": "Open Workflow Run on GitHub",
+    "menuItem.openPR": "Open PR #%d on GitHub",
   ]
 
   /// Looks the key up in one complete language pack, and falls back to the

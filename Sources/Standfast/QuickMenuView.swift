@@ -54,7 +54,7 @@ struct QuickMenuView: View {
     case .refresh:
       // A status menu's key equivalents answer only while it is open, so this
       // never competes with the toolbar's ⌘R.
-      Button(L10n.refreshNow) { fleet.refresh() }
+      Button(L10n.menuItemRefreshNow) { fleet.refresh() }
         .keyboardShortcut("r")
         .accessibilityIdentifier("dev.standfast.quick-menu.static")
     case .openControlCenter:
@@ -97,7 +97,7 @@ private struct RunnerEchoMenu: View {
         Text(job.detail)
         Text(job.association)
         ForEach(job.links) { link in
-          Link(link.title, destination: link.url)
+          Link(link.menuTitle, destination: link.url)
         }
       }
       if let operation = runner.operation {

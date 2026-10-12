@@ -15,8 +15,8 @@ struct RunnerCommandTarget: Equatable {
 
   let id: String
   let title: String
-  /// Start, Stop, Restart and the destination, named and enabled as the
-  /// toolbar has them.
+  /// Start, Stop, Restart and the destination, enabled as the toolbar has
+  /// them and named in its words, in a menu item's title case.
   let actions: [Action]
   /// Whether this runner has a log folder of its own. Which folder is the
   /// model's to find again, from the latest scan, when asked.
@@ -26,7 +26,9 @@ struct RunnerCommandTarget: Equatable {
     id = card.id
     title = card.title
     actions = card.actions.map {
-      Action(kind: $0.kind, label: $0.label, isEnabled: $0.isEnabled)
+      Action(
+        kind: $0.kind, label: Self.label($0.kind, opening: card.githubDestination),
+        isEnabled: $0.isEnabled)
     }
     canShowLogs = card.diagnosticsDirectory != nil
   }
@@ -42,16 +44,26 @@ struct RunnerCommandTarget: Equatable {
   static func menuActions(for target: Self?) -> [Action] {
     RunnerRow.Action.Kind.allCases.map { kind in
       target?.actions.first { $0.kind == kind }
-        ?? Action(kind: kind, label: generalLabel(kind), isEnabled: false)
+        ?? Action(kind: kind, label: label(kind, opening: nil), isEnabled: false)
     }
   }
 
-  private static func generalLabel(_ kind: RunnerRow.Action.Kind) -> String {
+  /// By kind rather than from the card's label, which is a button's and keeps
+  /// sentence case. With no destination, the line names no host.
+  private static func label(
+    _ kind: RunnerRow.Action.Kind, opening destination: GitHubDestination?
+  ) -> String {
     switch kind {
-    case .start: L10n.serviceStart
-    case .stop: L10n.serviceStop
-    case .restart: L10n.serviceRestart
-    case .openOnGitHub: L10n.openInBrowser
+    case .start: L10n.menuItemStartService
+    case .stop: L10n.menuItemStopService
+    case .restart: L10n.menuItemRestartService
+    case .openOnGitHub:
+      switch destination {
+      case .workflowRuns: L10n.menuItemViewRuns
+      case .runnerSettings: L10n.menuItemViewSettings
+      case .instance: L10n.menuItemOpenGitLab
+      case nil: L10n.menuItemOpenInBrowser
+      }
     }
   }
 }
@@ -82,12 +94,12 @@ struct RunnerCommands: Commands {
       ForEach(actions.filter { $0.kind != .openOnGitHub }) { item($0) }
       Divider()
       ForEach(actions.filter { $0.kind == .openOnGitHub }) { item($0) }
-      Button(L10n.showLogsInFinder) {
+      Button(L10n.menuItemShowLogsInFinder) {
         if let runner { fleet.showLogs(onRunnerID: runner.id) }
       }
       .disabled(runner?.canShowLogs != true)
       Divider()
-      Button(L10n.refreshNow) { fleet.refresh() }
+      Button(L10n.menuItemRefreshNow) { fleet.refresh() }
     }
   }
 
@@ -115,9 +127,9 @@ struct RunnerContextMenu: View {
     }
     Divider()
     if target.canShowLogs {
-      Button(L10n.showLogsInFinder) { fleet.showLogs(onRunnerID: target.id) }
+      Button(L10n.menuItemShowLogsInFinder) { fleet.showLogs(onRunnerID: target.id) }
     }
-    Button(L10n.copyName) { copy(target.title) }
+    Button(L10n.menuItemCopyName) { copy(target.title) }
   }
 
   private func copy(_ name: String) {

@@ -124,7 +124,7 @@ private func occurrences(of needle: String, in source: String) -> Int {
 }
 
 @Test func theActionsKeepTheNamesTheGateFindsThemBy() throws {
-  #expect(rowCase("refresh").contains("Button(L10n.refreshNow)"))
+  #expect(rowCase("refresh").contains("Button(L10n.menuItemRefreshNow)"))
   #expect(rowCase("openControlCenter").contains("Button(L10n.controlCenter)"))
   #expect(rowCase("openSettings").contains("Button(L10n.settings)"))
   #expect(rowCase("quit").contains("Button(L10n.quit)"))
@@ -145,4 +145,15 @@ private func occurrences(of needle: String, in source: String) -> Int {
       ["menu.controlCenter", "menu.settings", "menu.quit"].map { catalogue[$0] } == names,
       "\(language)")
   }
+}
+
+@Test func aJobLinkIsAMenuItemInTheMenuAndALinkInTheDetail() {
+  // Title case where it is a menu item; the detail form's link keeps the
+  // sentence case of the form around it.
+  #expect(
+    standfastSource("QuickMenuView.swift").contains(
+      "Link(link.menuTitle, destination: link.url)"))
+  #expect(
+    standfastSource("RunnerCardView.swift").contains(
+      "Link(link.title, destination: link.url)"))
 }

@@ -42,6 +42,13 @@ private func jobSnapshot(
       "https://github.com/acme/widget/actions/runs/123/attempts/2",
       "https://github.com/acme/widget/pull/702",
     ])
+  // The detail's links and the quick menu's items: one page, each in its case.
+  #expect(
+    job.links.map(\.title)
+      == [L10n.managedJobOpen, L10n.managedRunOpen, L10n.managedPROpen(702)])
+  #expect(
+    job.links.map(\.menuTitle)
+      == [L10n.menuItemOpenJob, L10n.menuItemOpenRun, L10n.menuItemOpenPR(702)])
   let overview = FleetOverviewPresentation.building(snapshots: [snapshot], notice: nil)
   let menu = QuickMenuPresentation.building(
     snapshots: [snapshot], overview: overview, thermalLines: [], readAt: nil, now: jobNow)

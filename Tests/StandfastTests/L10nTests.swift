@@ -171,7 +171,11 @@ private func l10nSource() -> String {
     L10n.controlCenterNeedsAttention, L10n.controlCenterDiscovery,
     L10n.controlCenterAllRunners, L10n.controlCenterDetails,
     L10n.controlCenterLayersValue("a", "b", "c", "d"),
-    L10n.runnerMenu, L10n.showLogsInFinder, L10n.copyName, L10n.openInBrowser,
+    L10n.runnerMenu, L10n.showLogsInFinder, L10n.menuItemStartService,
+    L10n.menuItemStopService, L10n.menuItemRestartService, L10n.menuItemViewRuns,
+    L10n.menuItemViewSettings, L10n.menuItemOpenGitLab, L10n.menuItemOpenInBrowser,
+    L10n.menuItemShowLogsInFinder, L10n.menuItemCopyName, L10n.menuItemRefreshNow,
+    L10n.menuItemOpenJob, L10n.menuItemOpenRun, L10n.menuItemOpenPR(702),
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -309,8 +313,11 @@ private func l10nSource() -> String {
       "controlCenter.currentJob", "controlCenter.lastAction",
       "controlCenter.needsAttention", "controlCenter.discovery",
       "controlCenter.allRunners", "controlCenter.details", "controlCenter.layers.value",
-      "controlCenter.runnerMenu", "controlCenter.showLogs", "controlCenter.copyName",
-      "controlCenter.openInBrowser",
+      "controlCenter.runnerMenu", "controlCenter.showLogs", "menuItem.startService",
+      "menuItem.stopService", "menuItem.restartService", "menuItem.viewRuns",
+      "menuItem.viewSettings", "menuItem.openGitLab", "menuItem.openInBrowser",
+      "menuItem.showLogsInFinder", "menuItem.copyName", "menuItem.refreshNow",
+      "menuItem.openJob", "menuItem.openRun", "menuItem.openPR",
     ])
   #expect(everyKey == reached)
 }
@@ -665,13 +672,27 @@ private func l10nSource() -> String {
 @Test func theRunnerMenusOwnLinesAreExactInBothLanguages() throws {
   let english = try speaking("en")
   let spanish = try speaking("es")
-  // Sentence case, as every line beside them is: "View runs" and "Refresh now"
-  // in the same menus, "Delete old logs…" in the same Maintenance section.
+  // Title case in English, as the HIG asks of a menu item: the Runner menu,
+  // a sidebar row's context menu and the quick menu. Spanish menus keep
+  // sentence case, so their lines read as they did.
   let lines = [
     ("controlCenter.runnerMenu", "Runner", "Runner"),
-    ("controlCenter.showLogs", "Show logs in Finder", "Mostrar los logs en el Finder"),
-    ("controlCenter.copyName", "Copy name", "Copiar nombre"),
-    ("controlCenter.openInBrowser", "Open in browser", "Abrir en el navegador"),
+    ("menuItem.startService", "Start Service", "Arrancar servicio"),
+    ("menuItem.stopService", "Stop Service", "Parar servicio"),
+    ("menuItem.restartService", "Restart Service", "Reiniciar servicio"),
+    ("menuItem.viewRuns", "View Runs", "Ver ejecuciones"),
+    ("menuItem.viewSettings", "View Settings", "Ver configuración"),
+    ("menuItem.openGitLab", "Open GitLab", "Abrir GitLab"),
+    ("menuItem.openInBrowser", "Open in Browser", "Abrir en el navegador"),
+    ("menuItem.showLogsInFinder", "Show Logs in Finder", "Mostrar los logs en el Finder"),
+    ("menuItem.copyName", "Copy Name", "Copiar nombre"),
+    ("menuItem.refreshNow", "Refresh Now", "Actualizar ahora"),
+    ("menuItem.openJob", "Open Job on GitHub", "Abrir job en GitHub"),
+    (
+      "menuItem.openRun", "Open Workflow Run on GitHub",
+      "Abrir ejecución del workflow en GitHub"
+    ),
+    ("menuItem.openPR", "Open PR #%d on GitHub", "Abrir PR #%d en GitHub"),
   ]
   for (key, en, es) in lines {
     #expect(L10n.t(key, in: [english]) == en, "en/\(key)")
@@ -684,11 +705,103 @@ private func l10nSource() -> String {
     $0.key.localizedCaseInsensitiveContains("logs")
   }
   #expect(logLines.keys.contains("controlCenter.showLogs"))
+  #expect(logLines.keys.contains("menuItem.showLogsInFinder"))
   #expect(logLines.keys.contains("menu.maintenance.trimLogs"))
   for (key, value) in logLines {
     let named = value.range(
       of: #"\blogs?\b"#, options: [.regularExpression, .caseInsensitive])
     #expect(named != nil, "es/\(key)")
+  }
+}
+
+/// Whether an English line is in the HIG's title case: every word capitalised
+/// except articles, coordinating conjunctions and short prepositions, which
+/// are lower case unless first or last. A word opening with no letter, such
+/// as `#%d`, counts either way.
+private func isTitleCase(_ line: String) -> Bool {
+  let minor: Set<String> = [
+    "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at", "by",
+    "in", "of", "on", "to", "via", "from", "into", "onto", "over", "with",
+  ]
+  let words = line.split(separator: " ")
+  return words.indices.allSatisfy { index in
+    let word = words[index]
+    guard let first = word.first, first.isLetter else { return true }
+    let edge = index == words.startIndex || index == words.index(before: words.endIndex)
+    let bare = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
+    return !edge && minor.contains(bare) ? first.isLowercase : first.isUppercase
+  }
+}
+
+@Test func everyMenuCommandIsTitleCaseInEnglish() throws {
+  // Read off the menus' source: a line routed back to a button's key, or a new
+  // menu key in sentence case, fails here. These five are already title case:
+  // one word each, or a line no button says.
+  let reused = [
+    "runnerMenu": "controlCenter.runnerMenu", "start": "menu.start",
+    "controlCenter": "menu.controlCenter", "settings": "menu.settings", "quit": "menu.quit",
+  ]
+  let english = try catalogue("en")
+  let l10n = l10nSource()
+  for file in ["RunnerCommands.swift", "QuickMenuView.swift"] {
+    let names = standfastSource(file).components(separatedBy: "L10n.").dropFirst().map {
+      String($0.prefix { $0.isLetter || $0.isNumber })
+    }
+    #expect(!names.isEmpty, "\(file)")
+    for name in names {
+      let key: String
+      if name.hasPrefix("menuItem") {
+        let rest = name.dropFirst("menuItem".count)
+        key = "menuItem." + rest.prefix(1).lowercased() + String(rest.dropFirst())
+        #expect(l10n.contains("static let \(name) = t(\"\(key)\")"), "\(name)")
+      } else {
+        key = try #require(reused[name], "\(file) names L10n.\(name)")
+      }
+      let line = try #require(english[key], "en/\(key)")
+      #expect(isTitleCase(line), "\(file): en/\(key) = \(line)")
+    }
+  }
+  // Every line of the family, the job links the quick menu draws among them.
+  let family = L10n.english.filter { $0.key.hasPrefix("menuItem.") }
+  #expect(!family.isEmpty)
+  for (key, line) in family {
+    #expect(isTitleCase(line), "fallback/\(key) = \(line)")
+    #expect(english[key].map(isTitleCase) == true, "en/\(key)")
+  }
+  // The rule, against the lines it was written for.
+  #expect(isTitleCase("Show Logs in Finder"))
+  #expect(isTitleCase("Open PR #702 on GitHub"))
+  #expect(isTitleCase("Open in Browser"))
+  #expect(!isTitleCase("Show logs in Finder"))
+  #expect(!isTitleCase("Show Logs In Finder"))
+  #expect(!isTitleCase("Refresh now"))
+  #expect(!isTitleCase("Open workflow run on GitHub"))
+}
+
+@Test func aMenuItemSaysWhatItsButtonSaysInTheMenusOwnCase() throws {
+  // A button, the toolbar, the detail form's links and every sentence keep
+  // sentence case: "try Refresh now" names the toolbar's button, which still
+  // says it that way. Spanish menus are in sentence case already.
+  let english = try catalogue("en")
+  let spanish = try catalogue("es")
+  let pairs = [
+    ("menuItem.refreshNow", "menu.refreshNow", "Refresh now"),
+    ("menuItem.showLogsInFinder", "controlCenter.showLogs", "Show logs in Finder"),
+    ("menuItem.startService", "controlCenter.service.start", "Start service"),
+    ("menuItem.stopService", "controlCenter.service.stop", "Stop service"),
+    ("menuItem.restartService", "controlCenter.service.restart", "Restart service"),
+    ("menuItem.viewRuns", "controlCenter.viewRuns", "View runs"),
+    ("menuItem.viewSettings", "controlCenter.viewSettings", "View settings"),
+    ("menuItem.openGitLab", "controlCenter.openGitLab", "Open GitLab"),
+    ("menuItem.openJob", "managedJob.open", "Open job on GitHub"),
+    ("menuItem.openRun", "managedJob.openRun", "Open workflow run on GitHub"),
+    ("menuItem.openPR", "managedJob.openPR", "Open PR #%d on GitHub"),
+  ]
+  for (menuKey, sharedKey, shared) in pairs {
+    #expect(english[sharedKey] == shared, "en/\(sharedKey)")
+    #expect(L10n.english[sharedKey] == shared, "fallback/\(sharedKey)")
+    #expect(english[menuKey]?.lowercased() == shared.lowercased(), "en/\(menuKey)")
+    #expect(spanish[menuKey] == spanish[sharedKey], "es/\(menuKey)")
   }
 }
 
