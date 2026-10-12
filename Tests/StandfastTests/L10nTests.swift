@@ -159,6 +159,11 @@ private func l10nSource() -> String {
     L10n.stateUnknownNoLocalAnswerProcess,
     L10n.stateUnknownGitLabPaused, L10n.stateLayerGitLabPaused,
     L10n.settingsGitLabInsecure,
+    L10n.controlCenterThisMac, L10n.controlCenterFleetSupervisor, L10n.gitHub,
+    L10n.gitLab, L10n.layerLocalRunning, L10n.layerLocalNotRunning,
+    L10n.layerLocalStarting, L10n.layerRemoteOnline, L10n.layerRemoteBusy,
+    L10n.layerRemoteOffline, L10n.layerRemoteWaitingToAppear,
+    L10n.layerRemoteNotAskedStopped, L10n.layerRemoteNotAsked,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -285,6 +290,12 @@ private func l10nSource() -> String {
       "state.unknown.noLocalAnswer.process",
       "state.unknown.gitLabPaused", "state.layer.gitLabPaused",
       "settings.gitlab.insecure",
+      "controlCenter.thisMac", "controlCenter.fleetSupervisor",
+      "controlCenter.group.gitHub", "controlCenter.group.gitLab",
+      "layer.local.running", "layer.local.notRunning", "layer.local.starting",
+      "layer.remote.online", "layer.remote.busy", "layer.remote.offline",
+      "layer.remote.waitingToAppear", "layer.remote.notAskedStopped",
+      "layer.remote.notAsked",
     ])
   #expect(everyKey == reached)
 }
@@ -544,6 +555,49 @@ private func l10nSource() -> String {
   #expect(L10n.stopRunner("build-mac", in: [spanish]) == "Parar build-mac")
   #expect(L10n.restartRunner("build-mac", in: [english]) == "Restart build-mac")
   #expect(L10n.restartRunner("build-mac", in: [spanish]) == "Reiniciar build-mac")
+}
+
+@Test func theLayerRowsAreExactInBothLanguages() throws {
+  let english = try catalogue("en")
+  let spanish = try catalogue("es")
+  let rows = [
+    ("controlCenter.thisMac", "This Mac", "Esta Mac"),
+    ("controlCenter.fleetSupervisor", "Fleet supervisor", "Supervisor del fleet"),
+    ("controlCenter.group.gitHub", "GitHub", "GitHub"),
+    ("controlCenter.group.gitLab", "GitLab", "GitLab"),
+    ("layer.local.running", "Running", "En marcha"),
+    ("layer.local.notRunning", "Not running", "Detenido"),
+    ("layer.local.starting", "Starting", "Arrancando"),
+    ("layer.remote.online", "Online, waiting for jobs", "En línea, esperando trabajos"),
+    ("layer.remote.busy", "Online, running a job", "En línea, ejecutando un trabajo"),
+    ("layer.remote.offline", "Offline", "Sin conexión"),
+    ("layer.remote.waitingToAppear", "Waiting to appear", "Esperando a aparecer"),
+    (
+      "layer.remote.notAskedStopped", "Not asked while stopped",
+      "Sin consultar mientras está detenido"
+    ),
+    ("layer.remote.notAsked", "Not asked", "Sin consultar"),
+  ]
+  for (key, en, es) in rows {
+    #expect(english[key] == en, "en/\(key)")
+    #expect(spanish[key] == es, "es/\(key)")
+  }
+  // `Ejecutando` means on a job, which a live process alone does not claim.
+  #expect(spanish["layer.local.running"] != spanish["state.short.running"])
+  // Named as the line sending somebody to check the supervisor names it.
+  for pack in [english, spanish] {
+    let supervisor = try #require(pack["controlCenter.fleetSupervisor"]).lowercased()
+    let remedy = try #require(pack["state.unknown.managedFleetUnavailable"])
+    #expect(remedy.contains(supervisor))
+  }
+  // The spec wrote "Supervisor de la flota". Every Spanish line about the fleet
+  // already says "fleet", and a window saying both reads as two things, so the
+  // new rows say it too. Switch them all in one change, or none.
+  let flota = #"\bflotas?\b"#
+  for (key, value) in spanish {
+    let found = value.range(of: flota, options: [.regularExpression, .caseInsensitive])
+    #expect(found == nil, "es/\(key)")
+  }
 }
 
 @Test func disruptiveServiceConfirmationCopyIsExactInBothLanguages() throws {

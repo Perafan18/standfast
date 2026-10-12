@@ -256,3 +256,16 @@
 "state.unknown.gitLabPaused" = "Running locally, paused in GitLab — no work is sent until it is resumed";
 "state.layer.gitLabPaused" = "Paused in GitLab";
 "settings.gitlab.insecure" = "Served over http. Standfast sends tokens only over https, so this instance is not asked.";
+"controlCenter.thisMac" = "This Mac";
+"controlCenter.fleetSupervisor" = "Fleet supervisor";
+"controlCenter.group.gitHub" = "GitHub";
+"controlCenter.group.gitLab" = "GitLab";
+"layer.local.running" = "Running";
+"layer.local.notRunning" = "Not running";
+"layer.local.starting" = "Starting";
+"layer.remote.online" = "Online, waiting for jobs";
+"layer.remote.busy" = "Online, running a job";
+"layer.remote.offline" = "Offline";
+"layer.remote.waitingToAppear" = "Waiting to appear";
+"layer.remote.notAskedStopped" = "Not asked while stopped";
+"layer.remote.notAsked" = "Not asked";

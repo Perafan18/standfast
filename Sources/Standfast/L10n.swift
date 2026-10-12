@@ -65,6 +65,23 @@ enum L10n {
   static let stateLayerManagedFleetWaiting = t("state.layer.managedFleetWaiting")
   static let stateLayerManagedFleetUnavailable = t("state.layer.managedFleetUnavailable")
   static let stateLayerGitHubRefusedToken = t("state.layer.gitHubRefusedToken")
+  /// Who each layer is: the process here or the supervisor that owns the slot,
+  /// and the service that hands it work.
+  static let controlCenterThisMac = t("controlCenter.thisMac")
+  static let controlCenterFleetSupervisor = t("controlCenter.fleetSupervisor")
+  static let gitHub = t("controlCenter.group.gitHub")
+  static let gitLab = t("controlCenter.group.gitLab")
+  /// What a layer says when its answer is plain. Its name is beside it, so
+  /// unlike the state sentence these never say which layer they are.
+  static let layerLocalRunning = t("layer.local.running")
+  static let layerLocalNotRunning = t("layer.local.notRunning")
+  static let layerLocalStarting = t("layer.local.starting")
+  static let layerRemoteOnline = t("layer.remote.online")
+  static let layerRemoteBusy = t("layer.remote.busy")
+  static let layerRemoteOffline = t("layer.remote.offline")
+  static let layerRemoteWaitingToAppear = t("layer.remote.waitingToAppear")
+  static let layerRemoteNotAskedStopped = t("layer.remote.notAskedStopped")
+  static let layerRemoteNotAsked = t("layer.remote.notAsked")
   static let foldCard = t("controlCenter.fold")
   static let unfoldCard = t("controlCenter.unfold")
   static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
@@ -984,6 +1001,19 @@ enum L10n {
     "state.layer.gitLabPaused": "Paused in GitLab",
     "settings.gitlab.insecure":
       "Served over http. Standfast sends tokens only over https, so this instance is not asked.",
+    "controlCenter.thisMac": "This Mac",
+    "controlCenter.fleetSupervisor": "Fleet supervisor",
+    "controlCenter.group.gitHub": "GitHub",
+    "controlCenter.group.gitLab": "GitLab",
+    "layer.local.running": "Running",
+    "layer.local.notRunning": "Not running",
+    "layer.local.starting": "Starting",
+    "layer.remote.online": "Online, waiting for jobs",
+    "layer.remote.busy": "Online, running a job",
+    "layer.remote.offline": "Offline",
+    "layer.remote.waitingToAppear": "Waiting to appear",
+    "layer.remote.notAskedStopped": "Not asked while stopped",
+    "layer.remote.notAsked": "Not asked",
   ]
 
   /// Looks the key up in one complete language pack, and falls back to the
