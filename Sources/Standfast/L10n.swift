@@ -71,6 +71,7 @@ enum L10n {
   static let controlCenterFleetSupervisor = t("controlCenter.fleetSupervisor")
   static let gitHub = t("controlCenter.group.gitHub")
   static let gitLab = t("controlCenter.group.gitLab")
+  static let managedFleet = t("controlCenter.group.managedFleet")
   /// What a layer says when its answer is plain. Its name is beside it, so
   /// unlike the state sentence these never say which layer they are.
   static let layerLocalRunning = t("layer.local.running")
@@ -1005,6 +1006,7 @@ enum L10n {
     "controlCenter.fleetSupervisor": "Fleet supervisor",
     "controlCenter.group.gitHub": "GitHub",
     "controlCenter.group.gitLab": "GitLab",
+    "controlCenter.group.managedFleet": "Managed Fleet",
     "layer.local.running": "Running",
     "layer.local.notRunning": "Not running",
     "layer.local.starting": "Starting",

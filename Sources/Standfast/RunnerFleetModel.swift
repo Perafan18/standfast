@@ -51,6 +51,10 @@ struct RunnerSnapshot: Identifiable, Equatable {
   /// (INV-006). Read in the scan, off the main actor, because proving it means
   /// resolving symlinks.
   let isWorkDirectoryContained: Bool
+  /// This runner's `_diag`, resolved and proved to stay under its directory.
+  /// Nil when it escapes, does not exist yet, or was never asked, as for a
+  /// fleet slot. Read in the scan, off the main actor.
+  let containedDiagnosticsDirectory: URL?
 
   /// Which runner is installed here, as far as its own log says. Read with the
   /// rest of the scan rather than on its own schedule: it comes out of the head
@@ -74,6 +78,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     runner: DiscoveredRunner, display: DisplayState,
     labels: [String] = [], queued: QueuedWorkKnowledge = .notAsked,
     isWorkDirectoryContained: Bool = true,
+    containedDiagnosticsDirectory: URL? = nil,
     qualifier: String? = nil,
     jobs: JobHistory = .empty, readAt: Date = .distantPast,
     isJobHistoryAvailable: Bool = true, readBeganAt: Date? = nil,
@@ -86,6 +91,7 @@ struct RunnerSnapshot: Identifiable, Equatable {
     self.labels = labels
     self.queued = queued
     self.isWorkDirectoryContained = isWorkDirectoryContained
+    self.containedDiagnosticsDirectory = containedDiagnosticsDirectory
     self.qualifier = qualifier
     self.jobs = jobs
     self.isJobHistoryAvailable = isJobHistoryAvailable
@@ -500,6 +506,7 @@ final class RunnerFleetModel: ObservableObject {
     var labels: [[String]] = []
     var queued: [QueuedWorkKnowledge] = []
     var workContained: [Bool] = []
+    var containedDiagnostics: [URL?] = []
     var jobs: [JobLogReader.Reading] = []
     var installed: [InstalledRunnerVersion] = []
     var readAt: [Date] = []
@@ -520,6 +527,7 @@ final class RunnerFleetModel: ObservableObject {
         installed.append(.absent)
         // Unproved, and never asked: maintenance of a slot is its supervisor's.
         workContained.append(false)
+        containedDiagnostics.append(nil)
         continue
       }
       // The same rule as discovery, for the same reason: this is file I/O, and
@@ -545,16 +553,20 @@ final class RunnerFleetModel: ObservableObject {
             ? (reader.headerLog.map(versions.blockingVersion) ?? .absent) : .absent,
           // Resolves symlinks under `_work`, which INV-006 says may be on an
           // external disk or a share: a `realpath` that waits on the volume.
-          workContained: runner.containedWorkDirectory != nil)
+          workContained: runner.containedWorkDirectory != nil,
+          containedDiagnostics: Self.existingDirectory(
+            runner.containedDiagnosticsDirectory))
       }
       jobs.append(read.jobs)
       readers[runner.label] = read.reader
       installed.append(read.version)
       workContained.append(read.workContained)
+      containedDiagnostics.append(read.containedDiagnostics)
     }
     return Scan(
       found: found, states: states, labels: labels, queued: queued,
-      workContained: workContained, jobs: jobs,
+      workContained: workContained, containedDiagnostics: containedDiagnostics,
+      jobs: jobs,
       readers: readers, versions: installed,
       discoveryStartedAt: discoveryStartedAt, readAt: readAt,
       readBeganAt: readBeganAt, stateReadAt: stateReadAt)
@@ -603,6 +615,18 @@ final class RunnerFleetModel: ObservableObject {
     }
   }
 
+  /// `url` while a directory is there. Containment proves where a missing
+  /// `_diag` would be, not that it exists, and Finder asked to reveal a
+  /// missing path does nothing.
+  private nonisolated static func existingDirectory(_ url: URL?) -> URL? {
+    guard let url else { return nil }
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+      isDirectory.boolValue
+    else { return nil }
+    return url
+  }
+
   /// Everything one hop off the pool reads about one runner's directory.
   ///
   /// A named type for the same reason `Scan` is: it crosses a thread boundary.
@@ -613,6 +637,7 @@ final class RunnerFleetModel: ObservableObject {
     let reader: JobLogReader
     let version: InstalledRunnerVersion
     let workContained: Bool
+    let containedDiagnostics: URL?
   }
 
   /// One scan's answer. A named type rather than a tuple because it crosses a
@@ -623,6 +648,7 @@ final class RunnerFleetModel: ObservableObject {
     let labels: [[String]]
     let queued: [QueuedWorkKnowledge]
     let workContained: [Bool]
+    let containedDiagnostics: [URL?]
     let jobs: [JobLogReader.Reading]
     let readers: [String: JobLogReader]
     let versions: [InstalledRunnerVersion]
@@ -704,6 +730,7 @@ final class RunnerFleetModel: ObservableObject {
         labels: scan.labels[index],
         queued: scan.queued[index],
         isWorkDirectoryContained: scan.workContained[index],
+        containedDiagnosticsDirectory: scan.containedDiagnostics[index],
         // Only where the name alone would not say which runner this is.
         qualifier: qualifiers[index],
         jobs: jobReading.history,
@@ -855,6 +882,7 @@ final class RunnerFleetModel: ObservableObject {
         runner: snapshot.runner, display: snapshot.display,
         labels: snapshot.labels, queued: snapshot.queued,
         isWorkDirectoryContained: snapshot.isWorkDirectoryContained,
+        containedDiagnosticsDirectory: snapshot.containedDiagnosticsDirectory,
         qualifier: snapshot.qualifier, jobs: snapshot.jobs,
         readAt: snapshot.readAt,
         isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
@@ -1168,6 +1196,7 @@ final class RunnerFleetModel: ObservableObject {
         runner: snapshot.runner, display: snapshot.display,
         labels: snapshot.labels, queued: snapshot.queued,
         isWorkDirectoryContained: snapshot.isWorkDirectoryContained,
+        containedDiagnosticsDirectory: snapshot.containedDiagnosticsDirectory,
         qualifier: snapshot.qualifier, jobs: snapshot.jobs, readAt: snapshot.readAt,
         isJobHistoryAvailable: snapshot.isJobHistoryAvailable,
         readBeganAt: snapshot.readBeganAt, stateReadAt: snapshot.stateReadAt,

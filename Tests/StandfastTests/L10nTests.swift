@@ -163,7 +163,7 @@ private func l10nSource() -> String {
     L10n.gitLab, L10n.layerLocalRunning, L10n.layerLocalNotRunning,
     L10n.layerLocalStarting, L10n.layerRemoteOnline, L10n.layerRemoteBusy,
     L10n.layerRemoteOffline, L10n.layerRemoteWaitingToAppear,
-    L10n.layerRemoteNotAskedStopped, L10n.layerRemoteNotAsked,
+    L10n.layerRemoteNotAskedStopped, L10n.layerRemoteNotAsked, L10n.managedFleet,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -295,7 +295,7 @@ private func l10nSource() -> String {
       "layer.local.running", "layer.local.notRunning", "layer.local.starting",
       "layer.remote.online", "layer.remote.busy", "layer.remote.offline",
       "layer.remote.waitingToAppear", "layer.remote.notAskedStopped",
-      "layer.remote.notAsked",
+      "layer.remote.notAsked", "controlCenter.group.managedFleet",
     ])
   #expect(everyKey == reached)
 }
@@ -565,6 +565,7 @@ private func l10nSource() -> String {
     ("controlCenter.fleetSupervisor", "Fleet supervisor", "Supervisor del fleet"),
     ("controlCenter.group.gitHub", "GitHub", "GitHub"),
     ("controlCenter.group.gitLab", "GitLab", "GitLab"),
+    ("controlCenter.group.managedFleet", "Managed Fleet", "Fleet gestionado"),
     ("layer.local.running", "Running", "En marcha"),
     ("layer.local.notRunning", "Not running", "Detenido"),
     ("layer.local.starting", "Starting", "Arrancando"),

@@ -124,6 +124,14 @@ struct JobProgress: Equatable {
     return elapsed > typical
   }
 
+  /// Whether a bar can be drawn against the usual time. Not past it: a full bar
+  /// would read as done while the job runs on. The line still says both
+  /// numbers.
+  var showsBar: Bool {
+    guard let typical, typical > 0 else { return false }
+    return elapsed <= typical
+  }
+
   /// Elapsed time and a reference, never a countdown.
   ///
   /// "1m20s, usually 2m50s" stays true and stays useful at 4m20s, where "1m30s

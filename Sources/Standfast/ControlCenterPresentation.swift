@@ -227,6 +227,15 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   let recentJobs: [RunnerRow.RecentJob]
   let maintenance: MaintenanceSection
   let githubDestination: GitHubDestination
+  /// Which sidebar group this runner is listed under.
+  let group: ControlCenterSidebar.Group
+  /// What the header counts. See `RunnerSnapshot.needsAttention`.
+  let needsAttention: Bool
+  /// The running job against its usual time, and nil when nothing is running.
+  let jobProgress: JobProgress?
+  /// The folder Show Logs in Finder reveals, and nil where there is no folder
+  /// of this runner's own to show.
+  let diagnosticsDirectory: URL?
   /// Whether this card opens folded on a fleet the operator has not touched.
   ///
   /// A column of complete cards is the right shape for the two or three runners
@@ -252,6 +261,30 @@ extension RunnerCardPresentation {
     case .healthy, .active: return true
     case .attention, .stopped, .neutral: return false
     }
+  }
+}
+
+extension RunnerCardPresentation {
+  /// Where this runner goes in the Overview's lists: what somebody has to
+  /// answer for first, a failed order included, then stopped, then working.
+  /// Discovery order stays the sidebar's.
+  var attentionRank: Int {
+    if needsAttention { return 0 }
+    return switch tone {
+    case .attention: 0
+    case .stopped: 1
+    case .neutral: 2
+    case .active: 3
+    case .healthy: 4
+    }
+  }
+
+  /// The heat lines over this runner's detail, and nil unless its own job has
+  /// overrun on a Mac that is being throttled. The lines come from the caller:
+  /// the thermal monitor is an object, not part of this value.
+  func overrunThermalLine(thermalLines: [String]) -> String? {
+    guard jobProgress?.isOverTypical == true, !thermalLines.isEmpty else { return nil }
+    return thermalLines.joined(separator: "\n")
   }
 }
 
@@ -290,6 +323,13 @@ extension RunnerCardPresentation {
     } else {
       focus = .state(snapshot.display.summary(for: snapshot.runner))
     }
+    let diagnosticsDirectory: URL? =
+      switch snapshot.runner.installation {
+      // Only a folder that is this runner's own. A GitLab runner keeps no
+      // `_diag`, and a fleet slot's logs are its supervisor's.
+      case .launchAgent, .manual: snapshot.containedDiagnosticsDirectory
+      case .gitLabService, .managedFleet: nil
+      }
     return Self(
       id: snapshot.id,
       title: snapshot.runner.displayName,
@@ -321,6 +361,10 @@ extension RunnerCardPresentation {
         snapshot, measurement: measurement, latest: latestRelease,
         isWorking: isMaintenanceWorking, notice: maintenanceNotice, now: now),
       githubDestination: destination,
+      group: ControlCenterSidebar.Group(snapshot),
+      needsAttention: snapshot.needsAttention,
+      jobProgress: snapshot.jobProgress,
+      diagnosticsDirectory: diagnosticsDirectory,
       startsCollapsed: startsCollapsed(tone: snapshot.display.tone, fleetSize: fleetSize))
   }
 
@@ -394,4 +438,108 @@ struct ControlCenterPresentation: Equatable {
   let cards: [RunnerCardPresentation]
   let empty: ControlCenterEmptyPresentation?
   let notice: ControlCenterNoticePresentation?
+}
+
+extension ControlCenterPresentation {
+  /// The sidebar's runners, in discovery order within each group.
+  var sidebar: [ControlCenterSidebar.Section] {
+    ControlCenterSidebar.grouping(cards: cards)
+  }
+
+  /// Every runner, as the Overview lists them: by `attentionRank`, then by
+  /// name as Finder sorts it, then in discovery order.
+  var runnersByAttention: [RunnerCardPresentation] {
+    cards.enumerated().sorted { lhs, rhs in
+      if lhs.element.attentionRank != rhs.element.attentionRank {
+        return lhs.element.attentionRank < rhs.element.attentionRank
+      }
+      let byName = lhs.element.title.localizedStandardCompare(rhs.element.title)
+      if byName != .orderedSame { return byName == .orderedAscending }
+      return lhs.offset < rhs.offset
+    }
+    .map(\.element)
+  }
+
+  /// The runners the header's attention count is about, in the same order.
+  var runnersNeedingAttention: [RunnerCardPresentation] {
+    runnersByAttention.filter(\.needsAttention)
+  }
+}
+
+/// The Control Center's sidebar: one group per service that hands runners
+/// their work.
+enum ControlCenterSidebar {
+  enum Group: CaseIterable, Equatable, Sendable {
+    case gitHub, gitLab, managedFleet
+
+    /// A fleet slot is listed with its supervisor, whichever service it
+    /// registers with: what can be done to it is decided there.
+    init(_ snapshot: RunnerSnapshot) {
+      if snapshot.runner.installation == .managedFleet {
+        self = .managedFleet
+      } else if snapshot.isOnGitLab {
+        self = .gitLab
+      } else {
+        self = .gitHub
+      }
+    }
+
+    var title: String {
+      switch self {
+      case .gitHub: L10n.gitHub
+      case .gitLab: L10n.gitLab
+      case .managedFleet: L10n.managedFleet
+      }
+    }
+  }
+
+  struct Section: Equatable, Identifiable {
+    let group: Group
+    /// Nil while this is the only group: a header over every runner on the Mac
+    /// would tell nobody anything.
+    let title: String?
+    let cards: [RunnerCardPresentation]
+
+    var id: Group { group }
+  }
+
+  /// Groups in a fixed order, empty ones left out, and each runner where
+  /// discovery put it. Never sorted by state: a row that moves when its runner
+  /// changes state is a row somebody clicks by mistake.
+  static func grouping(cards: [RunnerCardPresentation]) -> [Section] {
+    let groups = Group.allCases.filter { group in cards.contains { $0.group == group } }
+    return groups.map { group in
+      Section(
+        group: group, title: groups.count > 1 ? group.title : nil,
+        cards: cards.filter { $0.group == group })
+    }
+  }
+}
+
+/// What the sidebar has selected: the whole fleet, or one runner by its
+/// durable label.
+enum ControlCenterSelection: Hashable, Sendable {
+  case overview
+  case runner(String)
+
+  /// How scene storage spells the Overview. No runner label can collide with
+  /// it: each one starts `actions.runner.` or `standfast.`.
+  static let storedOverview = "overview"
+
+  var stored: String {
+    switch self {
+    case .overview: Self.storedOverview
+    case .runner(let id): id
+    }
+  }
+
+  /// The stored choice while it still names something. Otherwise the only
+  /// runner, since an Overview of one runner says the same thing twice, and
+  /// otherwise the Overview, which is never stale.
+  static func resolve(stored: String, cards: [RunnerCardPresentation]) -> Self {
+    if stored == storedOverview { return .overview }
+    if cards.contains(where: { $0.id == stored }) { return .runner(stored) }
+    if cards.count == 1, let only = cards.first { return .runner(only.id) }
+    return .overview
+  }
 }

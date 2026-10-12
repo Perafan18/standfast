@@ -27,6 +27,9 @@ struct QuickMenuPresentation: Equatable {
     let id: String
     let title: String
     let longState: String
+    /// The state's own symbol, the same one the status item would draw for
+    /// this runner alone.
+    let symbolName: String
     let progress: String?
     let operation: ServiceOperationPresentation?
     let canStart: Bool
@@ -207,6 +210,7 @@ extension QuickMenuPresentation {
         state: snapshot.display.shortSummary,
         identityFormatting: identityFormatting),
       longState: snapshot.display.summary(for: snapshot.runner),
+      symbolName: snapshot.display.symbolName,
       progress: snapshot.jobProgress?.line, operation: snapshot.operation?.presentation,
       // The row's own Start, which the model checks again on the click: read
       // anywhere else, the menu could offer a Start that is then refused.

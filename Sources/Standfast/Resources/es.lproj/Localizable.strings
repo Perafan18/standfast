@@ -260,6 +260,7 @@
 "controlCenter.fleetSupervisor" = "Supervisor del fleet";
 "controlCenter.group.gitHub" = "GitHub";
 "controlCenter.group.gitLab" = "GitLab";
+"controlCenter.group.managedFleet" = "Fleet gestionado";
 "layer.local.running" = "En marcha";
 "layer.local.notRunning" = "Detenido";
 "layer.local.starting" = "Arrancando";

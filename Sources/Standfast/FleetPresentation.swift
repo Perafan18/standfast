@@ -295,6 +295,13 @@ extension RunnerSnapshot {
     JobProgress.reading(jobs, display: display, at: readAt)
   }
 
+  /// Whether a person has to look at this runner: its state says so, or the
+  /// last order it was given failed. One expression, so the header's count and
+  /// the list it promises can never disagree.
+  var needsAttention: Bool {
+    display.needsAttention || operation?.hasFailed == true
+  }
+
   /// Whether Start, Stop and Restart can do anything here.
   ///
   /// They are `svc.sh`, and `svc.sh` manages a LaunchAgent. A runner started by
@@ -460,9 +467,7 @@ struct FleetOverviewPresentation: Equatable {
     // a runner somebody has to look at. Both facts are true; the summary used
     // to print only the flattering one, so the failure lived on as small print
     // inside a card with a green badge at the top.
-    let attentionCount = snapshots.count {
-      $0.display.needsAttention || $0.operation?.hasFailed == true
-    }
+    let attentionCount = snapshots.count(where: \.needsAttention)
     return Self(
       state: state, recovery: recovery,
       attention: attentionCount == 0 ? nil : L10n.runnerAttention(attentionCount))

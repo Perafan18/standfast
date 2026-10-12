@@ -126,7 +126,7 @@ extension DiscoveredRunner {
   /// `_diag` is fixed by the runner rather than configured, but it is still a
   /// path on a filesystem and can be replaced by a symlink. An internal target
   /// remains a runner directory; an external or unresolvable one does not.
-  var containedDiagnosticsDirectory: URL? {
+  public var containedDiagnosticsDirectory: URL? {
     Self.resolvedPath(diagnosticsDirectory, containedIn: directory)
   }
 

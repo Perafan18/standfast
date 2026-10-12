@@ -1373,6 +1373,8 @@ func unavailableBusyStopRunsNothingAndPublishesTerminalFeedback() async throws {
   try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
   try FileManager.default.createSymbolicLink(
     at: directory.appendingPathComponent("_work"), withDestinationURL: external)
+  try FileManager.default.createDirectory(
+    at: directory.appendingPathComponent("_diag"), withIntermediateDirectories: true)
   let queue = QueuedWork(
     jobs: [
       QueuedJob(
@@ -1400,6 +1402,8 @@ func unavailableBusyStopRunsNothingAndPublishesTerminalFeedback() async throws {
   #expect(during.labels == before.labels)
   #expect(during.queued == before.queued)
   #expect(during.isWorkDirectoryContained == before.isWorkDirectoryContained)
+  #expect(before.containedDiagnosticsDirectory != nil)
+  #expect(during.containedDiagnosticsDirectory == before.containedDiagnosticsDirectory)
   #expect(during.readBeganAt == before.readBeganAt)
   commands.release()
   await fleet.quiesce()
@@ -3054,6 +3058,62 @@ private func abandonedJobModel(
 
   #expect(fleet.snapshots.map(\.runner.displayName) == ["alpha", "bravo"])
   #expect(fleet.snapshots.map(\.isWorkDirectoryContained) == [true, false])
+}
+
+@Test func logFolderContainmentIsResolvedOffTheCooperativePool() {
+  // The same `realpath`, under `_diag` this time, for Show Logs in Finder.
+  let mentions = offPoolMentions(
+    of: "runner.containedDiagnosticsDirectory",
+    in: standfastSource("RunnerFleetModel.swift"))
+
+  #expect(!mentions.isEmpty)
+  #expect(mentions.allSatisfy { $0 })
+}
+
+@Test @MainActor func eachRowCarriesItsOwnRunnersLogFolder() async throws {
+  let box = try FleetSandbox(serviceRunning: true)
+  defer { box.cleanUp() }
+  let kept = try box.addRunner(name: "alpha")
+  try FileManager.default.createDirectory(
+    at: kept.appendingPathComponent("_diag"), withIntermediateDirectories: true)
+  let linked = try box.addRunner(name: "bravo")
+  let external = box.root.appendingPathComponent("external-diag")
+  try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+  try FileManager.default.createSymbolicLink(
+    at: linked.appendingPathComponent("_diag"), withDestinationURL: external)
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.map(\.runner.displayName) == ["alpha", "bravo"])
+  let alpha = try #require(fleet.snapshots[0].containedDiagnosticsDirectory)
+  #expect(
+    alpha.resolvingSymlinksInPath()
+      == kept.appendingPathComponent("_diag").resolvingSymlinksInPath())
+  // A `_diag` that points out of the runner is not this runner's to reveal.
+  #expect(fleet.snapshots[1].containedDiagnosticsDirectory == nil)
+}
+
+@Test @MainActor func aRunnerThatHasWrittenNoLogsYetHasNoFolderToReveal() async throws {
+  // Registered and never started: `_diag` would be contained, but Finder
+  // asked to reveal a folder that is not there does nothing at all.
+  let box = try FleetSandbox(serviceRunning: false)
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  let fleet = model(box)
+
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots.count == 1)
+  #expect(fleet.snapshots[0].containedDiagnosticsDirectory == nil)
+
+  // The next scan after the runner makes it offers it.
+  try FileManager.default.createDirectory(
+    at: directory.appendingPathComponent("_diag"), withIntermediateDirectories: true)
+  fleet.refresh()
+  await fleet.quiesce()
+
+  #expect(fleet.snapshots[0].containedDiagnosticsDirectory != nil)
 }
 
 /// For each mention of `needle`, whether it sits inside a closure handed to
