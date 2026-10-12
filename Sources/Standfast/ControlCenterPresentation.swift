@@ -126,37 +126,17 @@ enum ControlCenterEmptyPresentation: Equatable {
       + "/managing-self-hosted-runners/adding-self-hosted-runners")!
 }
 
-enum ControlCenterNoticePresentation: Equatable {
-  case launchAgentsUnavailable(directory: String)
-  case unreadableRunners(paths: [String])
+/// What discovery could not read on a Mac that still has runners to show: a
+/// notice on the Overview rather than the whole page. The fleet's recovery
+/// itself, so its title and paths are the ones every other surface uses.
+typealias ControlCenterNoticePresentation = FleetRecoveryPresentation
 
+extension FleetRecoveryPresentation {
+  /// Only beside runners. With none, the failure is the page, and the empty
+  /// state says it.
   static func building(overview: FleetOverviewPresentation) -> Self? {
     guard case .fleet = overview.state else { return nil }
-    return switch overview.recovery {
-    case .launchAgentsUnavailable(let directory):
-      .launchAgentsUnavailable(directory: directory)
-    case .unreadableRunners(let paths):
-      .unreadableRunners(paths: paths)
-    case nil:
-      nil
-    }
-  }
-
-  /// What could not be read, in the words the empty state uses for the same
-  /// failure. A heading: the paths are a button away, not after it.
-  var title: String {
-    switch self {
-    case .launchAgentsUnavailable: L10n.launchAgentsUnreadableTitle
-    case .unreadableRunners: L10n.someRunnersUnreadableTitle
-    }
-  }
-
-  /// Every path, none summarised: these are what somebody goes and opens.
-  var detailLines: [String] {
-    switch self {
-    case .launchAgentsUnavailable(let directory): [directory]
-    case .unreadableRunners(let paths): paths
-    }
+    return overview.recovery
   }
 }
 

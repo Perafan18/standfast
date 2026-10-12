@@ -416,6 +416,7 @@ enum FleetRecoveryPresentation: Equatable {
     }
   }
 
+  /// Every path, none summarised: these are what somebody goes and opens.
   var detailLines: [String] {
     switch self {
     case .launchAgentsUnavailable(let directory): [directory]
