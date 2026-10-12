@@ -206,3 +206,24 @@ private func slotCard(_ name: String) -> RunnerCardPresentation {
   #expect(source.contains(".accessibilityValue(accessibilityValue)"))
   #expect(!source.contains(".accessibilityValue(header.summary)"))
 }
+
+@Test func aSelectedSidebarRowDrawsItsSymbolInTheRowsOwnInk() throws {
+  // A fixed colour does not change with the selection the way the row's text
+  // does: the busy blue sat on the default blue accent and all but vanished.
+  let source = standfastSource("ControlCenterView.swift")
+  let compact = source.filter { !$0.isWhitespace }
+  let overviewRow = try #require(source.range(of: "private struct OverviewSidebarRow"))
+  let runnerRow = try #require(source.range(of: "private struct RunnerSidebarRow"))
+  let afterRows = try #require(source.range(of: "private struct SidebarSymbolTone"))
+  let rows = String(source[overviewRow.lowerBound..<afterRows.lowerBound])
+
+  #expect(overviewRow.lowerBound < runnerRow.lowerBound)
+  #expect(rows.contains(".modifier(SidebarSymbolTone(tone: header.tone))"))
+  #expect(rows.contains(".modifier(SidebarSymbolTone(tone: card.tone))"))
+  #expect(!rows.contains(".tone.color"))
+  #expect(compact.contains("@Environment(\\.backgroundProminence)"))
+  #expect(
+    compact.contains(
+      "ifbackgroundProminence==.increased{content}else{content.foregroundStyle(tone.color)}"
+    ))
+}

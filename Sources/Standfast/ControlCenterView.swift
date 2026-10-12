@@ -225,7 +225,7 @@ private struct OverviewSidebarRow: View {
     } icon: {
       Image(systemName: header.symbolName)
         .symbolRenderingMode(.hierarchical)
-        .foregroundStyle(header.tone.color)
+        .modifier(SidebarSymbolTone(tone: header.tone))
     }
     .badge(warningCount)
     .accessibilityElement(children: .combine)
@@ -267,12 +267,30 @@ private struct RunnerSidebarRow: View {
     } icon: {
       Image(systemName: card.stateSymbolName)
         .symbolRenderingMode(.hierarchical)
-        .foregroundStyle(card.tone.color)
+        .modifier(SidebarSymbolTone(tone: card.tone))
     }
     .accessibilityElement(children: .combine)
     .accessibilityLabel(card.title)
     .accessibilityValue(card.sidebarAccessibilityValue)
     .accessibilityIdentifier(ControlCenterAccessibility.runner(card.id).sidebar)
+  }
+}
+
+/// A sidebar row's state symbol in its tone's colour, except on the selected
+/// row of a focused sidebar. That row is filled with the accent colour, where a
+/// blue symbol all but vanishes and a grey one turns muddy, so there it takes
+/// the row's own ink, as the text beside it does. The words still say the
+/// state.
+private struct SidebarSymbolTone: ViewModifier {
+  let tone: StateTone
+  @Environment(\.backgroundProminence) private var backgroundProminence
+
+  @ViewBuilder func body(content: Content) -> some View {
+    if backgroundProminence == .increased {
+      content
+    } else {
+      content.foregroundStyle(tone.color)
+    }
   }
 }
 
