@@ -39,13 +39,13 @@ extension DisplayState {
     // Named, not shrugged. The long sentence has had a stable grammar for the
     // two layers since D-R16 — "running locally, GitHub not answering" — while
     // the badge beside it said `Unknown` for both, which is the half of UI-034
-    // that stayed open. The badge now says which layer went quiet, in the same
-    // words the sentence uses.
+    // that stayed open. The short state under the sidebar name says which
+    // layer went quiet, in the same words the sentence uses.
     case .resolved(.unknown(.serviceStateUnreadable)): L10n.stateLayerLocalUnreadable
     // "Not answering" would be a small lie for these two: nothing was asked in
-    // the first, and GitHub answered very clearly in the second. The badge says
-    // what its own sentence says, which is the rule `everyUnknownSentence…`
-    // pins in both catalogues.
+    // the first, and GitHub answered very clearly in the second. The short
+    // state under the sidebar name says what its own sentence says, which is
+    // the rule `everyUnknownSentence…` pins in both catalogues.
     case .resolved(.unknown(.noToken)): L10n.stateLayerGitHubNotAsked
     case .resolved(.unknown(.rateLimited)): L10n.stateLayerGitHubRateLimited
     case .resolved(.unknown(.gitLabNoToken)): L10n.stateLayerGitLabNotAsked

@@ -221,7 +221,8 @@ enum RunnerFocusPresentation: Equatable {
 struct RunnerCardPresentation: Equatable, Identifiable {
   let id: String
   let title: String
-  /// The compact badge copy; `state` keeps the full recovery detail.
+  /// The compact copy under the sidebar name; `state` keeps the full recovery
+  /// detail.
   let compactState: String
   let state: String
   let stateSymbolName: String

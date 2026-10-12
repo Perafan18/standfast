@@ -26,10 +26,9 @@ private var renderDirectory: URL? {
 /// The appearances a render can be taken in.
 ///
 /// Dark was the only one for a long time, which meant every judgement about
-/// this app's look was a judgement about half of it. The light palette has its
-/// own measured values — and the table that reviewed this app found a token
-/// that reads at 7.99:1 in one appearance and 2.06:1 in the other, which is
-/// exactly the kind of thing a dark-only render cannot show.
+/// this app's look was a judgement about half of it. The system colours
+/// resolve to different values in each, and a colour that reads in one can
+/// vanish in the other, which a dark-only render cannot show.
 /// Increase Contrast is deliberately absent: `colorSchemeContrast` is
 /// read-only in SwiftUI, so it cannot be injected into a render. That axis
 /// stays what it already was — a person toggling it in System Settings with

@@ -82,7 +82,7 @@ struct RunnerLayersPresentation: Equatable, Sendable {
     }
   }
 
-  /// The badge words the state already uses, on the layer they are about.
+  /// The words the short state already uses, on the layer they are about.
   /// GitHub and GitLab are asked only after the local probe said yes, so a
   /// remote that went quiet still means the process is running.
   private static func readings(of reason: UnknownReason) -> (LayerReading, LayerReading) {

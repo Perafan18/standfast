@@ -77,9 +77,9 @@ struct ServiceOperationPresentation: Equatable {
   let detail: String
   let symbolName: String
   let isInFlight: Bool
-  /// How loudly the card should say this. A failure earns the surface
-  /// attention colour and a rule; an uncertain result deliberately does not,
-  /// because painting "I do not know" as a failure is a claim of its own.
+  /// How loudly the detail should say this. A failure heads the form under a
+  /// red triangle; an uncertain result deliberately does not, because painting
+  /// "I do not know" as a failure is a claim of its own.
   let tone: StateTone
 }
 
