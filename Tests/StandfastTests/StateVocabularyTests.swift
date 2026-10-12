@@ -89,7 +89,7 @@ import Testing
   let card = RunnerCardPresentation.building(
     snapshot("build-mac", display: .resolved(.idle)), measurement: nil,
     latestRelease: nil, isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 1_785_962_174), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 1_785_962_174))
 
   #expect(card.action(.start)?.label == L10n.serviceStart)
   #expect(card.action(.stop)?.label == L10n.serviceStop)

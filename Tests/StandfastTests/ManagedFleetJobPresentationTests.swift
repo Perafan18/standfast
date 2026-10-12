@@ -56,7 +56,7 @@ private func jobSnapshot(
   #expect(!echo.canStart)
   let card = RunnerCardPresentation.building(
     snapshot, measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
-    maintenanceNotice: nil, now: jobNow, fleetSize: 11)
+    maintenanceNotice: nil, now: jobNow)
   #expect(card.focus == .managedJob(job))
   #expect(card.action(.stop)?.isEnabled == false)
 }

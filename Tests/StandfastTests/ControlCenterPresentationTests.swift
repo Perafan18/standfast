@@ -1,8 +1,6 @@
-import AppKit
 import Combine
 import Foundation
 import RunnerKit
-import SwiftUI
 import Testing
 
 @testable import Standfast
@@ -22,66 +20,6 @@ private func reflectedReference<T: AnyObject>(
     }
   }
   return nil
-}
-
-private struct ProminentForegroundRenderProbe: View {
-  let foregroundInsideLabel: Bool
-
-  private var sentinel: Color {
-    Color(.sRGB, red: 1, green: 0, blue: 1, opacity: 1)
-  }
-
-  var body: some View {
-    if foregroundInsideLabel {
-      Button {
-      } label: {
-        Label("Sentinel", systemImage: "square.fill")
-          .foregroundStyle(sentinel)
-      }
-      .buttonStyle(.borderedProminent)
-    } else {
-      Button {
-      } label: {
-        Label("Sentinel", systemImage: "square.fill")
-      }
-      .foregroundStyle(sentinel)
-      .buttonStyle(.borderedProminent)
-    }
-  }
-}
-
-@MainActor
-private func sentinelPixelCount<V: View>(in root: V) throws -> Int {
-  let size = NSSize(width: 260, height: 90)
-  let rendered =
-    root
-    .font(.system(size: 28, weight: .bold))
-    .tint(Color(.sRGB, red: 0, green: 0.3, blue: 0.7, opacity: 1))
-    .frame(width: size.width, height: size.height)
-    .background(Color.white)
-    .environment(\.colorScheme, .light)
-  let hosting = NSHostingView(rootView: rendered)
-  hosting.frame = NSRect(origin: .zero, size: size)
-  hosting.layoutSubtreeIfNeeded()
-  hosting.displayIfNeeded()
-  let bitmap = try #require(
-    hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-  hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
-
-  var count = 0
-  for x in 0..<bitmap.pixelsWide {
-    for y in 0..<bitmap.pixelsHigh {
-      guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
-        continue
-      }
-      if color.redComponent > 0.75, color.greenComponent < 0.35,
-        color.blueComponent > 0.75, color.alphaComponent > 0.5
-      {
-        count += 1
-      }
-    }
-  }
-  return count
 }
 
 private func controlCenterSnapshot(
@@ -104,40 +42,11 @@ private func controlCenterSnapshot(
 
 private func card(
   _ snapshot: RunnerSnapshot, measurement: DiskMeasurement? = nil,
-  latestRelease: RunnerVersion? = nil, fleetSize: Int = 1
+  latestRelease: RunnerVersion? = nil
 ) -> RunnerCardPresentation {
   RunnerCardPresentation.building(
     snapshot, measurement: measurement, latestRelease: latestRelease,
-    isMaintenanceWorking: false, maintenanceNotice: nil, now: controlCenterNow,
-    fleetSize: fleetSize)
-}
-
-@Test func aSmallFleetNeverFoldsACardTheOperatorDidNotFold() {
-  for tone in [StateTone.healthy, .active, .attention, .stopped, .neutral] {
-    for size in 1...RunnerCardPresentation.compactFleetThreshold {
-      #expect(
-        !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: size),
-        "tone \(tone) at fleet size \(size)")
-    }
-  }
-}
-
-@Test func aLargeFleetFoldsOnlyTheRunnersWithNothingToAnswerFor() {
-  let large = RunnerCardPresentation.compactFleetThreshold + 1
-
-  #expect(RunnerCardPresentation.startsCollapsed(tone: .healthy, fleetSize: large))
-  #expect(RunnerCardPresentation.startsCollapsed(tone: .active, fleetSize: large))
-
-  // The states that are the reason somebody opened the window stay open, no
-  // matter how many runners are on the machine.
-  for tone in [StateTone.attention, .stopped, .neutral] {
-    #expect(
-      !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: large),
-      "tone \(tone)")
-    #expect(
-      !RunnerCardPresentation.startsCollapsed(tone: tone, fleetSize: 40),
-      "tone \(tone) on a very large fleet")
-  }
+    isMaintenanceWorking: false, maintenanceNotice: nil, now: controlCenterNow)
 }
 
 @MainActor
@@ -197,6 +106,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
 @Test func controlCenterAccessibilityRootsAreStableAndNonlocalized() {
   #expect(ControlCenterAccessibility.header == "dev.standfast.control-center.header")
+  #expect(ControlCenterAccessibility.overview == "dev.standfast.control-center.overview")
   #expect(ControlCenterAccessibility.refresh == "dev.standfast.control-center.refresh")
   #expect(ControlCenterAccessibility.notice == "dev.standfast.control-center.notice")
 }
@@ -207,6 +117,7 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
 
   #expect(first == repeated)
   #expect(first.card == "dev.standfast.control-center.runner.612f62.card")
+  #expect(first.sidebar == "dev.standfast.control-center.runner.612f62.sidebar")
   #expect(first.status == "dev.standfast.control-center.runner.612f62.status")
   #expect(first.focus == "dev.standfast.control-center.runner.612f62.focus")
   #expect(first.start.hasSuffix(".action.start"))
@@ -329,14 +240,15 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(stale.freshness == L10n.checkedAgo("10s"))
 }
 
-@Test func redesignedViewsUseOneSurfaceAndNativeDisclosureSections() {
+@Test func redesignedViewsUseGroupedFormsAndNativeDisclosureSections() {
   let source =
     standfastSource("ControlCenterView.swift")
     + standfastSource("RunnerCardView.swift")
 
-  #expect(!source.contains("GroupBox"))
-  #expect(!source.contains("LabeledContent"))
-  #expect(!source.contains("ControlGroup"))
+  // The system draws the rows, the sections and their spacing; the views pick
+  // none of it.
+  #expect(standfastSource("RunnerCardView.swift").contains(".formStyle(.grouped)"))
+  #expect(source.contains("LabeledContent("))
   // Count constructions, not the word. Prose about `DisclosureGroup` in a
   // comment used to move this number, which made an explanation of the code
   // indistinguishable from a change to it.
@@ -358,36 +270,6 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
     source.contains(
       ".accessibilityIdentifier(identifiers.maintenanceAction(offer.kind))"))
   #expect(!source.contains("detail: job.outcome.label"))
-}
-
-@Test func runnerCardSeparatorUsesTheMeasuredDecorativeDivider() {
-  let source = standfastSource("RunnerCardView.swift")
-  let compact = source.filter { !$0.isWhitespace }
-
-  // This used to require the structural border. It was the right rule while
-  // every boundary in the window was drawn the same way — a measured line
-  // beats `Divider()`, whose colour nobody chose. What changed is that the
-  // card now has a canvas behind it, so the edge of the card is visible
-  // without help, and a separator drawn at the same weight as that edge says
-  // "something ends here" about a line that only groups.
-  #expect(!compact.contains("Divider()"))
-  #expect(
-    compact.contains(
-      "Rectangle().fill(palette.divider.color)"
-        + ".frame(height:StandfastTheme.Stroke.separator)"))
-  #expect(StandfastTheme.Stroke.separator < StandfastTheme.Stroke.structural)
-
-  for appearance in StandfastTheme.Appearance.allCases {
-    let standard = StandfastTheme.palette(for: appearance)
-    let increased = StandfastTheme.palette(for: appearance, increasedContrast: true)
-    let standardRatio = standard.structuralBorder.contrastRatio(
-      against: standard.surface)
-    let increasedRatio = increased.structuralBorder.contrastRatio(
-      against: increased.surface)
-
-    #expect(standardRatio >= 3)
-    #expect(increasedRatio >= standardRatio)
-  }
 }
 
 @Test func maintenanceActionsHaveDeterministicKindScopedAccessibilityIDs() {
@@ -415,115 +297,39 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   #expect(app.contains("id: \"control-center\""))
   #expect(app.contains("width: StandfastTheme.controlCenterDefaultWidth"))
   #expect(app.contains("height: StandfastTheme.controlCenterDefaultHeight"))
+  // The window may grow past the split view's minimum and never shrink below
+  // it, which is what keeps a sidebar and a detail side by side.
+  #expect(app.contains(".windowResizability(.contentMinSize)"))
   #expect(controlCenter.contains("minWidth: StandfastTheme.controlCenterMinimumWidth"))
+  #expect(controlCenter.contains("minHeight: StandfastTheme.controlCenterMinimumHeight"))
 }
 
-@Test @MainActor func borderedProminentOverridesOnlyAnOutsideForeground() throws {
-  let outside = try sentinelPixelCount(
-    in: ProminentForegroundRenderProbe(foregroundInsideLabel: false))
-  let inside = try sentinelPixelCount(
-    in: ProminentForegroundRenderProbe(foregroundInsideLabel: true))
+@Test func theFoldsAnEarlierVersionRememberedAreForgottenAtLaunch() {
+  // Folding went with the single-column window. The key is spelled out here,
+  // never taken from a constant: the type that owned one is gone.
+  let app = standfastSource("App.swift")
 
-  #expect(outside == 0)
-  #expect(inside > 20)
+  #expect(app.contains("UserDefaults.standard.removeObject(forKey: \"foldedRunnerCards\")"))
+  #expect(!standfastSource("RunnerFleetModel.swift").contains("foldedRunnerCards"))
 }
 
-@Test func prominentRunnerActionsPutTheMeasuredTokenInsideEachLabel() {
-  let source = standfastSource("RunnerCardView.swift")
-  let compact = source.filter { !$0.isWhitespace }
-  let foregroundInsideLabel =
-    "Label(action.label,systemImage:action.symbolName)"
-    + ".foregroundStyle(foreground.color)"
+@Test func theToolbarLeavesProminenceAndInkToTheSystem() {
+  let source =
+    standfastSource("ControlCenterView.swift")
+    + standfastSource("RunnerCardView.swift")
 
+  // A tint, a forced white label or a key-window gate redraws a control the
+  // system already draws. Each was a contrast bug once: white on an inactive
+  // window's grey pill measured about 1.1:1.
+  #expect(!source.contains(".tint("))
+  #expect(!source.contains("controlActiveState"))
+  #expect(!source.contains("foregroundStyle(.white"))
+  #expect(!source.contains("drawsProminent"))
+  // One prominent action at most, in a toolbar item of its own.
+  #expect(source.contains(".primaryToolbarActionStyle(true)"))
   #expect(
-    compact.contains(
-      "serviceButtonLabel(action,foreground:palette.primaryButtonText)"))
-  #expect(
-    compact.contains(
-      "navigationButton(action,foreground:palette.primaryButtonText)"))
-  #expect(compact.components(separatedBy: "foreground:nil").count - 1 == 2)
-  #expect(
-    compact.components(separatedBy: foregroundInsideLabel).count - 1 == 2)
-  // The render below reaches only Start; View runs takes the same gate.
-  #expect(compact.components(separatedBy: "ifdrawsProminent(action){").count - 1 == 2)
-  #expect(
-    !compact.contains(
-      "ButtonLabel(action).foregroundStyle(palette.primaryButtonText.color)"))
-}
-
-@MainActor
-private func renderedCard(
-  _ card: RunnerCardPresentation, controlActiveState: ControlActiveState
-) throws -> NSBitmapImageRep {
-  let size = NSSize(width: StandfastTheme.controlCenterDefaultWidth, height: 420)
-  let hosting = NSHostingView(
-    rootView: RunnerCardView(
-      card: card, isCollapsed: false, toggleCollapsed: {},
-      performAction: { _ in }, performMaintenance: { _ in }
-    )
-    .frame(width: size.width, height: size.height)
-    .environment(\.colorScheme, .light)
-    .environment(\.controlActiveState, controlActiveState))
-  hosting.frame = NSRect(origin: .zero, size: size)
-  hosting.layoutSubtreeIfNeeded()
-  hosting.displayIfNeeded()
-  let bitmap = try #require(
-    hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-  hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
-  return bitmap
-}
-
-private func srgb(_ bitmap: NSBitmapImageRep, _ x: Int, _ y: Int) -> NSColor? {
-  bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
-}
-
-/// A window left open beside an editor is not key, and macOS draws a prominent
-/// button there as a grey pill. Every earlier render was taken outside a
-/// window, where the tint is always drawn.
-@Test @MainActor func aProminentActionStaysReadableWhenTheWindowIsNotActive() throws {
-  let stopped = card(controlCenterSnapshot(.resolved(.stopped)))
-  #expect(stopped.actions.contains { $0.kind == .start && $0.emphasis == .prominent })
-
-  // Where the button is, found from the one place the tint is drawn: the
-  // stopped badge and every other control on this card are neutral.
-  let key = try renderedCard(stopped, controlActiveState: .key)
-  var minX = Int.max
-  var minY = Int.max
-  var maxX = Int.min
-  var maxY = Int.min
-  for x in 0..<key.pixelsWide {
-    for y in 0..<key.pixelsHigh {
-      guard let color = srgb(key, x, y),
-        color.blueComponent > 0.7, color.redComponent < 0.35
-      else { continue }
-      minX = min(minX, x)
-      minY = min(minY, y)
-      maxX = max(maxX, x)
-      maxY = max(maxY, y)
-    }
-  }
-  try #require(maxX - minX > 40 && maxY - minY > 10)
-
-  let inactive = try renderedCard(stopped, controlActiveState: .inactive)
-  var luminances: [Double] = []
-  for x in minX...maxX {
-    for y in minY...maxY {
-      guard let color = srgb(inactive, x, y) else { continue }
-      let hex =
-        UInt32((color.redComponent * 255).rounded()) << 16
-        | UInt32((color.greenComponent * 255).rounded()) << 8
-        | UInt32((color.blueComponent * 255).rounded())
-      luminances.append(
-        StandfastSRGBColor(hex: hex).contrastRatio(
-          against: StandfastSRGBColor(hex: 0x000000)))
-    }
-  }
-  let lightest = try #require(luminances.max())
-  let darkest = try #require(luminances.min())
-
-  // Ratios against black, so their quotient is the contrast between the
-  // darkest and the lightest pixel inside the button: label against bezel.
-  #expect(lightest / darkest >= 4.5)
+    source.contains(
+      ".primaryToolbarActionStyle(destination.emphasis == .prominent)"))
 }
 
 // MARK: - Card projection
@@ -596,6 +402,25 @@ private func srgb(_ bitmap: NSBitmapImageRep, _ x: Int, _ y: Int) -> NSColor? {
   #expect(
     subject.actions.first { $0.kind == .openOnGitHub }?.label
       == L10n.viewRuns())
+}
+
+@Test func aCardReadsItsTwoLayersFromItsOwnStateAndService() throws {
+  // Disconnected is the case the two rows exist for: running here, and GitHub
+  // saying no. One word for both is what used to hide which half broke.
+  let disconnected = card(controlCenterSnapshot(.resolved(.disconnected)))
+  #expect(disconnected.layers.localName == L10n.controlCenterThisMac)
+  #expect(
+    disconnected.layers.local == LayerReading(text: L10n.layerLocalRunning, tone: .ok))
+  #expect(disconnected.layers.remoteName == L10n.gitHub)
+  #expect(
+    disconnected.layers.remote == LayerReading(text: L10n.layerRemoteOffline, tone: .no))
+
+  let gitLab = try #require(GitLabInstance(url: "https://gitlab.example.com"))
+  let stopped = card(
+    controlCenterSnapshot(
+      .resolved(.stopped), scope: .gitLab(instance: gitLab), installation: .gitLabService))
+  #expect(stopped.layers.remoteName == L10n.gitLab)
+  #expect(stopped.layers.local == LayerReading(text: L10n.layerLocalNotRunning, tone: .off))
 }
 
 @Test func aCardKeepsTheRawRunnerNameAndScopeSeparateEvenWhenQualified() {
@@ -1267,8 +1092,18 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
   #expect(uncertain.presentation.tone == .neutral)
 }
 
-@Test func theCardRaisesTheFailedReceiptWithItsOwnRule() {
+@Test func theCardRaisesTheFailedReceiptAndLetsTheOthersKeepTheirTone() {
   let source = standfastSource("RunnerCardView.swift")
+  let compact = source.filter { !$0.isWhitespace }
 
-  #expect(source.contains("attentionOnSurface"))
+  // A failure heads the form, filled and red. Every other receipt wears the
+  // tone its presentation gave it, so an uncertain one is never drawn as a
+  // failure.
+  #expect(source.contains("Section(L10n.controlCenterLastAction)"))
+  #expect(
+    compact.contains(
+      "Image(systemName:\"exclamationmark.triangle.fill\").foregroundStyle(.red)"))
+  #expect(
+    compact.contains(
+      "Image(systemName:feedback.symbolName).foregroundStyle(feedback.tone.color)"))
 }

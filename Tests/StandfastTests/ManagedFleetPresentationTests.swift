@@ -23,7 +23,7 @@ private func managedFleetSnapshot(
   let card = RunnerCardPresentation.building(
     snapshot, measurement: nil, latestRelease: nil,
     isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 1_788_469_230), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 1_788_469_230))
 
   #expect(card.serviceNote == L10n.runnerManagedFleet)
   #expect(card.action(.start)?.isEnabled == false)

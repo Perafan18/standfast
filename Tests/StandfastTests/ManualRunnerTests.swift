@@ -59,7 +59,7 @@ private func servicedSnapshot(_ display: DisplayState = .resolved(.idle)) -> Run
   let card = RunnerCardPresentation.building(
     manualSnapshot(), measurement: nil, latestRelease: nil,
     isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 0))
 
   #expect(card.serviceNote == L10n.runnerStartedByHand)
 }
@@ -68,7 +68,7 @@ private func servicedSnapshot(_ display: DisplayState = .resolved(.idle)) -> Run
   let card = RunnerCardPresentation.building(
     servicedSnapshot(), measurement: nil, latestRelease: nil,
     isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 0))
 
   #expect(card.serviceNote == nil)
 }
@@ -97,7 +97,7 @@ private func gitLabSnapshot(
   let card = RunnerCardPresentation.building(
     gitLabSnapshot(), measurement: nil, latestRelease: nil,
     isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 0))
 
   #expect(card.serviceNote == L10n.runnerGitLabService)
   #expect(card.action(.start)?.isEnabled == false)
@@ -122,7 +122,7 @@ private func gitLabSnapshot(
   let card = RunnerCardPresentation.building(
     gitLabSnapshot(), measurement: nil, latestRelease: nil,
     isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 0))
 
   guard case .instance(let url) = card.githubDestination else {
     Issue.record("A GitLab runner links to \(card.githubDestination)")
@@ -140,7 +140,7 @@ private func gitLabSnapshot(
   let card = RunnerCardPresentation.building(
     snapshot, measurement: nil, latestRelease: nil,
     isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 0))
   let menu = QuickMenuPresentation.building(
     snapshots: [snapshot],
     overview: .building(snapshots: [snapshot], notice: nil),
@@ -179,7 +179,7 @@ private func gitLabSnapshot(
   let card = RunnerCardPresentation.building(
     snapshot, measurement: nil, latestRelease: nil,
     isMaintenanceWorking: false, maintenanceNotice: nil,
-    now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+    now: Date(timeIntervalSince1970: 0))
   let menu = QuickMenuPresentation.building(
     snapshots: [snapshot],
     overview: .building(snapshots: [snapshot], notice: nil),
@@ -217,7 +217,7 @@ private func gitLabSnapshot(
     RunnerCardPresentation.building(
       snapshot, measurement: nil, latestRelease: nil,
       isMaintenanceWorking: false, maintenanceNotice: nil,
-      now: Date(timeIntervalSince1970: 0), fleetSize: 1
+      now: Date(timeIntervalSince1970: 0)
     ).state
   }
   let unreadable = DisplayState.resolved(.unknown(.serviceStateUnreadable))

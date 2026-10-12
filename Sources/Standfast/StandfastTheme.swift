@@ -209,9 +209,12 @@ enum StandfastTheme {
 
   static let controlMinimumHeight: CGFloat = 28
 
-  static let controlCenterMinimumWidth: CGFloat = 520
-  static let controlCenterDefaultWidth: CGFloat = 540
-  static let controlCenterDefaultHeight: CGFloat = 720
+  /// A sidebar of runners beside one runner's detail. The minimum is where the
+  /// two still fit side by side.
+  static let controlCenterMinimumWidth: CGFloat = 680
+  static let controlCenterMinimumHeight: CGFloat = 440
+  static let controlCenterDefaultWidth: CGFloat = 820
+  static let controlCenterDefaultHeight: CGFloat = 600
   static let settingsMinimumWidth: CGFloat = 460
   static let settingsIdealWidth: CGFloat = 480
   static let settingsMaximumWidth: CGFloat = 520
@@ -392,6 +395,8 @@ extension JobOutcomePresentation {
 
 enum ControlCenterAccessibility {
   static let header = "dev.standfast.control-center.header"
+  /// The sidebar row that opens the whole fleet rather than one runner.
+  static let overview = "dev.standfast.control-center.overview"
   static let refresh = "dev.standfast.control-center.refresh"
   static let notice = "dev.standfast.control-center.notice"
   static let installGuide = "dev.standfast.control-center.install-guide"
@@ -412,10 +417,8 @@ enum ControlCenterAccessibility {
     }
 
     var card: String { "\(root).card" }
-    /// The control that folds this card. Hung off `card` rather than the
-    /// identity row it sits in: the row keeps its own status identity, and a
-    /// fold has to stay reachable by name when everything below it is hidden.
-    var fold: String { "\(card).fold" }
+    /// This runner's row in the sidebar, which stays when another is selected.
+    var sidebar: String { "\(root).sidebar" }
     var status: String { "\(root).status" }
     var focus: String { "\(root).focus" }
     var queue: String { "\(root).queue" }

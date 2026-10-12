@@ -144,7 +144,7 @@ private func l10nSource() -> String {
     L10n.openWorkflowRuns, L10n.openRunnerSettings,
     L10n.runnerAttention(1), L10n.runnerAttention(2), L10n.viewRuns(),
     L10n.viewSettings(), L10n.historyEmpty(), L10n.historyUnavailable(),
-    L10n.maintenanceCompact(), L10n.foldCard, L10n.unfoldCard,
+    L10n.maintenanceCompact(),
     L10n.serviceStart, L10n.serviceStop, L10n.serviceRestart,
     L10n.stateLayerRunningLocally, L10n.stateLayerGitHubSilent,
     L10n.stateLayerLocalUnreadable,
@@ -165,7 +165,8 @@ private func l10nSource() -> String {
     L10n.layerRemoteOffline, L10n.layerRemoteWaitingToAppear,
     L10n.layerRemoteNotAskedStopped, L10n.layerRemoteNotAsked, L10n.managedFleet,
     L10n.settingsTabGeneral, L10n.settingsTabRunners, L10n.settingsTabAccounts,
-    L10n.settingsToken,
+    L10n.settingsToken, L10n.controlCenterOverview, L10n.controlCenterWaiting,
+    L10n.controlCenterCurrentJob, L10n.controlCenterLastAction,
   ]
   // Every prefix a key in this app can start with. Derived rather than listed,
   // so a new family of keys cannot quietly escape the check.
@@ -262,14 +263,14 @@ private func l10nSource() -> String {
       "controlCenter.attention.one", "controlCenter.attention",
       "controlCenter.viewRuns", "controlCenter.viewSettings",
       "controlCenter.history.empty", "controlCenter.history.unavailable",
-      "controlCenter.maintenance.compact", "controlCenter.fold",
+      "controlCenter.maintenance.compact",
       "controlCenter.service.start", "controlCenter.service.stop",
       "controlCenter.service.restart", "state.layer.runningLocally", "runner.startedByHand",
       "runner.gitLabService", "runner.managedFleet",
       "managedJob.open", "managedJob.openRun", "managedJob.openPR", "managedJob.noPR",
       "state.layer.gitHubSilent", "state.layer.gitHubNotAsked",
       "state.layer.gitHubRateLimited", "state.layer.localUnreadable",
-      "controlCenter.unfold", "controlCenter.action.start",
+      "controlCenter.action.start",
       "controlCenter.action.stop", "controlCenter.action.restart",
       "settings.notifications", "settings.power", "settings.startup",
       "settings.notifications.footer", "settings.power.footer",
@@ -299,7 +300,8 @@ private func l10nSource() -> String {
       "layer.remote.waitingToAppear", "layer.remote.notAskedStopped",
       "layer.remote.notAsked", "controlCenter.group.managedFleet",
       "settings.tab.general", "settings.tab.runners", "settings.tab.accounts",
-      "settings.token",
+      "settings.token", "controlCenter.overview", "controlCenter.waiting",
+      "controlCenter.currentJob", "controlCenter.lastAction",
     ])
   #expect(everyKey == reached)
 }
@@ -314,21 +316,21 @@ private func l10nSource() -> String {
   #expect(
     L10n.serviceOperationConfirmationUnavailableDetail(
       "Stop", in: [english])
-      == "Open the Standfast Control Center, then try Stop again.")
+      == "Open Standfast, then try Stop again.")
   #expect(
     L10n.serviceOperationConfirmationUnavailableTitle(
       "Detener", in: [spanish]) == "Confirmación de Detener no disponible")
   #expect(
     L10n.serviceOperationConfirmationUnavailableDetail(
       "Detener", in: [spanish])
-      == "Abre el Centro de control de Standfast y luego prueba Detener otra vez.")
+      == "Abre Standfast y luego prueba Detener otra vez.")
   #expect(
     L10n.serviceOperationConfirmationUnavailableTitle(
       "Stop", in: []) == "Stop confirmation unavailable")
   #expect(
     L10n.serviceOperationConfirmationUnavailableDetail(
       "Stop", in: [])
-      == "Open the Standfast Control Center, then try Stop again.")
+      == "Open Standfast, then try Stop again.")
 }
 
 @Test func obsoleteFleetOverflowLocalizationIsAbsentEverywhere() throws {
@@ -449,8 +451,7 @@ private func l10nSource() -> String {
   #expect(
     L10n.cleanupLogsEffect(1, in: [english])
       == "1 file nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history shown in the "
-      + "Standfast Control Center.")
+      + "writing now is never deleted, and neither is the history Standfast shows.")
   #expect(
     L10n.cleanupLogsTitle(1, "/tmp/runner", in: [spanish])
       == "¿Borrar 1 archivo de log antiguo de /tmp/runner?")
@@ -458,23 +459,22 @@ private func l10nSource() -> String {
     L10n.cleanupLogsEffect(1, in: [spanish])
       == "1 archivo en el que nadie escribe desde hace más de una semana. El log que "
       + "el runner está escribiendo ahora nunca se borra, ni tampoco el historial que "
-      + "muestra el Centro de control de Standfast.")
+      + "muestra Standfast.")
 }
 
-@Test func pluralLogCleanupAlsoNamesTheControlCenterInBothLanguages() throws {
+@Test func pluralLogCleanupAlsoNamesWhereTheHistoryIsShownInBothLanguages() throws {
   let english = try speaking("en")
   let spanish = try speaking("es")
 
   #expect(
     L10n.cleanupLogsEffect(4, in: [english])
       == "4 files nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history shown in the "
-      + "Standfast Control Center.")
+      + "writing now is never deleted, and neither is the history Standfast shows.")
   #expect(
     L10n.cleanupLogsEffect(4, in: [spanish])
       == "4 archivos en los que nadie escribe desde hace más de una semana. El log "
       + "que el runner está escribiendo ahora nunca se borra, ni tampoco el historial "
-      + "que muestra el Centro de control de Standfast.")
+      + "que muestra Standfast.")
 }
 
 @Test func aRefusalNobodyCouldConfirmNamesNoJobInEitherLanguage() throws {

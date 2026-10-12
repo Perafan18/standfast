@@ -1,230 +1,389 @@
 import SwiftUI
 
-/// The operational authority: the fleet status stays visible while runner
-/// detail, honest empty states, and recovery notices scroll independently.
+/// The operational authority: every runner in a sidebar, the selected one's
+/// detail as a form, and its service verbs in the window's toolbar.
 struct ControlCenterView: View {
   @ObservedObject private var fleet: RunnerFleetModel
   /// Invalidation-only: the body still derives exclusively from the fleet's
   /// complete presentation, which reads this model's published memory.
   @ObservedObject private var housekeeping: HousekeepingModel
-  /// Invalidation-only, for the same reason: a fold has to redraw the card it
-  /// was performed on, and the fold itself is remembered by the fleet.
-  @ObservedObject private var folding: RunnerCardFolding
+  /// Read rather than observed, since an optional cannot be observed: the
+  /// timeline below reads it again every two seconds. Nil where nothing
+  /// reports heat, as in tests and renders.
+  private let thermal: ThermalMonitor?
 
-  @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// The selection, per window and across launches. Empty until somebody
+  /// chooses, which is what lets a Mac with one runner open on that runner.
+  @SceneStorage("controlCenter.selection") private var storedSelection = ""
 
-  init(fleet: RunnerFleetModel) {
+  init(fleet: RunnerFleetModel, thermal: ThermalMonitor? = nil) {
     self.fleet = fleet
     housekeeping = fleet.housekeeping
-    folding = fleet.folding
-  }
-
-  private var palette: StandfastPalette {
-    StandfastTheme.palette(
-      for: colorScheme == .dark ? .dark : .light,
-      increasedContrast: colorSchemeContrast == .increased,
-      reduceTransparency: reduceTransparency)
+    self.thermal = thermal
   }
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 2)) { timeline in
       let presentation = fleet.controlCenterPresentation(now: timeline.date)
-      VStack(spacing: 0) {
-        header(presentation.header)
+      let thermalLines = ThermalNotice.lines(
+        pressure: thermal?.pressure ?? ThermalPressure.none,
+        overrunning: fleet.isOverrunning)
+      let selection = ControlCenterSelection.resolve(
+        stored: storedSelection, cards: presentation.cards)
+      let selected = presentation.cards.first { selection == .runner($0.id) }
 
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: StandfastTheme.Spacing.large) {
-            if let notice = presentation.notice {
-              noticeView(notice)
+      NavigationSplitView {
+        sidebar(presentation, selection: selection, thermalLines: thermalLines)
+      } detail: {
+        if let empty = presentation.empty {
+          ControlCenterEmptyView(empty: empty, header: presentation.header)
+        } else if let card = selected {
+          RunnerCardView(
+            card: card, thermalLine: card.overrunThermalLine(thermalLines: thermalLines),
+            performMaintenance: { kind in
+              fleet.performMaintenance(kind, onRunnerID: card.id)
             }
+          )
+          // Each runner opens its own sections, not the last one's.
+          .id(card.id)
+        } else {
+          ControlCenterOverview(
+            header: presentation.header, notice: presentation.notice,
+            thermalLines: thermalLines)
+        }
+      }
+      .navigationTitle(selected?.title ?? L10n.controlCenterOverview)
+      .navigationSubtitle(presentation.header.freshness)
+      .toolbar {
+        ControlCenterToolbar(
+          card: selected, refresh: { fleet.refresh() },
+          perform: { kind, id in fleet.perform(kind, onRunnerID: id) })
+      }
+      .frame(
+        minWidth: StandfastTheme.controlCenterMinimumWidth,
+        minHeight: StandfastTheme.controlCenterMinimumHeight)
+    }
+  }
 
-            if let empty = presentation.empty {
-              emptyView(empty)
-            } else {
-              ForEach(presentation.cards) { card in
-                RunnerCardView(
-                  card: card,
-                  isCollapsed: fleet.folding.isCollapsed(card),
-                  toggleCollapsed: {
-                    withAnimation(
-                      StandfastTheme.Motion.honouring(
-                        StandfastTheme.Motion.fold, reduceMotion: reduceMotion)
-                    ) {
-                      fleet.folding.toggle(card)
-                    }
-                  },
-                  performAction: { action in
-                    fleet.perform(action, onRunnerID: card.id)
-                  },
-                  performMaintenance: { offer in
-                    fleet.performMaintenance(offer, onRunnerID: card.id)
-                  })
+  private func sidebar(
+    _ presentation: ControlCenterPresentation, selection: ControlCenterSelection,
+    thermalLines: [String]
+  ) -> some View {
+    List(
+      selection: Binding<ControlCenterSelection?>(
+        get: { selection },
+        // A click on empty space clears the list's selection; the detail keeps
+        // showing what it showed.
+        set: { if let chosen = $0 { storedSelection = chosen.stored } })
+    ) {
+      OverviewSidebarRow(
+        header: presentation.header,
+        warningCount: presentation.overviewWarningCount(thermalLines: thermalLines)
+      )
+      .tag(ControlCenterSelection.overview)
+      ForEach(presentation.sidebar) { section in
+        if let title = section.title {
+          Section(title) { runnerRows(section) }
+        } else {
+          Section { runnerRows(section) }
+        }
+      }
+    }
+    .listStyle(.sidebar)
+    .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
+  }
+
+  private func runnerRows(_ section: ControlCenterSidebar.Section) -> some View {
+    ForEach(section.cards) { card in
+      RunnerSidebarRow(card: card)
+        .tag(ControlCenterSelection.runner(card.id))
+    }
+  }
+}
+
+/// The window's toolbar: Refresh always, and the selected runner's verbs and
+/// destination while one is selected. Never a version check in here: on a
+/// macOS 14 target it warns, and warnings fail the build.
+struct ControlCenterToolbar: ToolbarContent {
+  let card: RunnerCardPresentation?
+  let refresh: () -> Void
+  let perform: (RunnerRow.Action.Kind, _ runnerID: String) -> Void
+
+  var body: some ToolbarContent {
+    ToolbarItem(placement: .navigation) {
+      Button(action: refresh) {
+        Label(L10n.refreshNow, systemImage: "arrow.clockwise")
+      }
+      .keyboardShortcut("r")
+      .help(L10n.refreshNow)
+      .accessibilityIdentifier(ControlCenterAccessibility.refresh)
+    }
+    if let card {
+      let verbs = card.serviceVerbs
+      if !verbs.before.isEmpty {
+        ToolbarItemGroup(placement: .primaryAction) {
+          ForEach(verbs.before) { serviceButton($0, of: card) }
+        }
+      }
+      if let forward = verbs.forward {
+        ToolbarItem(placement: .primaryAction) {
+          serviceButton(forward, of: card)
+            .primaryToolbarActionStyle(true)
+        }
+      }
+      if !verbs.after.isEmpty {
+        ToolbarItemGroup(placement: .primaryAction) {
+          ForEach(verbs.after) { serviceButton($0, of: card) }
+        }
+      }
+      if let destination = card.action(.openOnGitHub) {
+        ToolbarItem(placement: .primaryAction) {
+          destinationButton(destination, of: card)
+            .primaryToolbarActionStyle(destination.emphasis == .prominent)
+        }
+      }
+    }
+  }
+
+  private func serviceButton(
+    _ action: RunnerCardAction, of card: RunnerCardPresentation
+  ) -> some View {
+    Button {
+      perform(action.kind, card.id)
+    } label: {
+      Label(action.label, systemImage: action.symbolName)
+    }
+    .disabled(!action.isEnabled)
+    // A greyed control that will not say why is a dead end. The reason is
+    // this runner's own: why its service is out of reach, or else its state.
+    .help(action.isEnabled ? action.accessibilityLabel : (card.serviceNote ?? card.state))
+    .accessibilityLabel(action.accessibilityLabel)
+    .accessibilityIdentifier(identifier(for: action.kind, of: card))
+  }
+
+  private func destinationButton(
+    _ action: RunnerCardAction, of card: RunnerCardPresentation
+  ) -> some View {
+    let qualifiedLabel = L10n.runnerInScope(action.accessibilityLabel, card.title)
+    return Button {
+      perform(action.kind, card.id)
+    } label: {
+      Label(action.label, systemImage: action.symbolName)
+    }
+    .disabled(!action.isEnabled)
+    .help(action.isEnabled ? action.accessibilityLabel : card.state)
+    .accessibilityLabel(qualifiedLabel)
+    .accessibilityInputLabels([Text(action.label), Text(qualifiedLabel)])
+    .accessibilityIdentifier(ControlCenterAccessibility.runner(card.id).github)
+  }
+
+  private func identifier(
+    for kind: RunnerRow.Action.Kind, of card: RunnerCardPresentation
+  ) -> String {
+    let identifiers = ControlCenterAccessibility.runner(card.id)
+    return switch kind {
+    case .start: identifiers.start
+    case .stop: identifiers.stop
+    case .restart: identifiers.restart
+    case .openOnGitHub: identifiers.github
+    }
+  }
+}
+
+extension RunnerCardPresentation {
+  /// Start, Stop and Restart in their fixed order, cut around the one this
+  /// state puts forward. That one takes a toolbar item of its own, so it never
+  /// sits on another group's platter, and no button changes place.
+  fileprivate var serviceVerbs:
+    (before: [RunnerCardAction], forward: RunnerCardAction?, after: [RunnerCardAction])
+  {
+    let verbs = actions.filter { $0.kind != .openOnGitHub }
+    guard let cut = verbs.firstIndex(where: { $0.emphasis == .prominent }) else {
+      return (verbs, nil, [])
+    }
+    return (Array(verbs[..<cut]), verbs[cut], Array(verbs[(cut + 1)...]))
+  }
+}
+
+/// The whole fleet, which the sidebar always lists first.
+private struct OverviewSidebarRow: View {
+  let header: ControlCenterHeaderPresentation
+  /// What only the Overview shows. Zero draws no badge.
+  let warningCount: Int
+
+  var body: some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(L10n.controlCenterOverview)
+        Text(header.shortSummary)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+      }
+    } icon: {
+      Image(systemName: header.symbolName)
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(header.tone.color)
+    }
+    .badge(warningCount)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(L10n.controlCenterOverview)
+    .accessibilityValue(header.summary)
+    .accessibilityIdentifier(ControlCenterAccessibility.overview)
+  }
+}
+
+/// One runner in the sidebar: its name, its state in a word or two, and where
+/// it is registered.
+private struct RunnerSidebarRow: View {
+  let card: RunnerCardPresentation
+
+  var body: some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(card.title)
+        // Two lines, not one: the Spanish state words run long.
+        Text(card.compactState)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+        Text(card.scope)
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+          .help(L10n.scopeExplained(card.scope))
+      }
+    } icon: {
+      Image(systemName: card.stateSymbolName)
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(card.tone.color)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(card.title)
+    .accessibilityValue("\(card.compactState), \(card.scope). \(card.state)")
+    .accessibilityIdentifier(ControlCenterAccessibility.runner(card.id).sidebar)
+  }
+}
+
+/// What the whole fleet is doing, what discovery could not read, and how hot
+/// the Mac is.
+struct ControlCenterOverview: View {
+  let header: ControlCenterHeaderPresentation
+  let notice: ControlCenterNoticePresentation?
+  /// Empty unless the Mac is being throttled.
+  var thermalLines: [String] = []
+
+  var body: some View {
+    Form {
+      Section {
+        HStack(alignment: .top, spacing: 12) {
+          Image(systemName: header.symbolName)
+            .font(.largeTitle)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(header.tone.color)
+            .accessibilityHidden(true)
+          VStack(alignment: .leading, spacing: 4) {
+            // The short form on screen, since UI-041. VoiceOver keeps the long
+            // sentence: it has no layout to protect.
+            Text(header.shortSummary)
+              .font(.title2.weight(.semibold))
+              .accessibilityLabel(header.summary)
+            if let attention = header.attention {
+              Label {
+                Text(attention)
+              } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                  .symbolRenderingMode(.multicolor)
               }
             }
           }
-          .padding(.horizontal, StandfastTheme.Spacing.large)
-          .padding(.vertical, StandfastTheme.Spacing.roomy)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(ControlCenterAccessibility.header)
+      }
+
+      if let notice {
+        Section {
+          noticeRow(notice)
         }
       }
-      .frame(minWidth: StandfastTheme.controlCenterMinimumWidth)
-      .frame(maxHeight: .infinity)
-      .background(palette.canvas.color)
-    }
-  }
 
-  private func header(_ presentation: ControlCenterHeaderPresentation) -> some View {
-    ViewThatFits(in: .horizontal) {
-      HStack(spacing: StandfastTheme.Spacing.standard) {
-        headerStatus(presentation)
-          .fixedSize(horizontal: true, vertical: false)
-        Spacer(minLength: StandfastTheme.Spacing.standard)
-        refreshButton
-      }
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
-        headerStatus(presentation)
-        refreshButton
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-    .padding(.horizontal, StandfastTheme.Spacing.large)
-    .padding(.vertical, StandfastTheme.Spacing.standard)
-    .background(palette.surface.color)
-    .overlay(alignment: .bottom) {
-      // The header sits on `surface` and the scroll below it on `canvas`, so
-      // the boundary is already visible as a change of ground. The line is
-      // there to sharpen it, not to be it.
-      Rectangle()
-        .fill(palette.divider.color)
-        .frame(height: StandfastTheme.Stroke.separator)
-    }
-    .accessibilityIdentifier(ControlCenterAccessibility.header)
-  }
-
-  private func headerStatus(
-    _ presentation: ControlCenterHeaderPresentation
-  ) -> some View {
-    HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
-      Image(systemName: presentation.symbolName)
-        .font(StandfastTheme.Typography.display)
-        .foregroundStyle(palette.textPrimary.color)
-        .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
-        // The short form, since UI-041. The long sentence carries diagnosis,
-        // remedy and the name of a button, wraps to two lines the moment any
-        // of them grows, pushes Refresh onto a row of its own — and then says
-        // itself again, word for word, in the card below. The remedy belongs
-        // there, beside the runner it is about.
-        //
-        // This is only worth doing because the short form now says something:
-        // until UI-034 it read `Unknown` for four different problems.
-        //
-        // The long sentence stays for VoiceOver, which has no card to read
-        // next and no layout to protect.
-        Text(presentation.shortSummary)
-          .font(StandfastTheme.Typography.display)
-          .foregroundStyle(palette.textPrimary.color)
-          .accessibilityLabel(presentation.summary)
-        if let attention = presentation.attention {
-          Text(attention)
-            .font(StandfastTheme.Typography.secondary)
-            .foregroundStyle(palette.attentionForeground.color)
+      if !thermalLines.isEmpty {
+        Section {
+          Label {
+            VStack(alignment: .leading, spacing: 2) {
+              ForEach(thermalLines, id: \.self) { Text($0) }
+            }
+          } icon: {
+            Image(systemName: "thermometer.high")
+              .foregroundStyle(.orange)
+          }
+          .accessibilityElement(children: .combine)
         }
-        Text(presentation.freshness)
-          .font(StandfastTheme.Typography.meta)
-          .foregroundStyle(palette.textSecondary.color)
       }
     }
-    .accessibilityElement(children: .combine)
+    .formStyle(.grouped)
   }
 
-  private var refreshButton: some View {
-    Button {
-      fleet.refresh()
-    } label: {
-      Label(L10n.refreshNow, systemImage: "arrow.clockwise")
-        .frame(minHeight: StandfastTheme.controlMinimumHeight)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.bordered)
-    .keyboardShortcut("r", modifiers: .command)
-    .accessibilityIdentifier(ControlCenterAccessibility.refresh)
-  }
-
-  private func noticeView(
-    _ presentation: ControlCenterNoticePresentation
-  ) -> some View {
+  private func noticeRow(_ notice: ControlCenterNoticePresentation) -> some View {
     let content: (title: String, lines: [String]) =
-      switch presentation {
+      switch notice {
       case .launchAgentsUnavailable(let directory):
         (L10n.launchAgentsUnreadable, [directory])
       case .unreadableRunners(let paths):
         (L10n.someRunnersUnreadable, paths)
       }
 
-    return HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
-      Image(systemName: "exclamationmark.triangle")
-        .foregroundStyle(palette.textPrimary.color)
-        .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
+    // The triangle carries the colour; the words stay primary.
+    return Label {
+      VStack(alignment: .leading, spacing: 2) {
         Text(content.title)
-          .font(StandfastTheme.Typography.bodyEmphasized)
-          .foregroundStyle(palette.textPrimary.color)
         ForEach(content.lines, id: \.self) { line in
           Text(line)
-            .font(StandfastTheme.Typography.secondary)
-            .foregroundStyle(palette.textSecondary.color)
+            .font(.subheadline)
+            .monospaced()
+            .foregroundStyle(.secondary)
         }
       }
+    } icon: {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .symbolRenderingMode(.multicolor)
     }
-    .padding(.horizontal, StandfastTheme.Spacing.compact)
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier(ControlCenterAccessibility.notice)
   }
+}
 
-  private func emptyView(
-    _ presentation: ControlCenterEmptyPresentation
-  ) -> some View {
-    VStack(spacing: StandfastTheme.Spacing.compact) {
-      Image(systemName: presentation.symbolName)
-        .font(.system(size: 32, weight: .medium))
-        .foregroundStyle(palette.textPrimary.color)
+/// A Control Center with no runner to show: still checking, nothing installed,
+/// or discovery that could not read where runners live.
+struct ControlCenterEmptyView: View {
+  let empty: ControlCenterEmptyPresentation
+  let header: ControlCenterHeaderPresentation
+
+  var body: some View {
+    VStack(spacing: 12) {
+      Image(systemName: empty.symbolName)
+        .font(.largeTitle)
+        .foregroundStyle(.secondary)
         .accessibilityHidden(true)
-      if let title = presentation.title {
-        Text(title)
-          .font(StandfastTheme.Typography.title)
-          .foregroundStyle(palette.textPrimary.color)
-      }
-      ForEach(presentation.detailLines, id: \.self) { detail in
+      // UI-031 leaves the title out where the header says the same sentence.
+      // There is no header above this any more, so here the header's words
+      // are the title.
+      Text(empty.title ?? header.shortSummary)
+        .font(.title2.weight(.semibold))
+      ForEach(empty.detailLines, id: \.self) { detail in
         Text(detail)
-          .font(StandfastTheme.Typography.body)
-          .foregroundStyle(palette.textSecondary.color)
+          .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)
       }
-      // UI-039. This is the one screen where the user has nothing else to go
-      // on, and it used to tell them to install a runner and leave them to
-      // find out how.
-      if let guide = presentation.guide {
-        // The only way out of the first screen a new user sees, and it was a
-        // line of blue text among three other lines of text. Same destination,
-        // same identifier, same single link — it just looks like the thing to
-        // press now.
-        Link(destination: guide) {
-          Text(L10n.controlCenterInstallGuide)
-            .font(StandfastTheme.Typography.bodyEmphasized)
-            .padding(.horizontal, StandfastTheme.Spacing.compact)
-            .frame(minHeight: StandfastTheme.controlMinimumHeight)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(palette.primaryButton.color)
-        .padding(.top, StandfastTheme.Spacing.small)
-        .accessibilityIdentifier(ControlCenterAccessibility.installGuide)
+      // UI-039: the one screen where a new user has nothing else to go on.
+      if let guide = empty.guide {
+        Link(L10n.controlCenterInstallGuide, destination: guide)
+          .buttonStyle(.borderedProminent)
+          .padding(.top, 8)
+          .accessibilityIdentifier(ControlCenterAccessibility.installGuide)
       }
     }
-    .frame(maxWidth: .infinity, minHeight: 320)
-    .padding(StandfastTheme.Spacing.large)
-    .accessibilityElement(children: .combine)
+    .padding()
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

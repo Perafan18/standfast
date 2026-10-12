@@ -22,7 +22,7 @@ private func logFolderCard(
       display: .resolved(.idle), containedDiagnosticsDirectory: contained,
       readAt: logFolderNow),
     measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
-    maintenanceNotice: nil, now: logFolderNow, fleetSize: 1)
+    maintenanceNotice: nil, now: logFolderNow)
 }
 
 private let diag = URL(fileURLWithPath: "/tmp/build-mac/_diag")

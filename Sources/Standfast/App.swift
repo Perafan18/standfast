@@ -21,6 +21,9 @@ struct StandfastApp: App {
 
   @MainActor
   init() {
+    // Where 0.5 remembered folded cards. The sidebar replaced folding, and
+    // nothing reads the key any more.
+    UserDefaults.standard.removeObject(forKey: "foldedRunnerCards")
     let windowRegistry = SceneWindowRegistry()
     _fleet = StateObject(
       wrappedValue: RunnerFleetModel(
@@ -46,7 +49,7 @@ struct StandfastApp: App {
     }
 
     Window(L10n.controlCenterTitle, id: "control-center") {
-      ControlCenterView(fleet: fleet)
+      ControlCenterView(fleet: fleet, thermal: thermal)
         .background(
           SceneWindowProbe(
             target: .controlCenter,
@@ -54,7 +57,9 @@ struct StandfastApp: App {
     }
     .defaultSize(
       width: StandfastTheme.controlCenterDefaultWidth,
-      height: StandfastTheme.controlCenterDefaultHeight)
+      height: StandfastTheme.controlCenterDefaultHeight
+    )
+    .windowResizability(.contentMinSize)
 
     Settings {
       SettingsView(

@@ -211,9 +211,10 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   let scope: String
   let tone: StateTone
   let focus: RunnerFocusPresentation
+  /// The process here and the service that hands it work, read apart.
+  let layers: RunnerLayersPresentation
   /// What is waiting for this runner, and nil when there is nothing worth
-  /// saying. Sits with identity and state rather than behind the fold: it is
-  /// the reason somebody would open the card, not something found inside it.
+  /// saying. Sits with the state it explains: it is what that state is costing.
   let queued: QueuedWorkPresentation?
   /// Why this runner's service controls do nothing, and nil when they work.
   /// Greyed-out buttons with no explanation are the app knowing something and
@@ -236,32 +237,6 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   /// The folder Show Logs in Finder reveals, and nil where there is no folder
   /// of this runner's own to show.
   let diagnosticsDirectory: URL?
-  /// Whether this card opens folded on a fleet the operator has not touched.
-  ///
-  /// A column of complete cards is the right shape for the two or three runners
-  /// one Mac usually hosts and the wrong shape for ten, where the operator
-  /// scrolls past nine healthy runners to reach the one that broke. The product
-  /// decides this rather than the reader: a runner with nothing to answer for
-  /// folds itself away once the fleet is large enough for that to matter, and a
-  /// runner that needs a person never does.
-  let startsCollapsed: Bool
-}
-
-extension RunnerCardPresentation {
-  /// Below this, folding hides a control the operator can already see and
-  /// solves a scrolling problem that does not exist yet.
-  static let compactFleetThreshold = 3
-
-  static func startsCollapsed(tone: StateTone, fleetSize: Int) -> Bool {
-    guard fleetSize > compactFleetThreshold else { return false }
-    switch tone {
-    // Idle and busy are the two states with nothing to decide. Everything else
-    // — disconnected, stopped, or a reading that failed — is the reason the
-    // window was opened, so it stays open.
-    case .healthy, .active: return true
-    case .attention, .stopped, .neutral: return false
-    }
-  }
 }
 
 extension RunnerCardPresentation {
@@ -302,7 +277,7 @@ extension RunnerCardPresentation {
   static func building(
     _ snapshot: RunnerSnapshot, measurement: DiskMeasurement?,
     latestRelease: RunnerVersion?, isMaintenanceWorking: Bool,
-    maintenanceNotice: String?, now: Date, fleetSize: Int
+    maintenanceNotice: String?, now: Date
   ) -> Self {
     let row = snapshot.row
     let destination = GitHubDestination.forScope(snapshot.runner.scope)
@@ -342,6 +317,9 @@ extension RunnerCardPresentation {
       scope: snapshot.qualifier ?? snapshot.runner.scope.displayName,
       tone: snapshot.display.tone,
       focus: focus,
+      layers: .building(
+        display: snapshot.display, installation: snapshot.runner.installation,
+        scope: snapshot.runner.scope),
       queued: QueuedWorkPresentation.building(
         snapshot.queued, runnerLabelled: snapshot.labels, display: snapshot.display),
       serviceNote: snapshot.serviceNote,
@@ -364,8 +342,7 @@ extension RunnerCardPresentation {
       group: ControlCenterSidebar.Group(snapshot),
       needsAttention: snapshot.needsAttention,
       jobProgress: snapshot.jobProgress,
-      diagnosticsDirectory: diagnosticsDirectory,
-      startsCollapsed: startsCollapsed(tone: snapshot.display.tone, fleetSize: fleetSize))
+      diagnosticsDirectory: diagnosticsDirectory)
   }
 
   func action(_ kind: RunnerRow.Action.Kind) -> RunnerCardAction? {
@@ -463,6 +440,13 @@ extension ControlCenterPresentation {
   /// The runners the header's attention count is about, in the same order.
   var runnersNeedingAttention: [RunnerCardPresentation] {
     runnersByAttention.filter(\.needsAttention)
+  }
+
+  /// The badge on the sidebar's Overview row: discovery's notice and the Mac's
+  /// heat, one each, and zero for no badge. Only the Overview shows them, so
+  /// while a runner is selected this is what still says they are there.
+  func overviewWarningCount(thermalLines: [String]) -> Int {
+    (notice == nil ? 0 : 1) + (thermalLines.isEmpty ? 0 : 1)
   }
 }
 

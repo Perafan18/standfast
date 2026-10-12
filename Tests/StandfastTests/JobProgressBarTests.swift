@@ -32,7 +32,7 @@ private func barCard(
         agentName: "build-mac", scope: .repository(owner: "acme", name: "widget")),
       display: display, jobs: jobs, readAt: barNow),
     measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
-    maintenanceNotice: nil, now: barNow, fleetSize: 1)
+    maintenanceNotice: nil, now: barNow)
 }
 
 // MARK: - When there is a bar at all

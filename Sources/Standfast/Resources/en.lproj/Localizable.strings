@@ -1,5 +1,5 @@
 "app.statusItem" = "Standfast";
-"controlCenter.title" = "Standfast Control Center";
+"controlCenter.title" = "Standfast";
 "controlCenter.noRunners.description" = "Install a self-hosted GitHub Actions runner, then refresh.";
 "controlCenter.installGuide" = "How to install a runner";
 "controlCenter.noRunners.manual" = "Already started one with ./run.sh? Point Settings at its folder.";
@@ -38,8 +38,6 @@
 "state.layer.localUnreadable" = "Local service unreadable";
 "state.layer.managedFleetWaiting" = "Fleet slot waiting";
 "state.layer.managedFleetUnavailable" = "Fleet status unavailable";
-"controlCenter.fold" = "Fold";
-"controlCenter.unfold" = "Unfold";
 "controlCenter.action.start" = "Start %@";
 "controlCenter.action.stop" = "Stop %@";
 "controlCenter.action.restart" = "Restart %@";
@@ -145,8 +143,8 @@
 "cleanup.standfastTrash.effect" = "These cache directories were moved aside by an earlier Standfast cleanup. Their old names no longer say which cache they held. Only UUID-named leftovers in Standfast's private trash are deleted; current caches and other files stay.";
 "cleanup.logs.title.one" = "Delete %d old log file from %@?";
 "cleanup.logs.title" = "Delete %d old log files from %@?";
-"cleanup.logs.effect.one" = "%d file nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history shown in the Standfast Control Center.";
-"cleanup.logs.effect" = "%d files nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history shown in the Standfast Control Center.";
+"cleanup.logs.effect.one" = "%d file nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history Standfast shows.";
+"cleanup.logs.effect" = "%d files nothing has written to in over a week. The log the runner is writing now is never deleted, and neither is the history Standfast shows.";
 "cleanup.confirmationUnavailable" = "Could not ask for confirmation: the screen is locked. Unlock this Mac and try again.";
 "cleanup.refused" = "Cleanup stopped: %@ picked up work";
 "cleanup.failed" = "Nothing could be deleted; check that %@ is writable";
@@ -212,7 +210,7 @@
 "operation.unexpectedFailure.title" = "%@ request failed";
 "operation.unexpectedFailure.detail" = "Check the runner files, then try %@ again.";
 "operation.confirmationUnavailable.title" = "%@ confirmation unavailable";
-"operation.confirmationUnavailable.detail" = "Open the Standfast Control Center, then try %@ again.";
+"operation.confirmationUnavailable.detail" = "Open Standfast, then try %@ again.";
 "operation.restartStartFailed.title" = "Restart stopped the runner, but could not start it";
 "operation.restartStartFailed.detail" = "Check the runner files, then try Start.";
 "operation.restartStartTimedOut.title" = "Restart stopped the runner, but start timed out";
@@ -274,3 +272,7 @@
 "settings.tab.runners" = "Runners";
 "settings.tab.accounts" = "Accounts";
 "settings.token" = "Token";
+"controlCenter.overview" = "Overview";
+"controlCenter.waiting" = "Waiting";
+"controlCenter.currentJob" = "Current Job";
+"controlCenter.lastAction" = "Last Action";

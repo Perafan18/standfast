@@ -83,8 +83,12 @@ enum L10n {
   static let layerRemoteWaitingToAppear = t("layer.remote.waitingToAppear")
   static let layerRemoteNotAskedStopped = t("layer.remote.notAskedStopped")
   static let layerRemoteNotAsked = t("layer.remote.notAsked")
-  static let foldCard = t("controlCenter.fold")
-  static let unfoldCard = t("controlCenter.unfold")
+  /// The Control Center's own headings: the whole fleet in the sidebar, and the
+  /// rows and sections of one runner's detail.
+  static let controlCenterOverview = t("controlCenter.overview")
+  static let controlCenterWaiting = t("controlCenter.waiting")
+  static let controlCenterCurrentJob = t("controlCenter.currentJob")
+  static let controlCenterLastAction = t("controlCenter.lastAction")
   static let openWorkflowRuns = t("controlCenter.openWorkflowRuns")
   static let openRunnerSettings = t("controlCenter.openRunnerSettings")
   static let openGitLab = t("controlCenter.openGitLab")
@@ -668,7 +672,7 @@ enum L10n {
   /// has to say exactly this, and a test holds the two together.
   static let english: [String: String] = [
     "app.statusItem": "Standfast",
-    "controlCenter.title": "Standfast Control Center",
+    "controlCenter.title": "Standfast",
     "controlCenter.installGuide": "How to install a runner",
     "controlCenter.noRunners.description":
       "Install a self-hosted GitHub Actions runner, then refresh.",
@@ -727,8 +731,6 @@ enum L10n {
     "state.layer.localUnreadable": "Local service unreadable",
     "state.layer.managedFleetWaiting": "Fleet slot waiting",
     "state.layer.managedFleetUnavailable": "Fleet status unavailable",
-    "controlCenter.fold": "Fold",
-    "controlCenter.unfold": "Unfold",
     "controlCenter.action.start": "Start %@",
     "controlCenter.action.stop": "Stop %@",
     "controlCenter.action.restart": "Restart %@",
@@ -873,12 +875,10 @@ enum L10n {
     "cleanup.logs.title": "Delete %d old log files from %@?",
     "cleanup.logs.effect.one":
       "%d file nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history shown in the "
-      + "Standfast Control Center.",
+      + "writing now is never deleted, and neither is the history Standfast shows.",
     "cleanup.logs.effect":
       "%d files nothing has written to in over a week. The log the runner is "
-      + "writing now is never deleted, and neither is the history shown in the "
-      + "Standfast Control Center.",
+      + "writing now is never deleted, and neither is the history Standfast shows.",
     "cleanup.confirmationUnavailable":
       "Could not ask for confirmation: the screen is locked. Unlock this Mac and try again.",
     "cleanup.refused": "Cleanup stopped: %@ picked up work",
@@ -955,7 +955,7 @@ enum L10n {
     "operation.unexpectedFailure.detail": "Check the runner files, then try %@ again.",
     "operation.confirmationUnavailable.title": "%@ confirmation unavailable",
     "operation.confirmationUnavailable.detail":
-      "Open the Standfast Control Center, then try %@ again.",
+      "Open Standfast, then try %@ again.",
     "operation.restartStartFailed.title":
       "Restart stopped the runner, but could not start it",
     "operation.restartStartFailed.detail": "Check the runner files, then try Start.",
@@ -1024,6 +1024,10 @@ enum L10n {
     "settings.tab.runners": "Runners",
     "settings.tab.accounts": "Accounts",
     "settings.token": "Token",
+    "controlCenter.overview": "Overview",
+    "controlCenter.waiting": "Waiting",
+    "controlCenter.currentJob": "Current Job",
+    "controlCenter.lastAction": "Last Action",
   ]
 
   /// Looks the key up in one complete language pack, and falls back to the

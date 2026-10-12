@@ -6,8 +6,8 @@ import Testing
 
 @testable import Standfast
 
-/// Renders the Control Center in the states a screenshot of a working Mac
-/// never shows.
+/// Renders a runner's detail in the states a screenshot of a working Mac never
+/// shows.
 ///
 /// Codex, given only happy-path captures on 2026-08-16: "no he visto los
 /// estados difíciles. Una captura feliz no demuestra cómo maneja desconexión,
@@ -45,20 +45,13 @@ private struct RenderAppearance {
 @MainActor
 private func render(
   _ view: some View, to url: URL,
-  width: CGFloat = StandfastTheme.controlCenterDefaultWidth,
-  height: CGFloat = 720,
+  width: CGFloat = 560,
+  height: CGFloat = 700,
   appearance: RenderAppearance = .dark
 ) throws {
-  // The token, and it is the token because that is what was measured. This
-  // used to say 640 with a note that macOS restores the Control Center wider
-  // than the token asks. It does not. What was actually on that Mac was a
-  // saved `NSWindow Frame control-center` of 640×720 from an earlier session;
-  // delete it and the window opens at exactly the token, which is what anybody
-  // installing this app for the first time sees.
-  //
-  // The other half of that note — that the header stacks vertically at 540 —
-  // was true and is not any more. UI-041 made the header the short form, and
-  // it now sits on one line beside Refresh at this width.
+  // About the detail column at the window's default size. The split view, its
+  // toolbar and their glass do not draw offscreen, so the detail is rendered
+  // on its own.
   let size = NSSize(width: width, height: height)
   let hosting = NSHostingView(
     rootView:
@@ -103,14 +96,25 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
     serviceConfirmation: RenderConfirmation(), refreshInterval: nil)
 }
 
+/// A runner's detail as the window draws it once selected, with nothing hot.
+@MainActor
+private func detail(
+  of fleet: RunnerFleetModel,
+  where isWanted: (RunnerCardPresentation) -> Bool = { _ in true }
+) throws -> some View {
+  let wanted = fleet.controlCenterPresentation(now: Date()).cards.first(where: isWanted)
+  let card = try #require(wanted)
+  return RunnerCardView(card: card, thermalLine: nil, performMaintenance: { _ in })
+}
+
 @Test @MainActor func renderTheStatesAScreenshotOfAWorkingMacNeverShows() async throws {
   guard let directory = renderDirectory else { return }
   try FileManager.default.createDirectory(
     at: directory, withIntermediateDirectories: true)
 
-  // 0. The everyday shape: two healthy runners, which is what the window looks
-  // like on the Mac it was built against and the baseline every other state is
-  // judged against.
+  // 0. The everyday shape: one of two healthy runners, which is what the
+  // window shows on the Mac it was built against and the baseline every other
+  // state is judged against.
   let healthy = try FleetSandbox(serviceRunning: true)
   defer { healthy.cleanUp() }
   _ = try healthy.addRunner(name: "mac-mini-m4", scope: "acme-widget")
@@ -118,10 +122,10 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let healthyFleet = fleet(healthy)
   await healthyFleet.quiesce()
   try render(
-    ControlCenterView(fleet: healthyFleet),
+    detail(of: healthyFleet),
     to: directory.appendingPathComponent("0-normal.png"))
   try render(
-    ControlCenterView(fleet: healthyFleet),
+    detail(of: healthyFleet),
     to: directory.appendingPathComponent("0-normal.png"), appearance: .light)
 
   // 0b. The other window, a pane at a time: each is the size the window takes
@@ -208,7 +212,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let disconnectedFleet = fleet(disconnected)
   await disconnectedFleet.quiesce()
   try render(
-    ControlCenterView(fleet: disconnectedFleet),
+    detail(of: disconnectedFleet),
     to: directory.appendingPathComponent("A-desconectado.png"))
 
   // 2. A job running right now.
@@ -219,7 +223,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let busyFleet = fleet(busy)
   await busyFleet.quiesce()
   try render(
-    ControlCenterView(fleet: busyFleet),
+    detail(of: busyFleet),
     to: directory.appendingPathComponent("B-ejecutando.png"))
 
   // 3. The service is not running at all.
@@ -229,7 +233,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let stoppedFleet = fleet(stopped)
   await stoppedFleet.quiesce()
   try render(
-    ControlCenterView(fleet: stoppedFleet),
+    detail(of: stoppedFleet),
     to: directory.appendingPathComponent("C-detenido.png"))
 
   // 4. GitHub answered with an error: state that could not be read at all.
@@ -240,7 +244,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let unreadableFleet = fleet(unreadable)
   await unreadableFleet.quiesce()
   try render(
-    ControlCenterView(fleet: unreadableFleet),
+    detail(of: unreadableFleet),
     to: directory.appendingPathComponent("D-estado-ilegible.png"))
 
   // 3b. A runner nobody registered with launchd. Its controls are dead and the
@@ -252,13 +256,12 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let byHandFleet = fleet(byHand)
   await byHandFleet.quiesce()
   try render(
-    ControlCenterView(fleet: byHandFleet),
+    detail(of: byHandFleet),
     to: directory.appendingPathComponent("C2-arrancado-a-mano.png"))
 
-  // 3c. A GitLab runner beside a GitHub one. The second provider's whole
-  // pitch is that the same window answers the same question about both — so
-  // the picture has to hold both: GitLab badge vocabulary, dead controls with
-  // GitLab's own note, and the instance host where the scope would be.
+  // 3c. A GitLab runner beside a GitHub one, which must read like it: its
+  // layer named GitLab, its own note on why the service controls are dead, and
+  // the instance host where the scope would be.
   let mixed = try FleetSandbox(serviceRunning: true)
   defer { mixed.cleanUp() }
   _ = try mixed.addRunner(name: "mac-mini-m4", scope: "acme-widget")
@@ -266,9 +269,8 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let mixedFleet = fleet(mixed)
   await mixedFleet.quiesce()
   try render(
-    ControlCenterView(fleet: mixedFleet),
-    to: directory.appendingPathComponent("C3-gitlab-junto-a-github.png"),
-    height: 900)
+    detail(of: mixedFleet) { $0.group == .gitLab },
+    to: directory.appendingPathComponent("C3-gitlab-junto-a-github.png"))
 
   // 4b. The other layer. `launchctl` refusing to say whether the service is
   // loaded is the one unknown whose instruction points at this Mac rather than
@@ -283,7 +285,7 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   let localUnreadableFleet = fleet(localUnreadable)
   await localUnreadableFleet.quiesce()
   try render(
-    ControlCenterView(fleet: localUnreadableFleet),
+    detail(of: localUnreadableFleet),
     to: directory.appendingPathComponent("D2-servicio-local-ilegible.png"))
 
   // 5. A Mac with nothing installed: the first thing a new user sees.
@@ -291,11 +293,13 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   defer { empty.cleanUp() }
   let emptyFleet = fleet(empty)
   await emptyFleet.quiesce()
+  let emptyPresentation = emptyFleet.controlCenterPresentation(now: Date())
+  let emptyState = try #require(emptyPresentation.empty)
   try render(
-    ControlCenterView(fleet: emptyFleet),
+    ControlCenterEmptyView(empty: emptyState, header: emptyPresentation.header),
     to: directory.appendingPathComponent("E-sin-runners.png"))
   try render(
-    ControlCenterView(fleet: emptyFleet),
+    ControlCenterEmptyView(empty: emptyState, header: emptyPresentation.header),
     to: directory.appendingPathComponent("E-sin-runners.png"), appearance: .light)
 
   // 6. An action that fails. No `svc.sh` means the controller refuses before
@@ -309,10 +313,10 @@ private func fleet(_ sandbox: FleetSandbox) -> RunnerFleetModel {
   failingFleet.perform(.stop, onRunnerID: "actions.runner.acme-widget.mac-mini-m4")
   await failingFleet.quiesce()
   try render(
-    ControlCenterView(fleet: failingFleet),
+    detail(of: failingFleet),
     to: directory.appendingPathComponent("F-accion-fallida.png"))
   try render(
-    ControlCenterView(fleet: failingFleet),
+    detail(of: failingFleet),
     to: directory.appendingPathComponent("F-accion-fallida.png"), appearance: .light)
 }
 

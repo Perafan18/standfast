@@ -632,7 +632,8 @@ private struct DirectoryListingFailure: Error {}
 @Test func twoHandStartedRunnersKeepSeparateIdentities() throws {
   // Nothing registered these, so nothing gave them a label. The directory is
   // what tells them apart, and it has to survive into the identity everything
-  // else keys on — folding, in-flight operations, the settling window.
+  // else keys on — the selected sidebar row, in-flight operations, the settling
+  // window.
   let box = try Sandbox()
   defer { box.cleanUp() }
   let first = try box.addManualRunner(

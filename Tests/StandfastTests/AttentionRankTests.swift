@@ -20,7 +20,7 @@ private func rankSnapshot(
 private func rankCard(_ snapshot: RunnerSnapshot) -> RunnerCardPresentation {
   RunnerCardPresentation.building(
     snapshot, measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
-    maintenanceNotice: nil, now: rankNow, fleetSize: 1)
+    maintenanceNotice: nil, now: rankNow)
 }
 
 private func rankCard(

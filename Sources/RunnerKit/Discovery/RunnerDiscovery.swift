@@ -25,7 +25,7 @@ public struct DiscoveredRunner: Equatable, Sendable, Identifiable {
   /// launchd's label for a serviced runner. For one started by hand there is
   /// no such thing, so this is built from its directory — see
   /// `manualLabel(for:)`. Either way it is the identity everything else keys
-  /// on: folding, in-flight operations, the settling window.
+  /// on: the selected sidebar row, in-flight operations, the settling window.
   public let label: String
   public let directory: URL
   public let agentId: Int

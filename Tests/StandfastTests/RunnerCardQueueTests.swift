@@ -23,7 +23,7 @@ private func card(
   RunnerCardPresentation.building(
     RunnerSnapshot(runner: runner, display: display, labels: labels, queued: queued),
     measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
-    maintenanceNotice: nil, now: Date(timeIntervalSince1970: 0), fleetSize: 1)
+    maintenanceNotice: nil, now: Date(timeIntervalSince1970: 0))
 }
 
 @Test func aDisconnectedRunnerSaysHowMuchWorkIsPilingUpForIt() {
@@ -44,14 +44,12 @@ private func card(
   #expect(presentation.queued == nil)
 }
 
-@Test func theQueueLineSurvivesFolding() {
-  // Folding hides controls, navigation and history. What is waiting for a
-  // runner is the reason somebody would unfold it, so it belongs with identity
-  // and state rather than behind them.
+@Test func oneJobWaitingForADisconnectedRunnerIsStillWorthALine() {
+  // What is waiting for a runner is the reason somebody opens it, so it sits
+  // with its state, and one job is enough.
   let presentation = card(
     display: .resolved(.disconnected),
     queued: .work(QueuedWork(jobs: [job(1)], isPartial: false)))
 
   #expect(presentation.queued != nil)
-  #expect(presentation.startsCollapsed == false)
 }

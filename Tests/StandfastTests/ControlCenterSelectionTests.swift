@@ -15,7 +15,7 @@ private func selectable(_ name: String) -> RunnerCardPresentation {
         agentName: name, scope: .repository(owner: "acme", name: "widget")),
       display: .resolved(.idle), readAt: selectionNow),
     measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
-    maintenanceNotice: nil, now: selectionNow, fleetSize: 1)
+    maintenanceNotice: nil, now: selectionNow)
 }
 
 private let buildMac = selectable("build-mac")

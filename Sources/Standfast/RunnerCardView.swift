@@ -1,601 +1,370 @@
 import SwiftUI
 
-struct StateBadge: View {
-  let label: String
-  let tone: StateTone
-  let palette: StandfastPalette
-
-  var body: some View {
-    let colors = palette.badge(for: tone)
-    Text(label)
-      .font(StandfastTheme.Typography.badge)
-      .foregroundStyle(colors.foreground.color)
-      .padding(.horizontal, StandfastTheme.Spacing.small)
-      .padding(.vertical, StandfastTheme.Spacing.xSmall)
-      .background(colors.background.color, in: Capsule())
-      .overlay {
-        Capsule()
-          .stroke(colors.border.color, lineWidth: StandfastTheme.Stroke.structural)
-      }
-  }
-}
-
+/// One runner as a grouped form: who it is, what its two layers say, what it
+/// runs and ran, and its disk. The service verbs are the window's toolbar,
+/// which acts on whichever runner the sidebar has selected.
 struct RunnerCardView: View {
   let card: RunnerCardPresentation
-  /// Whether this runner's card is folded right now.
-  ///
-  /// Told, never decided here. `@State` takes its initial value once and the
-  /// enclosing `LazyVStack` recycles card views as they scroll, so a fold
-  /// seeded inside this type would follow a view slot instead of a runner.
-  let isCollapsed: Bool
-  let toggleCollapsed: () -> Void
-  let performAction: (RunnerRow.Action.Kind) -> Void
+  /// The heat lines, when this runner's own job has overrun on a Mac that is
+  /// being throttled, and nil otherwise.
+  let thermalLine: String?
   let performMaintenance: (MaintenanceOffer.Kind) -> Void
 
-  @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.controlActiveState) private var controlActiveState
-  @State private var jobsExpanded = false
+  /// Open, because the jobs are what most people come to a runner for. The
+  /// caller resets both per runner with `.id`.
+  @State private var jobsExpanded = true
   @State private var maintenanceExpanded = false
-
-  private var palette: StandfastPalette {
-    StandfastTheme.palette(
-      for: colorScheme == .dark ? .dark : .light,
-      increasedContrast: colorSchemeContrast == .increased,
-      reduceTransparency: reduceTransparency)
-  }
 
   private var identifiers: ControlCenterAccessibility.RunnerIdentifiers {
     ControlCenterAccessibility.runner(card.id)
   }
 
+  /// A failed order heads the form while it is the news. Any other receipt is
+  /// a row of Status.
+  private var failedReceipt: ServiceOperationPresentation? {
+    card.operationFeedback.flatMap { $0.tone == .attention ? $0 : nil }
+  }
+
   var body: some View {
-    // Folded is status, unfolded is actions. A column of complete cards is the
-    // right shape for the two or three runners one Mac usually hosts and the
-    // wrong shape for ten, where the operator scrolls past nine healthy
-    // runners to reach the one that broke — so a folded card keeps answering
-    // "what is this runner doing" and drops everything you would open it for.
-    VStack(alignment: .leading, spacing: 0) {
-      situation
-      if !isCollapsed {
-        detail
+    Form {
+      identity
+      if let failed = failedReceipt {
+        Section(L10n.controlCenterLastAction) {
+          receipt(failed, failed: true)
+        }
+      }
+      status
+      currentJob
+      recentJobs
+      maintenance
+    }
+    .formStyle(.grouped)
+    .standfastBar(.top, showing: thermalLine) { line in
+      Label {
+        Text(line)
+      } icon: {
+        Image(systemName: "thermometer.high")
+          .foregroundStyle(.orange)
       }
     }
-    .padding(StandfastTheme.Spacing.large)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      palette.surface.color,
-      in: RoundedRectangle(
-        cornerRadius: StandfastTheme.Radius.surface, style: .continuous)
+    // Presence only: a receipt arriving or leaving. State and elapsed times
+    // redraw every two seconds, and interpolating them would tween the age of
+    // the data on screen.
+    .animation(
+      StandfastTheme.Motion.honouring(
+        StandfastTheme.Motion.receipt, reduceMotion: reduceMotion),
+      value: card.operationFeedback
     )
-    .overlay {
-      RoundedRectangle(
-        cornerRadius: StandfastTheme.Radius.surface, style: .continuous
-      )
-      .stroke(
-        palette.structuralBorder.color,
-        lineWidth: StandfastTheme.Stroke.structural)
-    }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier(identifiers.card)
   }
 
-  /// What the card answers whether or not it is folded: which runner this is,
-  /// what state it is in, and what it is doing about it.
-  private var situation: some View {
-    VStack(alignment: .leading, spacing: StandfastTheme.Spacing.standard) {
-      identity
-      focus
-      // What is waiting for this runner, above the fold and beside the state
-      // it explains. "Disconnected" says what broke; the line under it says
-      // what that is costing, and that is the half somebody came for.
-      if let queued = card.queued {
-        queueLine(queued)
-      }
-      // Why the controls below do nothing, above the fold with the controls
-      // themselves. Greyed-out buttons and no explanation is the app knowing
-      // something and not saying it.
-      if let note = card.serviceNote {
-        HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
-          Image(systemName: "hand.raised")
-            .frame(width: 20)
-            .foregroundStyle(palette.textSecondary.color)
-            .accessibilityHidden(true)
-          Text(note)
-            .font(StandfastTheme.Typography.secondary)
-            .foregroundStyle(palette.textSecondary.color)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .accessibilityElement(children: .combine)
-      }
-      // The receipt for the last Start or Stop stays with the situation on
-      // purpose: hiding the outcome of an action the operator just took would
-      // make folding feel like the app forgot.
-      if let feedback = card.operationFeedback {
-        // Presence, so it fades and rises 4 pt rather than appearing between
-        // two frames. The receipt is the answer to something the operator just
-        // did; arriving without transition reads as if it had always been
-        // there, which is the one thing it was not.
-        operationFeedback(feedback)
-          .transition(
-            .opacity.combined(with: .offset(y: 4))
-          )
-      }
-    }
-    .animation(
-      StandfastTheme.Motion.honouring(
-        StandfastTheme.Motion.receipt, reduceMotion: reduceMotion),
-      value: card.operationFeedback)
-  }
-
-  /// Everything a person opens a card in order to do.
-  ///
-  /// One spacing value between every section says every section is equally
-  /// related to the one above it, which is the same as saying nothing about
-  /// structure at all. The gaps carry the grouping instead: controls read as
-  /// one block and the two things you open on purpose as a quieter second.
-  private var detail: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      VStack(spacing: StandfastTheme.Spacing.small) {
-        serviceActions
-        navigation
-      }
-      .padding(.top, StandfastTheme.Spacing.large)
-
-      // Decorative: it groups the two things you open on purpose away from the
-      // controls above them. Drawn at the structural weight it read as the
-      // edge of something, which is a boundary it is not.
-      Rectangle()
-        .fill(palette.divider.color)
-        .frame(height: StandfastTheme.Stroke.separator)
-        .padding(.top, StandfastTheme.Spacing.xLarge)
-
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
-        history
-        maintenance
-      }
-      .padding(.top, StandfastTheme.Spacing.compact)
-    }
-  }
-
   private var identity: some View {
-    HStack(alignment: .firstTextBaseline, spacing: StandfastTheme.Spacing.compact) {
-      identitySummary
-      foldControl
-    }
-    // The lesson the disclosure rows already learned: a chevron on its own is
-    // a few points of target beside a whole row that reads interactive and
-    // ignores the click. The row is the target; the chevron says which way.
-    .contentShape(Rectangle())
-    .onTapGesture(perform: toggleCollapsed)
-  }
-
-  private var identitySummary: some View {
-    HStack(alignment: .firstTextBaseline, spacing: StandfastTheme.Spacing.compact) {
-      Image(systemName: card.stateSymbolName)
-        .font(StandfastTheme.Typography.display)
-        .foregroundStyle(palette.textPrimary.color)
-        .accessibilityHidden(true)
-
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
-        Text(card.title)
-          .font(StandfastTheme.Typography.title)
-          .foregroundStyle(palette.textPrimary.color)
-        Text(card.scope)
-          .font(StandfastTheme.Typography.secondary)
-          .foregroundStyle(palette.textSecondary.color)
-          // UI-026. `acme/acme-widget` under a runner name reads as a fixed
-          // assignment, a filter, the last repository used, or the job in
-          // flight. It is where the runner is registered, and that was the one
-          // reading the card never stated.
-          .help(L10n.scopeExplained(card.scope))
-      }
-
-      Spacer(minLength: StandfastTheme.Spacing.small)
-
-      StateBadge(label: card.compactState, tone: card.tone, palette: palette)
-        .accessibilityHidden(true)
-    }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(card.title)
-    .accessibilityValue("\(card.compactState), \(card.scope). \(card.state)")
-    .accessibilityIdentifier(identifiers.status)
-    // Without this the combined status element is a dead end for VoiceOver:
-    // it reads the runner's state and offers no way to open the card it is
-    // describing without navigating back out to the chevron.
-    .accessibilityAction(named: Text(foldLabel), toggleCollapsed)
-  }
-
-  /// What pressing the control would do next, not what it did last.
-  private var foldLabel: String {
-    isCollapsed ? L10n.unfoldCard : L10n.foldCard
-  }
-
-  private var foldControl: some View {
-    Button(action: toggleCollapsed) {
-      Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-        .font(StandfastTheme.Typography.bodyEmphasized)
-        .foregroundStyle(palette.textSecondary.color)
-        .frame(
-          minWidth: StandfastTheme.controlMinimumHeight,
-          minHeight: StandfastTheme.controlMinimumHeight
-        )
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.borderless)
-    .accessibilityLabel(L10n.runnerInScope(foldLabel, card.title))
-    .accessibilityIdentifier(identifiers.fold)
-  }
-
-  @ViewBuilder
-  private var focus: some View {
-    switch card.focus {
-    case .operation(let operation):
-      focusLine(
-        symbol: operation.symbolName, title: operation.title,
-        detail: operation.detail)
-    case .currentJob(let progress):
-      focusLine(symbol: "bolt.fill", title: progress)
-    case .managedJob(let job):
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
-        focusLine(symbol: "bolt.fill", title: job.context, detail: job.detail)
-        Text(job.association)
-        ForEach(job.links) { link in
-          Link(link.title, destination: link.url)
+    Section {
+      HStack(spacing: 12) {
+        Image(systemName: card.stateSymbolName)
+          .font(.largeTitle)
+          .symbolRenderingMode(.hierarchical)
+          .foregroundStyle(card.tone.color)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(card.title)
+            .font(.title2.weight(.semibold))
+          Text(card.scope)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            // UI-026. A scope under a runner name reads as an assignment, a
+            // filter or the job in flight. It is where the runner is
+            // registered, and nothing else said so.
+            .help(L10n.scopeExplained(card.scope))
         }
       }
-    case .lastJob(let job):
-      focusLine(
-        symbol: job.outcome.symbolName, title: job.text,
-        detail: job.circumstances)
-    case .state(let state):
-      focusLine(symbol: card.stateSymbolName, title: state)
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(card.title)
+      .accessibilityValue("\(card.compactState), \(card.scope). \(card.state)")
+      .accessibilityIdentifier(identifiers.status)
     }
   }
 
-  private func focusLine(
-    symbol: String, title: String, detail: String? = nil
-  ) -> some View {
-    HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
-      Image(systemName: symbol)
-        .frame(width: 20)
-        .foregroundStyle(palette.textPrimary.color)
-        .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
-        Text(title)
-          .font(StandfastTheme.Typography.bodyEmphasized)
-          .foregroundStyle(palette.textPrimary.color)
-        if let detail {
-          Text(detail)
-            .font(StandfastTheme.Typography.secondary)
-            .foregroundStyle(palette.textSecondary.color)
+  private var status: some View {
+    Section {
+      LabeledContent(card.layers.localName) {
+        StatusLabel(reading: card.layers.local)
+      }
+      LabeledContent(card.layers.remoteName) {
+        StatusLabel(reading: card.layers.remote)
+      }
+      // Beside the state it explains: "Disconnected" says what broke, and this
+      // says what that is costing.
+      if let queued = card.queued {
+        queue(queued)
+      }
+      if let operation = card.operation, operation.isInFlight {
+        inFlight(operation)
+      }
+      if let feedback = card.operationFeedback, failedReceipt == nil {
+        receipt(feedback, failed: false)
+      }
+    } header: {
+      Text(L10n.controlCenterStatus)
+    } footer: {
+      // The whole sentence, remedy included, under the readings it explains.
+      // Then why the toolbar's service controls do nothing, when they do not.
+      VStack(alignment: .leading, spacing: 4) {
+        Text(card.state)
+        if let note = card.serviceNote {
+          Text(note)
         }
       }
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityIdentifier(identifiers.focus)
   }
 
-  private func queueLine(_ queued: QueuedWorkPresentation) -> some View {
-    HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
-      // The same two tokens the Settings notices use, and for the same reason:
-      // they are the pair already measured against this surface. Reaching for
-      // a badge's foreground here would borrow a colour chosen against a badge
-      // background that is not behind this text.
-      let colour =
-        queued.tone == .attention
-        ? palette.attentionForeground.color : palette.textSecondary.color
-      // Weight rather than colour carries the difference between "work is
-      // waiting" and "work is waiting and nothing here is going to take it".
-      // The attention token is nearly white in dark mode, so on this surface
-      // the two tones were all but identical — and weight survives a
-      // colour-blind reader and a monochrome screenshot, which colour does not.
-      Image(systemName: queued.tone == .attention ? "tray.full.fill" : "tray.full")
-        .frame(width: 20)
-        .foregroundStyle(colour)
-        .accessibilityHidden(true)
-      Text(queued.line)
-        .font(
-          queued.tone == .attention
-            ? StandfastTheme.Typography.bodyEmphasized : StandfastTheme.Typography.secondary
-        )
-        .foregroundStyle(colour)
-        .frame(maxWidth: .infinity, alignment: .leading)
+  private func queue(_ queued: QueuedWorkPresentation) -> some View {
+    // Weight rather than colour carries "and nothing here will take it": it
+    // survives a colour-blind reader and a monochrome screenshot.
+    let unclaimed = queued.tone == .attention
+    return LabeledContent(L10n.controlCenterWaiting) {
+      Label(queued.line, systemImage: unclaimed ? "tray.full.fill" : "tray.full")
+        .fontWeight(unclaimed ? .semibold : nil)
+        .foregroundStyle(unclaimed ? HierarchicalShapeStyle.primary : .secondary)
     }
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier(identifiers.queue)
   }
 
-  private func operationFeedback(
-    _ feedback: ServiceOperationPresentation
-  ) -> some View {
-    // A failure used to arrive in the same ink as everything else, under a
-    // green `Listo` badge that outweighed it. The rule and the colour are what
-    // make it the loudest thing on the card while it is there; both are
-    // decoration, so the element the reader hears is unchanged.
-    let failed = feedback.tone == .attention
-    let ink = failed ? palette.attentionOnSurface : palette.textPrimary
-
-    return HStack(alignment: .top, spacing: StandfastTheme.Spacing.compact) {
-      if failed {
-        RoundedRectangle(cornerRadius: StandfastTheme.Stroke.structural)
-          .fill(palette.attentionOnSurface.color)
-          .frame(width: 3)
-          .accessibilityHidden(true)
-      }
-      Image(systemName: feedback.symbolName)
-        .foregroundStyle(ink.color)
+  private func inFlight(_ operation: ServiceOperationPresentation) -> some View {
+    HStack(spacing: 8) {
+      ProgressView()
+        .controlSize(.small)
         .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.xSmall) {
-        Text(feedback.title)
-          .font(StandfastTheme.Typography.bodyEmphasized)
-          .foregroundStyle(ink.color)
-        Text(feedback.detail)
-          .font(StandfastTheme.Typography.secondary)
-          .foregroundStyle(palette.textSecondary.color)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(operation.title)
+        Text(operation.detail)
+          .foregroundStyle(.secondary)
       }
     }
-    .fixedSize(horizontal: false, vertical: true)
     .accessibilityElement(children: .combine)
   }
 
-  private var serviceActions: some View {
-    ViewThatFits(in: .horizontal) {
-      HStack(spacing: StandfastTheme.Spacing.small) {
-        ForEach(serviceActionPresentations) { action in
-          serviceButton(action)
-        }
-      }
-      VStack(spacing: StandfastTheme.Spacing.small) {
-        ForEach(serviceActionPresentations) { action in
-          serviceButton(action)
-        }
-      }
-    }
-  }
-
-  private var serviceActionPresentations: [RunnerCardAction] {
-    card.actions.filter { $0.kind != .openOnGitHub }
-  }
-
-  /// Only while the window is active. In one the user has left for another app,
-  /// macOS drops the tint and draws a grey pill, and the label forced to the
-  /// tint's white would sit on it at about 1.1:1.
-  private func drawsProminent(_ action: RunnerCardAction) -> Bool {
-    action.isEnabled && action.emphasis == .prominent
-      && controlActiveState != .inactive
-  }
-
-  @ViewBuilder
-  private func serviceButton(_ action: RunnerCardAction) -> some View {
-    if drawsProminent(action) {
-      serviceButtonLabel(action, foreground: palette.primaryButtonText)
-        .buttonStyle(.borderedProminent)
-        .tint(palette.primaryButton.color)
-    } else {
-      serviceButtonLabel(action, foreground: nil)
-        .buttonStyle(.bordered)
-    }
-  }
-
-  private func serviceButtonLabel(
-    _ action: RunnerCardAction, foreground: StandfastSRGBColor?
+  /// What became of the last order. A failure is filled and red until the
+  /// next order; anything else wears its own tone, so an uncertain result is
+  /// never drawn as a failure.
+  private func receipt(
+    _ feedback: ServiceOperationPresentation, failed: Bool
   ) -> some View {
-    Button {
-      performAction(action.kind)
-    } label: {
-      Group {
-        if let foreground {
-          Label(action.label, systemImage: action.symbolName)
-            .foregroundStyle(foreground.color)
-        } else {
-          // Tint, and only tint. `Arrancar` disabled and `Parar` enabled used
-          // to weigh almost the same, so a card at rest read as a panel of
-          // controls rather than as a machine with nothing to do. The button
-          // keeps its place in the layout and its identifier either way.
-          Label(action.label, systemImage: action.symbolName)
-            .foregroundStyle(
-              action.isEnabled
-                ? palette.textPrimary.color : palette.controlTextDisabled.color)
-        }
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(feedback.title)
+          .fontWeight(failed ? .semibold : nil)
+        Text(feedback.detail)
+          .foregroundStyle(.secondary)
       }
-      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
-      .contentShape(Rectangle())
-    }
-    .disabled(!action.isEnabled)
-    // A greyed control that will not say why is a dead end. The runner state is
-    // the reason, already localised, so the tooltip reuses it rather than
-    // inventing a second vocabulary for the same fact.
-    .help(action.isEnabled ? "" : card.state)
-    .accessibilityLabel(action.accessibilityLabel)
-    .accessibilityIdentifier(identifier(for: action.kind))
-  }
-
-  @ViewBuilder
-  private var navigation: some View {
-    if let action = card.action(.openOnGitHub) {
-      if drawsProminent(action) {
-        navigationButton(action, foreground: palette.primaryButtonText)
-          .buttonStyle(.borderedProminent)
-          .tint(palette.primaryButton.color)
+    } icon: {
+      if failed {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .foregroundStyle(.red)
       } else {
-        navigationButton(action, foreground: nil)
-          .buttonStyle(.bordered)
+        Image(systemName: feedback.symbolName)
+          .foregroundStyle(feedback.tone.color)
       }
     }
+    .accessibilityElement(children: .combine)
+    .transition(.opacity)
   }
 
-  private func navigationButton(
-    _ action: RunnerCardAction, foreground: StandfastSRGBColor?
-  ) -> some View {
-    let qualifiedLabel = L10n.runnerInScope(action.accessibilityLabel, card.title)
-    return Button {
-      performAction(action.kind)
-    } label: {
-      Group {
-        if let foreground {
-          Label(action.label, systemImage: action.symbolName)
-            .foregroundStyle(foreground.color)
-        } else {
-          // Tint, and only tint. `Arrancar` disabled and `Parar` enabled used
-          // to weigh almost the same, so a card at rest read as a panel of
-          // controls rather than as a machine with nothing to do. The button
-          // keeps its place in the layout and its identifier either way.
-          Label(action.label, systemImage: action.symbolName)
-            .foregroundStyle(
-              action.isEnabled
-                ? palette.textPrimary.color : palette.controlTextDisabled.color)
+  /// What is running now. A finished job and a quiet runner get no section:
+  /// Recent jobs and the Status footer already say them.
+  @ViewBuilder
+  private var currentJob: some View {
+    if case .managedJob(let job) = card.focus {
+      Section(L10n.controlCenterCurrentJob) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(job.context)
+          Text(job.detail)
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifiers.focus)
+        Text(job.association)
+        ForEach(job.links) { link in
+          Link(link.title, destination: link.url)
         }
       }
-      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
-      .contentShape(Rectangle())
+    } else if let progress = card.progress {
+      Section(L10n.controlCenterCurrentJob) {
+        VStack(alignment: .leading, spacing: 6) {
+          Text(progress)
+            .monospacedDigit()
+          // No bar past the usual time: a full one would read as done while
+          // the job runs on. The line above still says both numbers.
+          if let job = card.jobProgress, job.showsBar, let typical = job.typical {
+            ProgressView(value: job.elapsed, total: typical)
+          }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifiers.focus)
+      }
     }
-    .disabled(!action.isEnabled)
-    .help(action.isEnabled ? "" : card.state)
-    .accessibilityLabel(qualifiedLabel)
-    .accessibilityInputLabels([
-      Text(action.label), Text(qualifiedLabel),
-    ])
-    .accessibilityIdentifier(identifiers.github)
   }
 
-  private var history: some View {
-    DisclosureGroup(isExpanded: $jobsExpanded) {
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
+  private var recentJobs: some View {
+    Section {
+      DisclosureGroup(isExpanded: $jobsExpanded) {
         switch card.history {
         case .available(let rows, _):
           if rows.isEmpty {
             Text(L10n.historyEmpty())
-              .foregroundStyle(palette.textSecondary.color)
+              .foregroundStyle(.secondary)
           } else {
             ForEach(rows) { historyRow($0) }
           }
         case .unavailable(let lastKnownRows):
-          Label(L10n.historyUnavailable(), systemImage: "exclamationmark.triangle")
-            .foregroundStyle(palette.textSecondary.color)
           ForEach(lastKnownRows) { historyRow($0) }
         }
-      }
-      .padding(.top, StandfastTheme.Spacing.compact)
-    } label: {
-      disclosureLabel(isExpanded: $jobsExpanded) {
-        HStack {
-          Text(L10n.recentJobs)
-            .font(StandfastTheme.Typography.bodyEmphasized)
-          Spacer()
-          if case .available(let rows, true) = card.history {
-            Text(L10n.historyLatest(rows.count))
-              .font(StandfastTheme.Typography.badge)
-              .foregroundStyle(palette.textSecondary.color)
+      } label: {
+        disclosureLabel(isExpanded: $jobsExpanded) {
+          HStack {
+            Text(L10n.recentJobs)
+            Spacer()
+            // How many are listed, and only when that is not all of them.
+            if case .available(let rows, true) = card.history {
+              Text(L10n.historyLatest(rows.count))
+                .foregroundStyle(.secondary)
+            }
           }
         }
       }
+      .accessibilityIdentifier(identifiers.jobs)
+    } footer: {
+      if case .unavailable = card.history {
+        Label(L10n.historyUnavailable(), systemImage: "exclamationmark.triangle")
+      }
     }
-    .accessibilityIdentifier(identifiers.jobs)
   }
 
-  /// On macOS a `DisclosureGroup` toggles from its triangle and nothing else,
-  /// so the label beside it looks interactive and is not: the target is a few
-  /// points of chevron next to a whole row of text that ignores the click.
-  /// Every native disclosure — the Finder inspector, System Settings — opens
-  /// from the entire row, which is also the thing a pointer aims at.
+  /// On macOS a `DisclosureGroup` toggles from its triangle alone, so the label
+  /// beside it reads as the control and ignores the click. Native disclosures,
+  /// System Settings' among them, open from the whole row.
   private func disclosureLabel<Content: View>(
     isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content
   ) -> some View {
     content()
-      .padding(.leading, StandfastTheme.Spacing.xSmall)
-      .frame(maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
       .onTapGesture { isExpanded.wrappedValue.toggle() }
   }
 
+  /// One finished job: which, how it ended, and when and for how long, named.
+  /// Rows of "Succeeded" with no dates hide whether they are from today, and
+  /// two bare numbers hide which one is the age.
   private func historyRow(_ job: JobRow) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: StandfastTheme.Spacing.small) {
-      Image(systemName: job.outcome.symbolName)
-        .foregroundStyle(palette.textPrimary.color)
-        .accessibilityHidden(true)
-      Text(job.name)
-        .foregroundStyle(palette.textPrimary.color)
-      Spacer(minLength: StandfastTheme.Spacing.small)
-      Text(job.outcome.label)
-        .foregroundStyle(palette.textSecondary.color)
-      // When first, then how long — and both named, in the sentence the focus
-      // line above already uses. Five rows of "Correcto" with no dates do not
-      // say whether they are from today or from last month; two bare numbers
-      // answering that ("Correcto 48s 49s") only move the guesswork onto which
-      // of them is the age.
-      if let circumstances = job.circumstances {
-        Text(circumstances)
-          .monospacedDigit()
-          .foregroundStyle(palette.textSecondary.color)
+    // One line where the form is wide enough, and the circumstances under the
+    // name where it is not: Spanish runs about a third longer.
+    ViewThatFits(in: .horizontal) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        jobLabel(job, detail: nil)
+        Spacer(minLength: 8)
+        Text(job.outcome.label)
+          .foregroundStyle(.secondary)
+        if let circumstances = job.circumstances {
+          Text(circumstances)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+        }
+      }
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        jobLabel(job, detail: job.circumstances)
+        Spacer(minLength: 8)
+        Text(job.outcome.label)
+          .foregroundStyle(.secondary)
       }
     }
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier(identifiers.job(job.id))
   }
 
+  private func jobLabel(_ job: JobRow, detail: String?) -> some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(job.name)
+        if let detail {
+          Text(detail)
+            .font(.subheadline)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+        }
+      }
+    } icon: {
+      Image(systemName: job.outcome.symbolName)
+        .foregroundStyle(job.outcome.color)
+        .accessibilityHidden(true)
+    }
+  }
+
   private var maintenance: some View {
-    DisclosureGroup(isExpanded: $maintenanceExpanded) {
-      VStack(alignment: .leading, spacing: StandfastTheme.Spacing.compact) {
+    Section {
+      DisclosureGroup(isExpanded: $maintenanceExpanded) {
         if let version = card.maintenance.version {
           Text(version)
         }
         ForEach(card.maintenance.usage, id: \.self) { usage in
           Text(usage)
         }
-        // `measured` stays on the collapsed row, where it says what is inside
-        // without opening it. Repeating it here told the reader something they
-        // had already read on the line they clicked to get here.
         ForEach(card.maintenance.offers) { offer in
           maintenanceButton(offer)
         }
-        ForEach(card.maintenance.notes, id: \.self) { note in
-          Text(note)
-            .foregroundStyle(palette.textSecondary.color)
+      } label: {
+        disclosureLabel(isExpanded: $maintenanceExpanded) {
+          HStack {
+            Text(L10n.maintenance)
+            Spacer()
+            // On the collapsed row, where it says what is inside without
+            // opening it.
+            Text(card.maintenance.measured)
+              .monospacedDigit()
+              .foregroundStyle(.secondary)
+          }
         }
       }
-      .padding(.top, StandfastTheme.Spacing.compact)
-    } label: {
-      disclosureLabel(isExpanded: $maintenanceExpanded) {
-        HStack {
-          Text(L10n.maintenance)
-            .font(StandfastTheme.Typography.bodyEmphasized)
-          Spacer()
-          Text(card.maintenance.measured)
-            .font(StandfastTheme.Typography.meta)
-            .foregroundStyle(palette.textSecondary.color)
+      .accessibilityIdentifier(identifiers.maintenance)
+    } footer: {
+      // Why the buttons are greyed out, and what the last one did.
+      if !card.maintenance.notes.isEmpty {
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(card.maintenance.notes, id: \.self) { note in
+            Text(note)
+          }
         }
       }
     }
-    .accessibilityIdentifier(identifiers.maintenance)
   }
 
   private func maintenanceButton(_ offer: MaintenanceOffer) -> some View {
-    Button(role: offer.kind == .measure ? nil : .destructive) {
+    Button(offer.label, role: offer.kind == .measure ? nil : .destructive) {
       performMaintenance(offer.kind)
-    } label: {
-      Text(offer.label)
-        .frame(
-          maxWidth: .infinity, minHeight: StandfastTheme.controlMinimumHeight,
-          alignment: .leading
-        )
-        .contentShape(Rectangle())
     }
-    .buttonStyle(.bordered)
+    .controlSize(.small)
     .disabled(!offer.isEnabled)
     .help(offer.isEnabled ? "" : card.state)
     .accessibilityLabel(L10n.runnerInScope(offer.label, card.title))
     .accessibilityIdentifier(identifiers.maintenanceAction(offer.kind))
   }
+}
 
-  private func identifier(for kind: RunnerRow.Action.Kind) -> String {
-    switch kind {
-    case .start: identifiers.start
-    case .stop: identifiers.stop
-    case .restart: identifiers.restart
-    case .openOnGitHub: identifiers.github
+/// One layer's answer: a dot and its words. The words say it on their own, so
+/// the dot is decoration and VoiceOver skips it.
+struct StatusLabel: View {
+  let reading: LayerReading
+
+  var body: some View {
+    Label {
+      Text(reading.text)
+    } icon: {
+      Image(systemName: "circle.fill")
+        .imageScale(.small)
+        .foregroundStyle(reading.tone.color)
+        .accessibilityHidden(true)
     }
   }
 }

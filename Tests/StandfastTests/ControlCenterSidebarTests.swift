@@ -25,7 +25,7 @@ private func sidebarCard(
     display: display, readAt: sidebarNow)
   return RunnerCardPresentation.building(
     snapshot, measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
-    maintenanceNotice: nil, now: sidebarNow, fleetSize: 1)
+    maintenanceNotice: nil, now: sidebarNow)
 }
 
 private func gitLabCard(_ name: String) -> RunnerCardPresentation {
@@ -115,4 +115,29 @@ private func slotCard(_ name: String) -> RunnerCardPresentation {
   #expect(
     sidebarCard("gl-slot", scope: gitLabScope, installation: .managedFleet).group
       == .managedFleet)
+}
+
+@Test func theOverviewRowCountsWhatOnlyTheOverviewShows() {
+  // A selected runner hides the Overview, and with it discovery's notice and
+  // the Mac's heat. The badge is what still says they are there.
+  func presentation(
+    notice: ControlCenterNoticePresentation?
+  ) -> ControlCenterPresentation {
+    ControlCenterPresentation(
+      header: .building(
+        overview: .building(snapshots: [], notice: nil), readAt: nil, now: sidebarNow),
+      cards: [sidebarCard("build-mac")], empty: nil, notice: notice)
+  }
+  let unreadable = presentation(notice: .unreadableRunners(paths: ["/tmp/a.plist"]))
+  let heat = ThermalNotice.lines(pressure: .critical, overrunning: true)
+
+  #expect(presentation(notice: nil).overviewWarningCount(thermalLines: []) == 0)
+  #expect(unreadable.overviewWarningCount(thermalLines: []) == 1)
+  #expect(
+    presentation(notice: .launchAgentsUnavailable(directory: "/tmp/LaunchAgents"))
+      .overviewWarningCount(thermalLines: []) == 1)
+  // Two lines, one warning: the second only says what the heat is doing.
+  #expect(heat.count == 2)
+  #expect(presentation(notice: nil).overviewWarningCount(thermalLines: heat) == 1)
+  #expect(unreadable.overviewWarningCount(thermalLines: heat) == 2)
 }

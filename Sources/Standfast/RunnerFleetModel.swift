@@ -178,9 +178,6 @@ final class RunnerFleetModel: ObservableObject {
   let notifications: NotificationSettings
   let sleep: SleepGuard
   let housekeeping: HousekeepingModel
-  /// Which cards the operator folded. Owned here rather than by the window
-  /// so a fold outlives closing and reopening the Control Center.
-  let folding: RunnerCardFolding
 
   private let discover: @Sendable () -> DiscoveryResult
   private let resolver: RunnerStateResolver
@@ -305,7 +302,6 @@ final class RunnerFleetModel: ObservableObject {
     notifications: NotificationSettings = NotificationSettings(),
     sleep: SleepGuard = SleepGuard(),
     housekeeping: HousekeepingModel = HousekeepingModel(),
-    folding: RunnerCardFolding = RunnerCardFolding(),
     versions: any RunnerVersionReading = RunnerVersionReader(),
     releases: any RunnerReleaseChecking = TokenFirstGitHubClient.standard,
     queues: any QueuedWorkReading = TokenFirstGitHubClient.standard,
@@ -330,7 +326,6 @@ final class RunnerFleetModel: ObservableObject {
     self.notifications = notifications
     self.sleep = sleep
     self.housekeeping = housekeeping
-    self.folding = folding
     self.versions = versions
     self.releases = releases
     self.queues = queues
@@ -849,8 +844,7 @@ final class RunnerFleetModel: ObservableObject {
         snapshot, measurement: housekeeping.measurement(for: snapshot.runner),
         latestRelease: latestRelease,
         isMaintenanceWorking: housekeeping.isWorking(on: snapshot.runner),
-        maintenanceNotice: housekeeping.notice(for: snapshot.runner), now: now,
-        fleetSize: snapshots.count)
+        maintenanceNotice: housekeeping.notice(for: snapshot.runner), now: now)
     }
   }
 

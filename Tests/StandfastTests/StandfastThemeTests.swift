@@ -85,13 +85,17 @@ import Testing
   }
 }
 
-@Test func controlCenterGeometryPreservesTheMeasuredReadableWidth() {
-  #expect(StandfastTheme.controlCenterMinimumWidth == 520)
-  #expect(StandfastTheme.controlCenterDefaultWidth == 540)
-  #expect(StandfastTheme.controlCenterDefaultHeight == 720)
+@Test func controlCenterGeometryHoldsASidebarBesideTheDetail() {
+  #expect(StandfastTheme.controlCenterMinimumWidth == 680)
+  #expect(StandfastTheme.controlCenterMinimumHeight == 440)
+  #expect(StandfastTheme.controlCenterDefaultWidth == 820)
+  #expect(StandfastTheme.controlCenterDefaultHeight == 600)
   #expect(
     StandfastTheme.controlCenterDefaultWidth
       >= StandfastTheme.controlCenterMinimumWidth)
+  #expect(
+    StandfastTheme.controlCenterDefaultHeight
+      >= StandfastTheme.controlCenterMinimumHeight)
 }
 
 @Test func settingsGeometryStaysInsideTheCompactMeasuredRange() {
@@ -137,15 +141,19 @@ import Testing
       >= 3 * light.controlTextDisabled.contrastRatio(against: light.surface))
 }
 
-@Test func theCardSpendsThatTokenOnTheControlsAndNotOnTheText() {
-  let source = standfastSource("RunnerCardView.swift")
+@Test func aDisabledRunnerControlKeepsItsPlaceAndSaysWhy() {
+  let source = standfastSource("ControlCenterView.swift")
 
-  // Tint only. The disabled button keeps its place in the layout and its
-  // accessibility identifier: taking it out of the tree is what the review
-  // called a P0, because the strict gate and the manual matrix both assume a
-  // stable tree.
-  #expect(source.contains("controlTextDisabled"))
+  // Disabled, never removed: it keeps its place in the toolbar and its
+  // identifier. Taking it out of the tree was a P0 in review, because the gate
+  // and the manual matrix both assume a stable tree.
   #expect(source.contains(".disabled(!action.isEnabled)"))
+  // And its tooltip gives this runner's reason rather than the verb again: a
+  // greyed Start that says "Start build-mac" is a dead end.
+  #expect(
+    source.contains(
+      ".help(action.isEnabled ? action.accessibilityLabel"
+        + " : (card.serviceNote ?? card.state))"))
 }
 
 // MARK: - The failed receipt gets a colour of its own, measured on the surface
@@ -242,19 +250,19 @@ import Testing
       == nil)
 }
 
-@Test func onlyFoldingAndReceiptsAreAnimatedAtAll() {
+@Test func onlyReceiptsAreAnimatedAtAll() {
   let card = standfastSource("RunnerCardView.swift")
   let centre = standfastSource("ControlCenterView.swift")
 
-  // State, enablement and freshness stay instantaneous. The freshness line
-  // lives inside a `TimelineView` that ticks every two seconds, so a blanket
-  // `.animation` would interpolate "Consultado ahora mismo" — an app tweening
-  // the age of its own data is an app deciding to look busy over being right.
-  #expect(centre.contains("accessibilityReduceMotion"))
-  #expect(centre.contains("StandfastTheme.Motion.honouring"))
+  // State, enablement and freshness stay instantaneous. The window redraws
+  // every two seconds inside a `TimelineView`, and a blanket `.animation` would
+  // tween "Consultado ahora mismo": the age of the app's own data.
+  #expect(card.contains("accessibilityReduceMotion"))
   #expect(card.contains("StandfastTheme.Motion.honouring"))
   #expect(!card.contains(".animation(.default"))
-  #expect(!centre.contains(".animation(.default"))
+  // The window around the detail moves nothing at all.
+  #expect(!centre.contains(".animation("))
+  #expect(!centre.contains("withAnimation"))
 }
 
 // MARK: - The system draws the look, and one file asks which macOS this is
