@@ -72,7 +72,9 @@ the rest, then anything discovery could not read, whether macOS is throttling th
 heat, and every runner with both of its answers side by side.
 
 Service operations keep their own receipts per runner. In-flight work is visible
-immediately and remains visible for as long as the command is running. After an operation
+immediately and remains visible for as long as the command is running. An order in flight,
+or one that failed, also shows on its runner's sidebar row, so an order given from that
+row's context menu still answers while another runner is selected. After an operation
 reaches an accepted, uncertain, or failed outcome, its terminal receipt remains for a nominal
 five-minute scan-wall-clock window and is pruned by the next normal scan at or after that wall-clock
 boundary. A system clock correction can shorten or extend the displayed interval. After that
