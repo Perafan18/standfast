@@ -50,7 +50,9 @@ sidebar, toolbar and grouped forms.
 - **The empty and loading states are the system's:** a progress view while Standfast first
   looks, and `ContentUnavailableView` for a Mac with no runners or a discovery that failed.
 - **Settings is three tabs of grouped forms** — General, Runners and Accounts — and opens
-  on General. Return in a token field saves it. A notice keeps its words in primary text
+  on General. Each tab is as tall as what it holds; on a display too short for one, such as
+  a 13-inch MacBook Air at Larger Text, the tab fits the screen and its form scrolls, so
+  every switch stays in reach. Return in a token field saves it. A notice keeps its words in primary text
   beside a multicolour warning triangle, so the line somebody has to act on is no longer
   the faintest one in the pane.
 - **The quick menu is grouped by separators,** each runner item wears its state's symbol,

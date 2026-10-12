@@ -70,7 +70,8 @@ private enum SettingsPane: Hashable {
 
 /// Every switch in the app, and the version. Its height is measured so nothing
 /// scrolls: a grouped form is a list, and a row scrolled out of sight can take
-/// the gate's identifier out of the accessibility tree.
+/// the gate's identifier out of the accessibility tree. Only a display too
+/// short for it makes the form scroll, which beats a switch below its edge.
 struct GeneralSettingsPane: View {
   let presentation: SettingsPresentation
   @ObservedObject var notifications: NotificationSettings
@@ -155,9 +156,7 @@ struct GeneralSettingsPane: View {
       }
       .padding(.bottom)
     }
-    .frame(
-      width: StandfastTheme.settingsPaneWidth,
-      height: StandfastTheme.settingsGeneralHeight)
+    .settingsPaneFrame(height: StandfastTheme.settingsGeneralHeight)
   }
 
   private func settingsToggle(_ title: String, isOn: Binding<Bool>) -> some View {
@@ -216,8 +215,7 @@ struct RunnersSettingsPane: View {
       }
     }
     .formStyle(.grouped)
-    .frame(
-      width: StandfastTheme.settingsPaneWidth,
+    .settingsPaneFrame(
       height: StandfastTheme.settingsRunnersHeight(
         folders: manualRunners.directories.count))
   }
@@ -285,8 +283,7 @@ struct AccountsSettingsPane: View {
       }
     }
     .formStyle(.grouped)
-    .frame(
-      width: StandfastTheme.settingsPaneWidth,
+    .settingsPaneFrame(
       height: StandfastTheme.settingsAccountsHeight(gitLabInstances: gitLab.cards.count))
   }
 
@@ -344,6 +341,18 @@ struct AccountsSettingsPane: View {
   private func save(_ draft: Binding<String>, to access: GitHubAccess) {
     access.save(draft.wrappedValue)
     draft.wrappedValue = ""
+  }
+}
+
+extension View {
+  /// One width on every pane, and the pane's measured height as far as the
+  /// display Settings opens on allows. Under `.contentSize` a form with no
+  /// height collapses.
+  fileprivate func settingsPaneFrame(height: CGFloat) -> some View {
+    frame(
+      width: StandfastTheme.settingsPaneWidth,
+      height: StandfastTheme.settingsPaneHeight(
+        height, screenHeight: NSScreen.main?.visibleFrame.height))
   }
 }
 

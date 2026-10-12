@@ -180,19 +180,38 @@ private func settingsSource(_ name: String) -> String {
   let settingsScene = app.components(separatedBy: "Settings{").last ?? ""
 
   // A height of its own on every pane: under `.contentSize` a form without
-  // one collapses.
+  // one collapses. Each is cut to the display it opens on, never stretched.
   for height in [
     "settingsGeneralHeight)",
     "settingsRunnersHeight(folders:manualRunners.directories.count))",
     "settingsAccountsHeight(gitLabInstances:gitLab.cards.count))",
   ] {
-    #expect(
-      view.contains(
-        ".frame(width:StandfastTheme.settingsPaneWidth,height:StandfastTheme." + height))
+    #expect(view.contains(".settingsPaneFrame(height:StandfastTheme." + height))
   }
+  #expect(view.components(separatedBy: ".settingsPaneFrame(").count == 4)
+  #expect(
+    view.contains(
+      "frame(width:StandfastTheme.settingsPaneWidth,height:StandfastTheme.settingsPaneHeight("
+        + "height,screenHeight:NSScreen.main?.visibleFrame.height))"))
   #expect(settingsScene.contains("width:StandfastTheme.settingsPaneWidth"))
   #expect(settingsScene.contains(".windowResizability(.contentSize)"))
   #expect(app.contains("infoDictionary:Bundle.main.infoDictionary"))
+}
+
+@Test func aPaneIsCutToADisplayTooShortForItAndNeverStretched() {
+  // Literals, not built from the tokens: these are display sizes.
+  // Nothing to ask, as in a test run with no screen: the measured height.
+  #expect(StandfastTheme.settingsPaneHeight(690, screenHeight: nil) == 690)
+  // 1440×900 less the menu bar has room for General and its chrome.
+  #expect(StandfastTheme.settingsPaneHeight(690, screenHeight: 875) == 690)
+  // 1024×640, a 13" MacBook Air at Larger Text, less a notched menu bar:
+  // General fits under its title bar and tabs, and its form scrolls.
+  #expect(StandfastTheme.settingsPaneHeight(690, screenHeight: 603) == 503)
+  // A pane that already fits keeps its own height.
+  #expect(StandfastTheme.settingsPaneHeight(230, screenHeight: 603) == 230)
+  // However short the display, a pane keeps more than a row or two.
+  #expect(StandfastTheme.settingsPaneHeight(690, screenHeight: 200) == 300)
+  #expect(StandfastTheme.settingsPaneHeight(230, screenHeight: 200) == 230)
 }
 
 @Test func aPaneGrowsWithWhatItListsUntilGeneralsHeight() {

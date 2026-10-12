@@ -33,9 +33,27 @@ enum StandfastTheme {
   /// renders on macOS 27 in Spanish, General with both notices showing.
   static let settingsPaneWidth: CGFloat = 520
   /// With the title bar and tabs on top, the window is taller than a 1280×720
-  /// display: there the last footer and the version fall below the screen, and
-  /// every switch stays above it.
+  /// display. See `settingsPaneHeight` for what a short display gets.
   static let settingsGeneralHeight: CGFloat = 690
+
+  /// What a Settings window adds above its pane: the title bar and the tabs.
+  /// On the generous side, since 26 draws both taller: a pane a little shorter
+  /// than it could be scrolls, and one a little taller falls off the screen.
+  static let settingsWindowChrome: CGFloat = 100
+  /// The least a pane is cut to: below this a form shows a row or two.
+  static let settingsMinimumPaneHeight: CGFloat = 300
+
+  /// A pane's measured height, or what a short display leaves under the
+  /// window's chrome. Under `.contentSize` the window is never shorter than its
+  /// pane, so on a 13" MacBook Air at Larger Text, 1024×640, the bottom of
+  /// General fell below the screen with switches in it, out of reach. There
+  /// the form scrolls instead. Each pane stays one fixed height, so the window
+  /// still takes each pane's own size when the tabs switch.
+  static func settingsPaneHeight(_ measured: CGFloat, screenHeight: CGFloat?) -> CGFloat {
+    guard let screenHeight else { return measured }
+    return min(
+      measured, max(screenHeight - settingsWindowChrome, settingsMinimumPaneHeight))
+  }
 
   /// One folder fits where the empty line does, then a row each. Past General's
   /// height the form scrolls, so no pane makes the window taller than General.
