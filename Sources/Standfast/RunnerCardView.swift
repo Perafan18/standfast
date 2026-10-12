@@ -86,38 +86,51 @@ struct RunnerCardView: View {
     }
   }
 
-  private var status: some View {
-    Section {
-      LabeledContent(card.layers.localName) {
-        StatusLabel(reading: card.layers.local)
-      }
-      LabeledContent(card.layers.remoteName) {
-        StatusLabel(reading: card.layers.remote)
-      }
-      // Beside the state it explains: "Disconnected" says what broke, and this
-      // says what that is costing.
-      if let queued = card.queued {
-        queue(queued)
-      }
-      if let operation = card.operation, operation.isInFlight {
-        inFlight(operation)
-      }
-      if let feedback = card.operationFeedback, card.failedReceipt == nil {
-        receipt(feedback, failed: false)
-      }
-    } header: {
-      Text(L10n.controlCenterStatus)
-    } footer: {
-      // The whole sentence, remedy included, under the readings it explains.
-      // Then why the toolbar's service controls do nothing, when they do not.
-      VStack(alignment: .leading, spacing: 4) {
-        if let sentence = card.statusSentence {
-          Text(sentence)
-        }
-        if let note = card.serviceNote {
-          Text(note)
+  /// No footer when there is nothing to say: an empty one is a blank band.
+  @ViewBuilder private var status: some View {
+    if card.statusSentence != nil || card.serviceNote != nil {
+      Section {
+        statusRows
+      } header: {
+        Text(L10n.controlCenterStatus)
+      } footer: {
+        // The whole sentence, remedy included, under the readings it explains.
+        // Then why the toolbar's service controls do nothing, when they do not.
+        VStack(alignment: .leading, spacing: 4) {
+          if let sentence = card.statusSentence {
+            Text(sentence)
+          }
+          if let note = card.serviceNote {
+            Text(note)
+          }
         }
       }
+    } else {
+      Section {
+        statusRows
+      } header: {
+        Text(L10n.controlCenterStatus)
+      }
+    }
+  }
+
+  @ViewBuilder private var statusRows: some View {
+    LabeledContent(card.layers.localName) {
+      StatusLabel(reading: card.layers.local)
+    }
+    LabeledContent(card.layers.remoteName) {
+      StatusLabel(reading: card.layers.remote)
+    }
+    // Beside the state it explains: "Disconnected" says what broke, and this
+    // says what that is costing.
+    if let queued = card.queued {
+      queue(queued)
+    }
+    if let operation = card.operation, operation.isInFlight {
+      inFlight(operation)
+    }
+    if let feedback = card.operationFeedback, card.failedReceipt == nil {
+      receipt(feedback, failed: false)
     }
   }
 

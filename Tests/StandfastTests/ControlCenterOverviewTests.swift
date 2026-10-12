@@ -161,7 +161,9 @@ private func reads(_ text: String, inOrder pieces: [String]) -> Bool {
     "private struct OverviewRunnerRow: View {",
     in: standfastSource("ControlCenterView.swift"))
 
-  #expect(row.contains(".accessibilityLabel(L10n.runnerInScope(card.title, card.scope))"))
+  // The registered name, not the title, which carries the scope already
+  // where names are shared.
+  #expect(row.contains(".accessibilityLabel(L10n.runnerInScope(card.name, card.scope))"))
   #expect(!row.contains(".accessibilityLabel(card.title)"))
 }
 

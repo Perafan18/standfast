@@ -31,7 +31,8 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
   bare. Copy Name still copies the name the runner was registered with.
 - **Ready is said once.** A runner that is ready and waiting shows no state word under its
   name, and its Status section no sentence restating its two rows: the symbol says it, and
-  VoiceOver still hears it. The Overview row does the same for a ready fleet, and the
+  VoiceOver still hears it. The row keeps the word's room, so the sidebar does not jump each
+  time a job starts or ends. The Overview row does the same for a ready fleet, and the
   Overview says how many runners it counts.
 - **Two questions, two rows.** A runner's detail answers "is it running on this Mac?" and
   "will GitHub (or GitLab) give it work?" on rows of their own, each a dot and the words

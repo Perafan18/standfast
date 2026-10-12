@@ -221,12 +221,14 @@ private struct OverviewSidebarRow: View {
     Label {
       VStack(alignment: .leading, spacing: 2) {
         Text(L10n.controlCenterOverview)
-        if let state = header.sidebarState(warningCount: warningCount) {
-          Text(state)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .lineLimit(2)
-        }
+        // Ready, the line keeps its room and draws nothing, as a calm
+        // runner's does.
+        let state = header.sidebarState(warningCount: warningCount)
+        Text(state ?? header.shortSummary)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+          .opacity(state == nil ? 0 : 1)
       }
     } icon: {
       Image(systemName: header.symbolName)
@@ -241,9 +243,9 @@ private struct OverviewSidebarRow: View {
   }
 }
 
-/// One runner in the sidebar: what it is called here, its state in a word or
-/// two unless it is calm, an order still in flight or failed, and where it is
-/// registered.
+/// One runner in the sidebar: what it is called here, where it is registered,
+/// its state in a word or two unless it is calm, and an order still in flight
+/// or failed.
 private struct RunnerSidebarRow: View {
   let card: RunnerCardPresentation
 
@@ -251,13 +253,18 @@ private struct RunnerSidebarRow: View {
     Label {
       VStack(alignment: .leading, spacing: 2) {
         Text(card.title)
-        // Two lines, not one: the Spanish state words run long.
-        if let state = card.sidebarState {
-          Text(state)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .lineLimit(2)
-        }
+        Text(card.scope)
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+          .help(L10n.scopeExplained(card.scope))
+        // Two lines, not one: the Spanish state words run long. Calm, the line
+        // keeps its room, so the rows below do not jump each time a job starts
+        // or ends; it stops drawing the word.
+        Text(card.sidebarState ?? card.compactState)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+          .opacity(card.sidebarState == nil ? 0 : 1)
         if let receipt = card.sidebarReceipt {
           // Weight rather than colour marks the failure, as on the queue line.
           Text(receipt.title)
@@ -268,10 +275,6 @@ private struct RunnerSidebarRow: View {
             )
             .lineLimit(2)
         }
-        Text(card.scope)
-          .font(.caption)
-          .foregroundStyle(.tertiary)
-          .help(L10n.scopeExplained(card.scope))
       }
     } icon: {
       Image(systemName: card.stateSymbolName)
@@ -402,9 +405,10 @@ private struct OverviewRunnerRow: View {
   @ScaledMetric(relativeTo: .body) private var localColumnWidth: CGFloat = 110
   @ScaledMetric(relativeTo: .body) private var remoteColumnWidth: CGFloat = 170
   /// The least the name keeps beside the columns. The same for every row, so
-  /// a section switches to stacking all at once rather than row by row. Wide
-  /// enough for a shared name and its repository on one line.
-  @ScaledMetric(relativeTo: .body) private var nameColumnWidth: CGFloat = 200
+  /// a section switches to stacking all at once rather than row by row. Small
+  /// enough for the columns to fit the detail at the window's default size; a
+  /// longer title is cut to one line there, with its scope in full under it.
+  @ScaledMetric(relativeTo: .body) private var nameColumnWidth: CGFloat = 160
 
   var body: some View {
     Button {
@@ -446,9 +450,9 @@ private struct OverviewRunnerRow: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    // The scope as well as the name: one Mac can serve two repositories with
-    // runners of the same name, and the sidebar row says it too.
-    .accessibilityLabel(L10n.runnerInScope(card.title, card.scope))
+    // The name and the scope, each once: where names are shared the title
+    // already carries the scope, and both would say it twice.
+    .accessibilityLabel(L10n.runnerInScope(card.name, card.scope))
     .accessibilityValue(card.layers.accessibilityValue)
   }
 

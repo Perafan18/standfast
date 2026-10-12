@@ -1336,13 +1336,34 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
   #expect(failed.statusSentence == failed.state)
 }
 
-@Test func theSidebarAndTheFormReadTheCalmRuleFromTheCard() {
+@Test func theSidebarAndTheFormReadTheCalmRuleFromTheCard() throws {
   let sidebar = standfastSource("ControlCenterView.swift")
-  let detail = standfastSource("RunnerCardView.swift")
-  #expect(sidebar.contains("if let state = card.sidebarState"))
-  #expect(!sidebar.contains("Text(card.compactState)"))
-  #expect(detail.contains("if let sentence = card.statusSentence"))
+  let detail = standfastSource("RunnerCardView.swift").filter { !$0.isWhitespace }
+  let overviewRow = try #require(sidebar.range(of: "private struct OverviewSidebarRow"))
+  let runnerRow = try #require(sidebar.range(of: "private struct RunnerSidebarRow"))
+  let afterRows = try #require(sidebar.range(of: "private struct SidebarSymbolTone"))
+  let overview = String(sidebar[overviewRow.lowerBound..<runnerRow.lowerBound])
+  let runner = String(sidebar[runnerRow.lowerBound..<afterRows.lowerBound])
+
+  // A calm row keeps the state line's room, so rows below it do not jump when
+  // a job starts or ends; it only stops drawing the word.
+  #expect(runner.contains("Text(card.sidebarState ?? card.compactState)"))
+  #expect(runner.contains(".opacity(card.sidebarState == nil ? 0 : 1)"))
+  #expect(overview.contains("let state = header.sidebarState(warningCount: warningCount)"))
+  #expect(overview.contains("Text(state ?? header.shortSummary)"))
+  #expect(overview.contains(".opacity(state == nil ? 0 : 1)"))
+  // Nothing to say under Status, no footer: an empty one is a blank band.
+  #expect(detail.contains("ifcard.statusSentence!=nil||card.serviceNote!=nil{"))
+  #expect(detail.contains("ifletsentence=card.statusSentence{"))
   #expect(!detail.contains("Text(card.state)"))
+}
+
+@Test func anOverviewRowSaysItsRunnersQualifierOnce() {
+  // The title already carries it where names are shared; spoken with the
+  // scope as well, it came out as "mac-mini-m4 · acme (acme)".
+  let source = standfastSource("ControlCenterView.swift")
+  #expect(source.contains(".accessibilityLabel(L10n.runnerInScope(card.name, card.scope))"))
+  #expect(!source.contains("L10n.runnerInScope(card.title, card.scope)"))
 }
 
 @Test func theOverviewSaysHowManyRunnersItCounts() {
