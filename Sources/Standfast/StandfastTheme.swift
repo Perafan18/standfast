@@ -270,6 +270,105 @@ enum StandfastTheme {
   }
 }
 
+// MARK: - What differs between macOS versions, and nothing else
+
+// Every version check lives in this file, of the macOS running and of the SDK
+// built against. On 26 and later the system draws glass on the standard
+// sidebar, toolbar, menus and alerts; views ask for none.
+
+extension View {
+  /// The one action a toolbar puts forward: bordered prominent, not a glass
+  /// style. No device has shown yet whether 26 draws it as glass, which inside
+  /// a `ToolbarItemGroup` would stack on the group's platter: give it its own
+  /// `ToolbarItem`.
+  @ViewBuilder func primaryToolbarActionStyle(_ isPrimary: Bool) -> some View {
+    if isPrimary {
+      buttonStyle(.borderedProminent)
+    } else {
+      self
+    }
+  }
+
+  /// A bar along a window edge, there only while `item` is: padding around an
+  /// empty `if` still takes room. On 26 and later it gets the toolbar's
+  /// scroll-edge effect and is not glass; before, the bar material.
+  @ViewBuilder func standfastBar<Item, Bar: View>(
+    _ edge: VerticalEdge, showing item: Item?, @ViewBuilder content: (Item) -> Bar
+  ) -> some View {
+    // `#available` asks the running system, not the SDK, and only the macOS 26
+    // SDK has `safeAreaBar`. It came with Swift 6.2, so Xcode 16, which the
+    // formula still promises, builds the classic bar.
+    #if compiler(>=6.2)
+      if #available(macOS 26, *) {
+        safeAreaBar(edge: edge, spacing: 0) {
+          if let item { content(item).standfastBarLayout() }
+        }
+      } else {
+        classicStandfastBar(edge, showing: item, content: content)
+      }
+    #else
+      classicStandfastBar(edge, showing: item, content: content)
+    #endif
+  }
+
+  /// What `standfastBar` draws before 26, reachable on its own so a test on a
+  /// newer Mac can still lay it out.
+  func classicStandfastBar<Item, Bar: View>(
+    _ edge: VerticalEdge, showing item: Item?, @ViewBuilder content: (Item) -> Bar
+  ) -> some View {
+    safeAreaInset(edge: edge, spacing: 0) {
+      if let item {
+        content(item)
+          .standfastBarLayout()
+          .background(.bar)
+          .overlay(alignment: edge == .top ? .bottom : .top) { Divider() }
+      }
+    }
+  }
+
+  private func standfastBarLayout() -> some View {
+    padding(.horizontal)
+      .padding(.vertical, 8)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+// MARK: - Semantic colours, which the system adapts to every appearance
+
+// System colours only, and each is drawn beside a symbol and text, so the
+// colour is never the only thing saying it.
+
+extension StateTone {
+  var color: Color {
+    switch self {
+    case .healthy: .green
+    case .active: .blue
+    case .attention: .orange
+    case .stopped, .neutral: .secondary
+    }
+  }
+}
+
+extension LayerTone {
+  var color: Color {
+    switch self {
+    case .ok: .green
+    case .working: .blue
+    case .no: .red
+    case .unsure: .orange
+    case .off: .secondary
+    }
+  }
+}
+
+extension JobOutcomePresentation {
+  /// The tone's colour, except that a failed job is red: the one outcome that
+  /// is a verdict on the code rather than on this Mac.
+  var color: Color {
+    isFailure ? .red : tone.color
+  }
+}
+
 enum ControlCenterAccessibility {
   static let header = "dev.standfast.control-center.header"
   static let refresh = "dev.standfast.control-center.refresh"

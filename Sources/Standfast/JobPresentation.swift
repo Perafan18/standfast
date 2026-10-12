@@ -9,6 +9,10 @@ struct JobOutcomePresentation: Equatable, Sendable {
   let label: String
   let symbolName: String
   let tone: StateTone
+  /// The job's own steps failed. An interrupted job shares `.attention` but is
+  /// the machine losing the job, not a verdict on the code, so only this one
+  /// is drawn red.
+  let isFailure: Bool
 }
 
 struct JobRow: Equatable, Identifiable, Sendable {
@@ -186,17 +190,24 @@ extension JobRecord {
     case .succeeded:
       .init(
         label: L10n.jobSucceeded, symbolName: "checkmark.circle.fill",
-        tone: .healthy)
+        tone: .healthy, isFailure: false)
     case .failed:
-      .init(label: L10n.jobFailed, symbolName: "xmark.circle.fill", tone: .attention)
+      .init(
+        label: L10n.jobFailed, symbolName: "xmark.circle.fill", tone: .attention,
+        isFailure: true)
     case .canceled:
-      .init(label: L10n.jobCanceled, symbolName: "minus.circle.fill", tone: .neutral)
+      .init(
+        label: L10n.jobCanceled, symbolName: "minus.circle.fill", tone: .neutral,
+        isFailure: false)
     case .other(let word):
-      .init(label: word, symbolName: "questionmark.circle", tone: .neutral)
+      .init(
+        label: word, symbolName: "questionmark.circle", tone: .neutral,
+        isFailure: false)
     case nil:
       .init(
         label: L10n.jobInterrupted,
-        symbolName: "exclamationmark.triangle.fill", tone: .attention)
+        symbolName: "exclamationmark.triangle.fill", tone: .attention,
+        isFailure: false)
     }
   }
 }
