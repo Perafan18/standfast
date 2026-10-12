@@ -354,6 +354,20 @@ extension RunnerCardPresentation {
     actions.first { $0.kind == kind }
   }
 
+  /// Start, Stop and Restart in their fixed order, cut around the one this
+  /// state puts forward, which the toolbar draws prominent in an item of its
+  /// own. No button changes place. The destination is never among them: it
+  /// is an item of its own whatever its emphasis.
+  var serviceVerbs:
+    (before: [RunnerCardAction], forward: RunnerCardAction?, after: [RunnerCardAction])
+  {
+    let verbs = actions.filter { $0.kind != .openOnGitHub }
+    guard let cut = verbs.firstIndex(where: { $0.emphasis == .prominent }) else {
+      return (verbs, nil, [])
+    }
+    return (Array(verbs[..<cut]), verbs[cut], Array(verbs[(cut + 1)...]))
+  }
+
   private static func cardAction(
     _ action: RunnerRow.Action, runnerName: String, display: DisplayState,
     destination: GitHubDestination

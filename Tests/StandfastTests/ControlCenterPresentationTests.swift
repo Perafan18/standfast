@@ -335,6 +335,43 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
       ".primaryToolbarActionStyle(destination.emphasis == .prominent)"))
 }
 
+@Test func theToolbarPutsForwardOnlyTheStartAStoppedRunnerNeeds() {
+  func cut(
+    _ snapshot: RunnerSnapshot
+  ) -> (
+    before: [RunnerRow.Action.Kind], forward: RunnerRow.Action.Kind?,
+    after: [RunnerRow.Action.Kind]
+  ) {
+    let verbs = card(snapshot).serviceVerbs
+    return (verbs.before.map(\.kind), verbs.forward?.kind, verbs.after.map(\.kind))
+  }
+
+  // Start comes forward and the other two keep their places after it.
+  let stopped = cut(controlCenterSnapshot(.resolved(.stopped)))
+  #expect(stopped.before.isEmpty)
+  #expect(stopped.forward == .start)
+  #expect(stopped.after == [.stop, .restart])
+
+  // Nothing comes forward where no verb is the obvious next step: a working
+  // runner, whose prominent action is its destination; a runner with an
+  // order already in flight; one started by hand, which svc.sh cannot reach.
+  // The destination is never one of the three, prominent or not.
+  for snapshot in [
+    controlCenterSnapshot(.resolved(.idle)),
+    controlCenterSnapshot(.resolved(.busy)),
+    controlCenterSnapshot(.resolved(.stopped), isServiceActionReserved: true),
+    controlCenterSnapshot(.resolved(.stopped), installation: .manual),
+  ] {
+    let verbs = cut(snapshot)
+    #expect(verbs.before == [.start, .stop, .restart], "\(snapshot.display)")
+    #expect(verbs.forward == nil, "\(snapshot.display)")
+    #expect(verbs.after.isEmpty, "\(snapshot.display)")
+  }
+  #expect(
+    card(controlCenterSnapshot(.resolved(.busy))).action(.openOnGitHub)?.emphasis
+      == .prominent)
+}
+
 // MARK: - Card projection
 
 @Test func headerKeepsAggregateAttentionAndFreshnessAsSeparateFacts() {

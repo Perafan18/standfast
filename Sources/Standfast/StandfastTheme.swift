@@ -58,9 +58,11 @@ enum StandfastTheme {
 
 extension View {
   /// The one action a toolbar puts forward: bordered prominent, not a glass
-  /// style. No device has shown yet whether 26 draws it as glass, which inside
-  /// a `ToolbarItemGroup` would stack on the group's platter: give it its own
-  /// `ToolbarItem`.
+  /// style. It takes a `ToolbarItem` of its own, out of any group. No device
+  /// has shown yet whether 26 draws it as glass, or shares one platter between
+  /// it and neighbouring items of its placement anyway; if either stacks
+  /// glass on glass there, this returns `self` and the toolbar has no
+  /// prominent action.
   @ViewBuilder func primaryToolbarActionStyle(_ isPrimary: Bool) -> some View {
     if isPrimary {
       buttonStyle(.borderedProminent)

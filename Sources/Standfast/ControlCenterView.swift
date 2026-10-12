@@ -136,6 +136,8 @@ struct ControlCenterToolbar: ToolbarContent {
           ForEach(verbs.before) { serviceButton($0, of: card) }
         }
       }
+      // Prominent, in an item of its own. Whether macOS 26 still shares a
+      // platter with its neighbours is unproven: see `primaryToolbarActionStyle`.
       if let forward = verbs.forward {
         ToolbarItem(placement: .primaryAction) {
           serviceButton(forward, of: card)
@@ -198,21 +200,6 @@ struct ControlCenterToolbar: ToolbarContent {
     case .restart: identifiers.restart
     case .openOnGitHub: identifiers.github
     }
-  }
-}
-
-extension RunnerCardPresentation {
-  /// Start, Stop and Restart in their fixed order, cut around the one this
-  /// state puts forward. That one takes a toolbar item of its own, so it never
-  /// sits on another group's platter, and no button changes place.
-  fileprivate var serviceVerbs:
-    (before: [RunnerCardAction], forward: RunnerCardAction?, after: [RunnerCardAction])
-  {
-    let verbs = actions.filter { $0.kind != .openOnGitHub }
-    guard let cut = verbs.firstIndex(where: { $0.emphasis == .prominent }) else {
-      return (verbs, nil, [])
-    }
-    return (Array(verbs[..<cut]), verbs[cut], Array(verbs[(cut + 1)...]))
   }
 }
 
