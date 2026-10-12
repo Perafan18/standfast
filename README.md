@@ -4,7 +4,7 @@
 
 Standfast is a menu bar app for the self-hosted GitHub Actions runners on your Mac. It tells
 you whether each one is actually going to get work, not only whether its process is up. A
-slim quick menu keeps the fleet glanceable; the Standfast Control Center holds the complete
+slim quick menu keeps the fleet glanceable; the Standfast window holds the complete
 operational picture and controls.
 
 ```sh
@@ -37,7 +37,7 @@ looks similar and the fix is not.
 | ✓ | `idle` | Registered, connected, waiting for work. The one you want to see. |
 | ⚙ | `busy` | Running a job right now. |
 | ⚠ | `disconnected` | The process is alive, but GitHub cannot see it. No job is coming. |
-| ☾ | `stopped` | The service is not running. Start it from the quick menu or Control Center. |
+| ☾ | `stopped` | The service is not running. Start it from the quick menu or the Standfast window. |
 | ? | `unknown` | Standfast could not tell — and says which of the reasons it was. |
 | ↻ | `starting` | You just started it; GitHub has not acknowledged it yet. Held for 30s. |
 | ◌ | — | This Mac has no runners at all. Not a failure to read one. |
@@ -47,21 +47,29 @@ no GitHub CLI either, a credential GitHub refused, a rate limit, an answer with 
 usable in it, *launchd could not be asked*, and their GitLab and managed-fleet
 counterparts — because each one has a different fix.
 
-## Quick menu, Control Center and Settings
+## Quick menu, window and Settings
 
-The quick menu is deliberately small. It shows one row per runner, in discovery order, each
-opening a submenu with that runner's state, progress, current managed job and latest
-operation receipt; any compact discovery or thermal warning; when Standfast last looked;
-and four fixed actions: Refresh, Open Standfast, Settings, and Quit. A conclusively stopped
-runner may offer Start inside its submenu. Stop, Restart, history, maintenance, preferences
-and confirmations do not live there.
+The quick menu is deliberately small. It shows one row per runner, in discovery order and
+marked with its state's symbol, each opening a submenu with that runner's state, progress,
+current managed job and latest operation receipt; any compact discovery or thermal warning;
+when Standfast last looked; and four fixed actions: Refresh, Open Standfast, Settings, and
+Quit. A conclusively stopped runner may offer Start inside its submenu. Stop, Restart,
+history, maintenance, preferences and confirmations do not live there.
 
-**Open Standfast** brings forward one persistent, single-column Control Center. Each runner
-gets a card with its local and GitHub state, current job, Start/Stop/Restart controls, the
-latest operation outcome, recent history, installed version, manual disk measurement and
-safe cleanup, logs, and its GitHub destination. Repository runners open the repository's
-workflow-runs page; organization and enterprise runners open their runner-settings page,
-which is the honest shared-scope destination GitHub provides.
+**Open Standfast** brings forward one persistent window, named Standfast: a sidebar of your
+runners beside a detail form for the one you select. The sidebar keeps discovery order, and
+groups runners under GitHub, GitLab and Managed Fleet once there is more than one kind. The
+detail answers the two questions on rows of their own — is it running on this Mac, and will
+GitHub or GitLab give it work — then shows its current job, the latest operation outcome,
+recent history, installed version, manual disk measurement and safe cleanup, and its logs.
+Start, Stop, Restart and the runner's destination sit in the window's toolbar, and in a
+Runner menu in the menu bar while Standfast has a Dock tile. Repository runners open the
+repository's workflow-runs page; organization and enterprise runners open their
+runner-settings page, which is the honest shared-scope destination GitHub provides.
+
+The sidebar's first row is the Overview. It puts the runners that need somebody ahead of
+the rest, then anything discovery could not read, whether macOS is throttling this Mac for
+heat, and every runner with both of its answers side by side.
 
 Service operations keep their own receipts per runner. In-flight work is visible
 immediately and remains visible for as long as the command is running. After an operation
@@ -74,20 +82,25 @@ command that returned is described as *request accepted*, not as a state the nex
 not proved. Timeouts say the result is uncertain, and Restart says when Stop completed but
 the Start phase failed or timed out so the recovery step is clear.
 
-**Settings** owns the notification switches, the folders of runners started by hand, the
-optional GitHub token, an optional token for each GitLab instance gitlab-runner's
-`config.toml` names, SleepGuard, Open at Login, and whether Standfast also takes a Dock tile.
-Those preferences share their existing state with the app; moving the controls did not
-create a second copy.
+**Settings** has three tabs. General owns the notification switches, SleepGuard, Open at
+Login, and whether Standfast also takes a Dock tile; Runners, the folders of runners started
+by hand; Accounts, the optional GitHub token and an optional token for each GitLab instance
+gitlab-runner's `config.toml` names. Those preferences share their existing state with the
+app; moving the controls did not create a second copy.
 
 ## Accessibility and app identity
 
 The status item exposes both the Standfast label and the aggregate fleet value to assistive
-technology. Control Center cards and operation feedback expose names, roles and values;
-native controls preserve keyboard order and visible focus, and text accompanies every
-meaningful symbol. No state depends on color or motion alone. The only two animations —
-a card folding and an operation receipt appearing — become an immediate change under
-Reduce Motion.
+technology. The sidebar rows, the detail form and operation feedback expose names, roles
+and values; native controls preserve keyboard order and visible focus, and text accompanies
+every meaningful symbol and status dot. No state depends on color or motion alone. The only
+animation — an operation receipt appearing — becomes an immediate change under Reduce
+Motion.
+
+The app draws with macOS's own controls, text styles and semantic colors, so it follows
+light and dark, Increase Contrast and Reduce Transparency the way the system does. On
+macOS 26 and later the system gives the sidebar, toolbar, menus and Settings tabs their
+Liquid Glass; Standfast draws none of its own.
 
 The rounded sentinel/beacon app icon is Standfast's product identity; it does not report
 live runner state. Its checked-in [1024×1024 source](Resources/AppIcon.png) contains no text
@@ -96,10 +109,9 @@ or third-party mark, is compiled into the complete `Standfast.icns` family by
 
 ## What it is building, and for how long
 
-Open the Control Center on a busy runner and its card says which job:
+Select a busy runner in the Standfast window and its Current Job section says which job:
 
 ```
-mac-mini-m4 — Running a job
 Running testflight — 1m 20s, usually 2m 50s
 ```
 
@@ -107,8 +119,9 @@ Under it, the last five jobs show how each one ended and how long it took. The j
 its history and the usual duration all come out of the log the runner already writes beside
 itself — **no extra API call and nothing to configure**. The runner announces every job it
 picks up and every result it hands back, and Standfast reads the tail of that file. Whether
-the runner is busy right now is still GitHub's answer, from the same status request the
-card already makes, so the running line appears only once GitHub says so.
+the runner is busy right now is still GitHub's answer, from the same status request
+Standfast already makes for that runner, so the running line appears only once GitHub says
+so.
 
 "Usually" is the median of the last few **successful** runs *of that same job*. Not the
 mean, and not every run: a build cancelled after ten seconds is a real event and a
@@ -116,8 +129,10 @@ terrible estimate, and one of them would drag a mean down by half a minute and k
 there. **With fewer than three runs to go on, Standfast shows no estimate at all** —
 elapsed time only. A number invented from two samples is worse than no number.
 
-The line shows elapsed time against a reference, never a countdown. A job that overruns
-keeps saying what it usually takes, which is exactly when you want to know.
+The line shows elapsed time against a reference, never a countdown. A bar under it fills
+toward the usual time and goes away once the job passes it, since a full bar would read as
+done. A job that overruns keeps saying what it usually takes, which is exactly when you want
+to know.
 
 ## What the runner is costing you
 
@@ -125,8 +140,8 @@ A runner eats a disk quietly. On the machine this was built against, `_work` was
 of which **4.33 GB was the hosted tool cache** — and `_diag` was 9 MB growing by about ten
 a day, with no rotation of any kind. Nobody looks at either until the disk is full.
 
-Each runner card's **Maintenance** group measures both, broken down by what each directory
-is *for* rather than as one total:
+Each runner's **Maintenance** section measures both, broken down by what each directory is
+*for* rather than as one total:
 
 ```
 Tool cache — 4.33 GB
@@ -138,7 +153,7 @@ Measured 4m ago
 
 The breakdown is the point. 4.5 GB is a number to be alarmed by; 4.33 GB of *cache* is a
 number to press a button about. It is measured with `du` when you ask, never on a timer,
-and the runner card's Maintenance group says how old the numbers are.
+and the Maintenance section says how old the numbers are even while it is collapsed.
 
 Standfast offers to delete exactly three things, and the shortness of that list is the
 feature:
@@ -162,8 +177,8 @@ directory is moved aside in one atomic syscall and taken apart afterwards, so a 
 lands a microsecond late finds *no* tool cache, which is a slower build, rather than half a
 tool cache, which is a failed one.
 
-The log the runner is writing right now is never deleted, and neither is the history the
-Control Center shows you.
+The log the runner is writing right now is never deleted, and neither is the history
+Standfast shows you.
 
 ## Open at login
 
@@ -250,7 +265,7 @@ Three other kinds of runner are found from where they already describe themselve
 - **Runners started by hand with `./run.sh`**, which leave no LaunchAgent. They are never
   guessed by walking the disk: you add their folder in Settings, and Standfast re-reads it
   on every scan and watches the runner's process. It cannot start or stop them, and says so
-  beside the controls.
+  under the runner's Status and on its greyed toolbar buttons.
 
 Each runner is asked about by its own `agentId`, so a second runner on the same repository
 can never be mistaken for the first.
@@ -279,8 +294,8 @@ These are real and deliberate, not oversights:
   workflow-runs page. Organization and enterprise runners have no honest cross-repository
   runs page, so their button opens runner settings instead.
 - **A half-uninstalled runner nags forever.** If a `.plist` is left behind without its
-  runner directory, the Control Center keeps it visible as unreadable and the quick menu
-  surfaces a compact discovery warning. Delete the stray `.plist` to clear it.
+  runner directory, the Standfast window's Overview keeps it visible as unreadable and the
+  quick menu surfaces a compact discovery warning. Delete the stray `.plist` to clear it.
 - **A returned service command is not a proved state.** `svc.sh start` can exit 0 before
   launchd and GitHub agree on the result, so Standfast reports the request as accepted and
   lets the following probes establish the runner's state. A timeout remains explicitly
@@ -291,10 +306,10 @@ These are real and deliberate, not oversights:
 Standfast itself adds no telemetry or analytics, and never checks for updates to *itself*.
 Its GitHub requests are functional. It asks for each configured runner's status. For a
 repository runner, it lists that repository's queued workflow runs and their jobs. It also
-asks the public endpoint for the latest `actions/runner` release, so the Control Center can
-say when an installed runner is out of date. That release request runs once when Standfast
-launches and then no more often than every 24 hours while that same instance stays open;
-relaunching starts a new instance and a new first check.
+asks the public endpoint for the latest `actions/runner` release, so the Standfast window
+can say when an installed runner is out of date. That release request runs once when
+Standfast launches and then no more often than every 24 hours while that same instance stays
+open; relaunching starts a new instance and a new first check.
 
 With a token stored in Settings, those requests go straight to `api.github.com` over HTTPS.
 Without one, status and the release check
@@ -321,7 +336,7 @@ You need Xcode 16 or later; the Command Line Tools alone cannot build it, becaus
 macOS 27 SDK on SwiftUI's `@State` is a macro whose plugin ships only inside Xcode.app.
 
 ```sh
-swift package clean && swift test  # about 1,000 tests; no installed runner required
+swift package clean && swift test  # about 1,250 tests; no installed runner required
 make app                           # assembles .build/Standfast.app
 make check                         # strict local bundle, menu and window/AX lifecycle check
 ```
@@ -329,18 +344,18 @@ make check                         # strict local bundle, menu and window/AX lif
 `make check` requires an unlocked graphical session and Accessibility permission for the
 calling terminal. Missing permission or an unreadable menu/window tree is a failure. CI
 explicitly runs `STANDFAST_AX_MODE=skip ./Scripts/check-app.sh` as a packaging/process
-smoke test; its green result does **not** cover the status menu, Control Center, Settings,
-focus, keyboard navigation, or window lifecycle.
+smoke test; its green result does **not** cover the status menu, the Standfast window,
+Settings, focus, keyboard navigation, or window lifecycle.
 
 The package is plain SwiftPM with no dependencies and no `.xcodeproj` — project files
 generate unreadable merge conflicts and scare off contributors.
 
 The code is split into two targets. `RunnerKit` holds everything with no UI — discovery,
 the launchd probe, the GitHub client and the state machine. `Standfast` is the SwiftUI app
-on top of it. Quick-menu, Control Center, operation feedback, per-runner button rules and
-settling behavior are plain presentation values rather than decisions buried in view code,
-so the tests can read them. Both targets are tested, and the whole suite runs on a machine
-with no runner installed.
+on top of it. Quick-menu, Control Center (the code's name for the Standfast window),
+operation feedback, per-runner button rules and settling behavior are plain presentation
+values rather than decisions buried in view code, so the tests can read them. Both targets
+are tested, and the whole suite runs on a machine with no runner installed.
 
 ## Contributing
 

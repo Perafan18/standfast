@@ -46,12 +46,16 @@ notification authorization when you enable one. Standfast:
   for organization- and enterprise-scoped runners, or — for a GitLab runner — the GitLab
   instance its `config.toml` names, which may be a plain `http` address, in your default
   browser when you ask;
-- stores its switches, the folders you add for hand-started runners, which runner cards
-  you folded, the Dock preference, and the names of the GitLab instances that have had a
-  token card — never a token — in `UserDefaults`, so a token for an instance `config.toml`
-  no longer names keeps its Remove button across launches; asks macOS to register or
-  unregister its login item when you change that switch; and posts the notifications you
-  enable;
+- when you ask, copies a runner's name to the general pasteboard, and asks Finder to reveal
+  a runner's own `_diag` folder;
+- stores its switches, the folders you add for hand-started runners, the Dock preference,
+  and the names of the GitLab instances that have had a token section in Settings — never a
+  token — in `UserDefaults`, so a token for an instance `config.toml` no longer names keeps
+  its Remove button across launches; asks macOS to register or unregister its login item
+  when you change that switch; and posts the notifications you enable;
+- keeps the selected runner's label in the Control Center window's scene storage, which
+  macOS saves with the window's restorable state. For a runner started by hand, that label
+  holds its folder's path;
 - while sleep prevention is enabled and at least one runner has work, holds a macOS
   `.idleSystemSleepDisabled` activity assertion; it releases the assertion when the switch
   is disabled, when the next completed scan observes no remaining work, or when the

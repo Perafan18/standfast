@@ -12,8 +12,9 @@ struct ControlCenterView: View {
   /// reports heat, as in tests and renders.
   private let thermal: ThermalMonitor?
 
-  /// The selection, per window and across launches. Empty until somebody
-  /// chooses, which is what lets a Mac with one runner open on that runner.
+  /// The selection, per window: it lasts while the window stays open and comes
+  /// back only when macOS restores the window. Empty until somebody chooses,
+  /// which is what lets a Mac with one runner open on that runner.
   @SceneStorage("controlCenter.selection") private var storedSelection = ""
 
   init(fleet: RunnerFleetModel, thermal: ThermalMonitor? = nil) {

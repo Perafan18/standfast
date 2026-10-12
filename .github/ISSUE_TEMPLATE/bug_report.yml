@@ -33,10 +33,10 @@ body:
       label: Standfast version
       description: >-
         Click Standfast's status icon in the menu bar (the ✓, ⚙, ⚠, ☾, ?, ↻ or ◌ symbol, not
-        the app icon), choose **Settings** and scroll to the bottom. The small line below
+        the app icon) and choose **Settings**. On the **General** tab, the small line below
         **Appearance** reads like `Standfast 0.5.0 (5)`; copy it whole. The quick menu and the
-        Control Center do not show it, and the `Runner …` line on a runner's card is the
-        runner's version, not Standfast's.
+        Standfast window do not show it, and the `Runner …` line under a runner's
+        **Maintenance** is the runner's version, not Standfast's.
       placeholder: Standfast 0.5.0 (5)
     validations:
       required: true
@@ -87,14 +87,15 @@ body:
     attributes:
       label: State and reason Standfast showed
       description: >-
-        Copy the words exactly as Standfast shows them: the short badge on the runner's card or
-        quick-menu row (for example `Disconnected` or `GitHub not answering`), and the sentence
-        at the top of that runner's submenu in the quick menu. Add the line that says when
-        Standfast last checked, and the result of any Start service, Stop service or Restart
-        service request. No runner badge says "Unknown": it names the answer that is missing,
-        such as `GitHub not answering` or `GitHub not asked`, so please copy it exactly.
+        Copy the words exactly as Standfast shows them: the short state under the runner's
+        name in the sidebar or on its quick-menu row (for example `Disconnected` or `GitHub
+        not answering`), and the sentence at the top of that runner's submenu in the quick
+        menu. Add the line that says when Standfast last checked, and the result of any
+        Start service, Stop service or Restart service request. No runner's short state says
+        "Unknown": it names the answer that is missing, such as `GitHub not answering` or
+        `GitHub not asked`, so please copy it exactly.
       placeholder: |
-        Badge: GitHub not answering
+        State: GitHub not answering
         Sentence: Running locally, GitHub not answering — check your network, or the token's access to this runner
         Last check: Checked just now
         Service request: Start service request timed out
@@ -113,8 +114,8 @@ body:
     attributes:
       label: Anything else
       description: >-
-        For example the access line in Settings › GitHub access (it says whether a token is
-        stored and never shows it), the runner version from the card's Maintenance group, or a
-        screenshot with real names replaced. Standfast's own log is safe to share, since it
-        records only windows that were slow to open:
+        For example the access line in Settings › Accounts › GitHub access (it says whether
+        a token is stored and never shows it), the runner version from the runner's
+        Maintenance section, or a screenshot with real names replaced. Standfast's own log
+        is safe to share, since it records only windows that were slow to open:
         `log show --last 1h --predicate 'subsystem == "dev.standfast.app"'`

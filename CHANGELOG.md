@@ -4,7 +4,87 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] — Unreleased
+
+A native redesign. Standfast now draws with macOS's own controls, text styles and semantic
+colours, laid out the way System Settings lays out its own. On macOS 26 and later the system
+gives the sidebar, the toolbar, the menus and the Settings tabs their Liquid Glass;
+Standfast draws no glass of its own. macOS 14 and 15 run the same code and get their own
+sidebar, toolbar and grouped forms.
+
+### Changed
+
+- **The Control Center is now a window named Standfast:** a sidebar of runners beside a
+  detail form for the selected one. The sidebar keeps discovery order and groups runners
+  under GitHub, GitLab and Managed Fleet once there is more than one kind. The selection
+  lasts while the window stays open and comes back when macOS restores the window, and a
+  Mac with one runner opens on it. "Standfast Control Center" clashed with macOS's own
+  Control Center, so the window is titled "Standfast" in English and Spanish, and the copy
+  that named it — the log cleanup and confirmation messages among it — now names the app.
+  It opens at 820×600 and stops shrinking at 680×440, where sidebar and detail still fit
+  side by side.
+- **Two questions, two rows.** A runner's detail answers "is it running on this Mac?" and
+  "will GitHub (or GitLab) give it work?" on rows of their own, each a dot and the words
+  that say it without the dot. Only an Offline answer is red; every way of not knowing —
+  not answering, rate limited, not asked — is orange. The sidebar and the status item keep
+  their tones. In Recent Jobs a failed job is red and an interrupted one stays orange: only
+  the first is a verdict on the code.
+- **Start, Stop, Restart and the runner's destination move into the window's toolbar,**
+  where a disabled one still says why in its tooltip. While Standfast has a Dock tile they
+  are also in a new Runner menu in the menu bar, beside Show logs in Finder and Refresh now.
+  In the window, ⌘R belongs to the toolbar's Refresh now rather than the Runner menu's,
+  since the menu bar is missing without a Dock tile.
+- **A failed Start, Stop or Restart heads the runner's detail** for as long as its receipt
+  lasts: until the next order, or until the nominal five-minute receipt window has passed.
+  Any other receipt is a row under Status, beside the readings it explains.
+- **The Overview heads the sidebar.** It puts the runners that need somebody ahead of the
+  rest — the same runners the header counts, so a healthy runner whose last order failed
+  is there and one stopped on purpose is not — then what discovery could not read, this
+  Mac's heat while macOS throttles it, and every runner with both of its layers in aligned
+  columns, ordered by attention. Discovery's paths sit behind a Details… popover. The
+  Overview's sidebar row carries a badge counting discovery and heat warnings, which no
+  longer sit above every runner; a runner whose job overruns on a throttled Mac shows the
+  heat above its own detail too.
+- **The empty and loading states are the system's:** a progress view while Standfast first
+  looks, and `ContentUnavailableView` for a Mac with no runners or a discovery that failed.
+- **Settings is three tabs of grouped forms** — General, Runners and Accounts — and opens
+  on General. Return in a token field saves it. A notice keeps its words in primary text
+  beside a multicolour warning triangle, so the line somebody has to act on is no longer
+  the faintest one in the pane.
+- **The quick menu is grouped by separators,** each runner item wears its state's symbol,
+  and Refresh now, Settings and Quit take ⌘R, ⌘, and ⌘Q. The item names are unchanged:
+  Open Standfast, Settings and Quit, or Abrir Standfast, Ajustes and Salir.
+- **The only animation is an operation receipt appearing,** and it becomes an immediate
+  change under Reduce Motion. No state depends on colour or motion alone.
+
+### Added
+
+- **Show logs in Finder,** in the Runner menu, in a sidebar row's context menu and beside
+  the Maintenance actions. It is offered only where the runner has a log folder of its own,
+  which rules out GitLab runners and fleet slots, and only once the runner has made it.
+- **A context menu on each sidebar row** with what can be done to that runner now, Show
+  logs in Finder and Copy name. It acts on the row clicked, and a Stop that would interrupt
+  a job still asks first.
+- **A progress bar for the current job,** filling toward its usual time and gone once the
+  job passes it: a full bar would read as done while the job runs on. The line above it
+  still says elapsed and usual, never a countdown.
+
+### Removed
+
+- **Card folding.** The sidebar and an Overview ordered by attention give a broken runner
+  the visibility folding was there to protect. The folds 0.5 stored are cleared at launch.
+- **The hand-measured palette, spacing tokens and type scale,** and the tests that measured
+  their contrast. macOS owns the colours now and adapts them to light and dark, Increase
+  Contrast and Reduce Transparency by itself. A source test bans drawn glass, colours,
+  materials and point sizes of the app's own, and keeps every `#available` check in one
+  file.
+
+### Fixed
+
+- The strict Accessibility gate kept its own list of runner state words, and it had
+  drifted: it still allowed "Unknown" and refused the words a runner shows when GitHub or
+  GitLab goes quiet, so a correct app failed the gate in exactly that state. It now reads
+  them from the catalogue inside the bundle it probes, in the menu's own language.
 
 ## [0.5.0] — 2026-10-09
 

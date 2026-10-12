@@ -7,7 +7,7 @@ below exists because a change looked obviously correct and was not.
 ## Getting set up
 
 ```sh
-make test      # about 1,000 tests, a few seconds
+make test      # about 1,250 tests, a few seconds
 make app       # assembles Standfast.app
 make run       # assembles and launches it
 ```
@@ -46,6 +46,12 @@ permission CI cannot grant.
   `swift format`, with a space: the Command Line Tools ship it as a subcommand of
   `swift`, not as a `swift-format` binary on PATH.
 - **The build has zero warnings** and CI fails on any. Keep it that way.
+- **The app draws with the system's look.** System text styles and semantic colours only:
+  no colour, material or point size of its own, and no glass, which macOS 26 and later draw
+  themselves. Every `#available` check lives in `StandfastTheme.swift`, and never inside a
+  toolbar builder, where it warns on the macOS 14 target and the warning fails the build. A
+  symbol only the macOS 26 SDK has sits behind `#if compiler(>=6.2)`, because Xcode 16 still
+  builds this. `nativeLookSourceBans` and the test beside it read the sources for all of it.
 - User-facing strings go through `L10n`, never inline. Add the key to both catalogues and
   to the English fallback table in the same change.
 - **A format that mixes `%d` and `%@` must keep them in the same order in every
@@ -318,6 +324,13 @@ there are pages enough to justify one; today there is a single page and a README
 `Sources/Standfast/StandfastTheme.swift`. The page and the product are one identity or they
 are two, and a visitor who learns that orange means attention must find the same orange on
 first launch. If you change a token in the theme, the page is downstream of it.
+
+**That paragraph is stale until the website's own redesign.** 0.6.0 deleted the palette the
+page copies: the app now draws with macOS's semantic colours, which change with appearance,
+contrast setting and macOS version and have no one value to copy. The page still carries
+0.5's colours and screenshots of 0.5's single-column Control Center, and `site/img/hero.png`
+at the top of the README is one of them. Both are redone in the website phase, which comes
+after the app's; until then, do not patch the page toward the app piece by piece.
 
 **The screenshots are real, and they are the point.** This is a visual macOS app; a page
 that describes the Control Center in prose and never shows it is not doing its job. Retake
