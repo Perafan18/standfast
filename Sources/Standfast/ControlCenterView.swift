@@ -142,8 +142,8 @@ struct ControlCenterToolbar: ToolbarContent {
           ForEach(verbs.before) { serviceButton($0, of: card) }
         }
       }
-      // Prominent, in an item of its own. Whether macOS 26 still shares a
-      // platter with its neighbours is unproven: see `primaryToolbarActionStyle`.
+      // Prominent, in an item of its own, so the system gives it a platter of
+      // its own: see `primaryToolbarActionStyle`.
       if let forward = verbs.forward {
         ToolbarItem(placement: .primaryAction) {
           serviceButton(forward, of: card)
