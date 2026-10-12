@@ -82,7 +82,9 @@ struct ControlCenterView: View {
     ) {
       OverviewSidebarRow(
         header: presentation.header,
-        warningCount: presentation.overviewWarningCount(thermalLines: thermalLines)
+        warningCount: presentation.overviewWarningCount(thermalLines: thermalLines),
+        accessibilityValue: presentation.overviewAccessibilityValue(
+          thermalLines: thermalLines)
       )
       .tag(ControlCenterSelection.overview)
       ForEach(presentation.sidebar) { section in
@@ -208,6 +210,8 @@ private struct OverviewSidebarRow: View {
   let header: ControlCenterHeaderPresentation
   /// What only the Overview shows. Zero draws no badge.
   let warningCount: Int
+  /// The fleet and those warnings in words, which the badge is not.
+  let accessibilityValue: String
 
   var body: some View {
     Label {
@@ -226,13 +230,13 @@ private struct OverviewSidebarRow: View {
     .badge(warningCount)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(L10n.controlCenterOverview)
-    .accessibilityValue(header.summary)
+    .accessibilityValue(accessibilityValue)
     .accessibilityIdentifier(ControlCenterAccessibility.overview)
   }
 }
 
-/// One runner in the sidebar: its name, its state in a word or two, and where
-/// it is registered.
+/// One runner in the sidebar: its name, its state in a word or two, an order
+/// still in flight or failed, and where it is registered.
 private struct RunnerSidebarRow: View {
   let card: RunnerCardPresentation
 
@@ -245,6 +249,16 @@ private struct RunnerSidebarRow: View {
           .font(.subheadline)
           .foregroundStyle(.secondary)
           .lineLimit(2)
+        if let receipt = card.sidebarReceipt {
+          // Weight rather than colour marks the failure, as on the queue line.
+          Text(receipt.title)
+            .font(.subheadline)
+            .fontWeight(receipt.isInFlight ? nil : .semibold)
+            .foregroundStyle(
+              receipt.isInFlight ? HierarchicalShapeStyle.secondary : .primary
+            )
+            .lineLimit(2)
+        }
         Text(card.scope)
           .font(.caption)
           .foregroundStyle(.tertiary)
@@ -257,7 +271,7 @@ private struct RunnerSidebarRow: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityLabel(card.title)
-    .accessibilityValue("\(card.compactState), \(card.scope). \(card.state)")
+    .accessibilityValue(card.sidebarAccessibilityValue)
     .accessibilityIdentifier(ControlCenterAccessibility.runner(card.id).sidebar)
   }
 }

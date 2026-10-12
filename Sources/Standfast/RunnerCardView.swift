@@ -21,16 +21,12 @@ struct RunnerCardView: View {
     ControlCenterAccessibility.runner(card.id)
   }
 
-  /// A failed order heads the form while it is the news. Any other receipt is
-  /// a row of Status.
-  private var failedReceipt: ServiceOperationPresentation? {
-    card.operationFeedback.flatMap { $0.tone == .attention ? $0 : nil }
-  }
-
   var body: some View {
     Form {
       identity
-      if let failed = failedReceipt {
+      // A failed order heads the form while it is the news. Any other receipt
+      // is a row of Status.
+      if let failed = card.failedReceipt {
         Section(L10n.controlCenterLastAction) {
           receipt(failed, failed: true)
         }
@@ -85,7 +81,7 @@ struct RunnerCardView: View {
       }
       .accessibilityElement(children: .combine)
       .accessibilityLabel(card.title)
-      .accessibilityValue("\(card.compactState), \(card.scope). \(card.state)")
+      .accessibilityValue(card.identityAccessibilityValue)
       .accessibilityIdentifier(identifiers.status)
     }
   }
@@ -106,7 +102,7 @@ struct RunnerCardView: View {
       if let operation = card.operation, operation.isInFlight {
         inFlight(operation)
       }
-      if let feedback = card.operationFeedback, failedReceipt == nil {
+      if let feedback = card.operationFeedback, card.failedReceipt == nil {
         receipt(feedback, failed: false)
       }
     } header: {

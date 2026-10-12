@@ -42,9 +42,10 @@ sidebar, toolbar and grouped forms.
   is there and one stopped on purpose is not — then what discovery could not read, this
   Mac's heat while macOS throttles it, and every runner with both of its layers in aligned
   columns, ordered by attention. Discovery's paths sit behind a Details… popover. The
-  Overview's sidebar row carries a badge counting discovery and heat warnings, which no
-  longer sit above every runner; a runner whose job overruns on a throttled Mac shows the
-  heat above its own detail too.
+  Overview's sidebar row carries a badge counting the runners that need somebody and any
+  discovery or heat warning, which no longer sit above every runner, and VoiceOver reads
+  each of them out rather than the number; a runner whose job overruns on a throttled Mac
+  shows the heat above its own detail too.
 - **The empty and loading states are the system's:** a progress view while Standfast first
   looks, and `ContentUnavailableView` for a Mac with no runners or a discovery that failed.
 - **Settings is three tabs of grouped forms** — General, Runners and Accounts — and opens
@@ -64,7 +65,8 @@ sidebar, toolbar and grouped forms.
   which rules out GitLab runners and fleet slots, and only once the runner has made it.
 - **A context menu on each sidebar row** with what can be done to that runner now, Show
   logs in Finder and Copy name. It acts on the row clicked, and a Stop that would interrupt
-  a job still asks first.
+  a job still asks first. An order in flight, or one that failed, shows on its runner's
+  sidebar row too, so an order given to a runner the detail is not showing still answers.
 - **A progress bar for the current job,** filling toward its usual time and gone once the
   job passes it: a full bar would read as done while the job runs on. The line above it
   still says elapsed and usual, never a countdown.

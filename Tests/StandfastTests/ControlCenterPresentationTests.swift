@@ -1149,6 +1149,80 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
   #expect(uncertain.presentation.tone == .neutral)
 }
 
+@Test func theFormRaisesExactlyTheReceiptsTheHeaderCounts() {
+  // Last Action heads the form for a failed order, and Needs Attention lists
+  // the runner for one. Both read `hasFailed`, never a tone that only happens
+  // to agree with it today.
+  let causes: [ServiceOperationCause] = [
+    .confirmationUnavailable, .commandTimedOut, .scriptMissing,
+    .commandCouldNotLaunch, .restartStartFailed, .restartStartTimedOut,
+    .unexpectedFailure,
+  ]
+  let phases: [ServiceOperationPhase] =
+    [.inFlight, .requestAccepted] + causes.map { .uncertain($0) }
+    + causes.map { .failed($0) }
+
+  for phase in phases {
+    let operation = ServiceOperation(
+      action: .stop, phase: phase, changedAt: controlCenterNow)
+    // Idle, so the order is the only thing about it anybody could need to see.
+    let subject = card(controlCenterSnapshot(.resolved(.idle), operation: operation))
+
+    #expect((subject.failedReceipt != nil) == operation.hasFailed, "\(phase)")
+    #expect(subject.needsAttention == operation.hasFailed, "\(phase)")
+    if operation.hasFailed {
+      #expect(subject.failedReceipt == operation.presentation, "\(phase)")
+    }
+  }
+}
+
+@Test func aSidebarRowAnswersForAnOrderInFlightOrFailedAndNoOther() {
+  // A context menu sends an order to the row clicked, not to the runner the
+  // detail shows, so the row is where that order has to answer.
+  func order(_ phase: ServiceOperationPhase) -> ServiceOperation {
+    ServiceOperation(action: .stop, phase: phase, changedAt: controlCenterNow)
+  }
+  func receipt(_ phase: ServiceOperationPhase) -> ServiceOperationPresentation? {
+    card(controlCenterSnapshot(operation: order(phase))).sidebarReceipt
+  }
+
+  #expect(receipt(.inFlight) == order(.inFlight).presentation)
+  #expect(receipt(.failed(.scriptMissing)) == order(.failed(.scriptMissing)).presentation)
+  // Neither of these is news the row has to carry: the state will say it.
+  #expect(receipt(.requestAccepted) == nil)
+  #expect(receipt(.uncertain(.commandTimedOut)) == nil)
+  #expect(card(controlCenterSnapshot()).sidebarReceipt == nil)
+}
+
+@Test func aRunnerIsSpokenAlikeInTheSidebarAndAtopItsDetail() {
+  let quiet = card(controlCenterSnapshot(.resolved(.disconnected)))
+  let identity =
+    "\(L10n.stateDisconnectedShort), acme/widget. \(L10n.stateDisconnected)"
+
+  #expect(quiet.identityAccessibilityValue == identity)
+  #expect(quiet.sidebarAccessibilityValue == identity)
+
+  // The sidebar then says the order it is answering for, as its row does.
+  let failed = card(
+    controlCenterSnapshot(
+      .resolved(.disconnected),
+      operation: ServiceOperation(
+        action: .stop, phase: .failed(.scriptMissing), changedAt: controlCenterNow)))
+  #expect(failed.identityAccessibilityValue == identity)
+  #expect(
+    failed.sidebarAccessibilityValue
+      == identity + ". " + L10n.serviceOperationScriptMissingTitle(L10n.serviceStop))
+
+  // Each view reads its value, and neither spells one of its own.
+  let sidebar = standfastSource("ControlCenterView.swift")
+  let detail = standfastSource("RunnerCardView.swift")
+  #expect(sidebar.contains(".accessibilityValue(card.sidebarAccessibilityValue)"))
+  #expect(sidebar.contains("if let receipt = card.sidebarReceipt"))
+  #expect(detail.contains(".accessibilityValue(card.identityAccessibilityValue)"))
+  #expect(detail.contains("if let failed = card.failedReceipt"))
+  #expect(!(sidebar + detail).contains("compactState), "))
+}
+
 @Test func theCardRaisesTheFailedReceiptAndLetsTheOthersKeepTheirTone() {
   let source = standfastSource("RunnerCardView.swift")
   let compact = source.filter { !$0.isWhitespace }

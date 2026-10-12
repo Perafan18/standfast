@@ -12,20 +12,32 @@ private let sidebarNow = Date(timeIntervalSince1970: 1_785_962_174)
 private let gitLabScope = RunnerScope.gitLab(
   instance: GitLabInstance(url: "https://gitlab.example.com")!)
 
-private func sidebarCard(
+private func sidebarSnapshot(
   _ name: String, scope: RunnerScope = .repository(owner: "acme", name: "widget"),
   installation: RunnerInstallation = .launchAgent,
   display: DisplayState = .resolved(.idle)
-) -> RunnerCardPresentation {
-  let snapshot = RunnerSnapshot(
+) -> RunnerSnapshot {
+  RunnerSnapshot(
     runner: DiscoveredRunner(
       label: "actions.runner.acme-widget.\(name)",
       directory: URL(fileURLWithPath: "/tmp/\(name)"), agentId: 7,
       agentName: name, scope: scope, installation: installation),
     display: display, readAt: sidebarNow)
-  return RunnerCardPresentation.building(
+}
+
+private func sidebarCard(_ snapshot: RunnerSnapshot) -> RunnerCardPresentation {
+  RunnerCardPresentation.building(
     snapshot, measurement: nil, latestRelease: nil, isMaintenanceWorking: false,
     maintenanceNotice: nil, now: sidebarNow)
+}
+
+private func sidebarCard(
+  _ name: String, scope: RunnerScope = .repository(owner: "acme", name: "widget"),
+  installation: RunnerInstallation = .launchAgent,
+  display: DisplayState = .resolved(.idle)
+) -> RunnerCardPresentation {
+  sidebarCard(
+    sidebarSnapshot(name, scope: scope, installation: installation, display: display))
 }
 
 private func gitLabCard(_ name: String) -> RunnerCardPresentation {
@@ -118,15 +130,17 @@ private func slotCard(_ name: String) -> RunnerCardPresentation {
 }
 
 @Test func theOverviewRowCountsWhatOnlyTheOverviewShows() {
-  // A selected runner hides the Overview, and with it discovery's notice and
-  // the Mac's heat. The badge is what still says they are there.
+  // A selected runner hides the Overview, and with it the runners it says
+  // need somebody, discovery's notice and the Mac's heat. The badge is what
+  // still says they are there.
   func presentation(
-    notice: ControlCenterNoticePresentation?
+    notice: ControlCenterNoticePresentation?,
+    cards: [RunnerCardPresentation] = [sidebarCard("build-mac")]
   ) -> ControlCenterPresentation {
     ControlCenterPresentation(
       header: .building(
         overview: .building(snapshots: [], notice: nil), readAt: nil, now: sidebarNow),
-      cards: [sidebarCard("build-mac")], empty: nil, notice: notice)
+      cards: cards, empty: nil, notice: notice)
   }
   let unreadable = presentation(notice: .unreadableRunners(paths: ["/tmp/a.plist"]))
   let heat = ThermalNotice.lines(pressure: .critical, overrunning: true)
@@ -140,4 +154,55 @@ private func slotCard(_ name: String) -> RunnerCardPresentation {
   #expect(heat.count == 2)
   #expect(presentation(notice: nil).overviewWarningCount(thermalLines: heat) == 1)
   #expect(unreadable.overviewWarningCount(thermalLines: heat) == 2)
+
+  // One for each runner Needs Attention lists, which leaves out a runner
+  // somebody stopped on purpose.
+  let fleet = [
+    sidebarCard("build-mac", display: .resolved(.disconnected)),
+    sidebarCard("test-mac", display: .resolved(.unknown(.noAnswer))),
+    sidebarCard("idle-mac"),
+    sidebarCard("off-mac", display: .resolved(.stopped)),
+  ]
+  #expect(fleet.filter(\.needsAttention).count == 2)
+  #expect(
+    presentation(notice: nil, cards: fleet).overviewWarningCount(thermalLines: []) == 2)
+  #expect(
+    presentation(notice: .unreadableRunners(paths: ["/tmp/a.plist"]), cards: fleet)
+      .overviewWarningCount(thermalLines: heat) == 4)
+}
+
+@Test func theOverviewRowSaysInWordsWhatItsBadgeCounts() {
+  // VoiceOver hears no badge as a warning: it is a number beside the row, and
+  // the fleet's summary names neither discovery nor heat.
+  let snapshots = [
+    sidebarSnapshot("build-mac", display: .resolved(.disconnected)),
+    sidebarSnapshot("test-mac"),
+  ]
+  func presentation(
+    notice: ControlCenterNoticePresentation?, snapshots: [RunnerSnapshot]
+  ) -> ControlCenterPresentation {
+    ControlCenterPresentation(
+      header: .building(
+        overview: .building(snapshots: snapshots, notice: nil), readAt: nil,
+        now: sidebarNow),
+      cards: snapshots.map(sidebarCard), empty: nil, notice: notice)
+  }
+  let warned = presentation(
+    notice: .unreadableRunners(paths: ["/tmp/a.plist"]), snapshots: snapshots)
+  let heat = ThermalNotice.lines(pressure: .serious, overrunning: false)
+
+  #expect(
+    warned.overviewAccessibilityValue(thermalLines: heat)
+      == [
+        warned.header.summary, L10n.runnerAttention(1), L10n.someRunnersUnreadableTitle,
+        L10n.thermalSerious,
+      ].joined(separator: ". "))
+  // Nothing to warn about: the fleet alone, as the row always said.
+  let quiet = presentation(notice: nil, snapshots: [sidebarSnapshot("test-mac")])
+  #expect(quiet.overviewAccessibilityValue(thermalLines: []) == quiet.header.summary)
+
+  let source = standfastSource("ControlCenterView.swift")
+  #expect(source.contains("presentation.overviewAccessibilityValue("))
+  #expect(source.contains(".accessibilityValue(accessibilityValue)"))
+  #expect(!source.contains(".accessibilityValue(header.summary)"))
 }

@@ -234,6 +234,11 @@ struct RunnerCardPresentation: Equatable, Identifiable {
   /// not saying it.
   let serviceNote: String?
   let operationFeedback: ServiceOperationPresentation?
+  /// The receipt of an order that failed, while it lasts, and nil otherwise.
+  /// Decided by `ServiceOperation.hasFailed`, the rule `needsAttention` reads,
+  /// so the form's Last Action and the Overview's Needs Attention can never
+  /// disagree about one runner.
+  let failedReceipt: ServiceOperationPresentation?
   let history: RunnerHistoryPresentation
   let progress: String?
   let operation: ServiceOperationPresentation?
@@ -265,6 +270,28 @@ extension RunnerCardPresentation {
     case .active: 3
     case .healthy: 4
     }
+  }
+
+  /// What VoiceOver hears after the runner's name wherever it is identified,
+  /// in the sidebar and atop its detail: the state in brief, where it is
+  /// registered, then the state in full.
+  var identityAccessibilityValue: String {
+    "\(compactState), \(scope). \(state)"
+  }
+
+  /// The order the sidebar row still answers for: one in flight, or one that
+  /// failed while its receipt lasts. A context menu sends an order to the row
+  /// clicked, which need not be the runner the detail shows, and then this row
+  /// is the only place that order can answer.
+  var sidebarReceipt: ServiceOperationPresentation? {
+    if let operation, operation.isInFlight { return operation }
+    return failedReceipt
+  }
+
+  /// The sidebar row's spoken value: the identity, then that order.
+  var sidebarAccessibilityValue: String {
+    guard let receipt = sidebarReceipt else { return identityAccessibilityValue }
+    return "\(identityAccessibilityValue). \(receipt.title)"
   }
 
   /// The heat lines over this runner's detail, and nil unless its own job has
@@ -329,6 +356,7 @@ extension RunnerCardPresentation {
         snapshot.queued, runnerLabelled: snapshot.labels, display: snapshot.display),
       serviceNote: snapshot.serviceNote,
       operationFeedback: operation?.isInFlight == false ? operation : nil,
+      failedReceipt: snapshot.operation?.hasFailed == true ? operation : nil,
       history: snapshot.isJobHistoryAvailable
         ? .available(rows: historyRows, isTruncated: isHistoryTruncated)
         : .unavailable(lastKnownRows: historyRows),
@@ -461,11 +489,22 @@ extension ControlCenterPresentation {
     runnersByAttention.filter(\.needsAttention)
   }
 
-  /// The badge on the sidebar's Overview row: discovery's notice and the Mac's
-  /// heat, one each, and zero for no badge. Only the Overview shows them, so
-  /// while a runner is selected this is what still says they are there.
+  /// The badge on the sidebar's Overview row: one for each runner the header
+  /// counts, one for discovery's notice and one for the Mac's heat, which are
+  /// the rows the Overview raises above All Runners. Zero draws no badge. Only
+  /// the Overview shows the header and those rows, so while a runner is
+  /// selected this is what still says they are there.
   func overviewWarningCount(thermalLines: [String]) -> Int {
-    (notice == nil ? 0 : 1) + (thermalLines.isEmpty ? 0 : 1)
+    cards.count(where: \.needsAttention) + (notice == nil ? 0 : 1)
+      + (thermalLines.isEmpty ? 0 : 1)
+  }
+
+  /// What VoiceOver hears on the Overview's sidebar row: the fleet, then in
+  /// words each thing the badge counts. A bare number says neither what nor
+  /// where, and the fleet's summary names neither discovery nor heat.
+  func overviewAccessibilityValue(thermalLines: [String]) -> String {
+    ([header.summary, header.attention, notice?.title].compactMap { $0 } + thermalLines)
+      .joined(separator: ". ")
   }
 }
 
