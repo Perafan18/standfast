@@ -30,6 +30,20 @@ if [ "$AX_MODE" = "skip" ]; then
   exit 0
 fi
 
+# Runner states are checked against the catalogue of the bundle this process
+# was launched from, not a copy typed here. Resolved before the first click,
+# so a PID that names no app fails without touching the pointer.
+if [ -n "${STANDFAST_AX_APP_BUNDLE:-}" ]; then
+  AX_APP_BUNDLE="$STANDFAST_AX_APP_BUNDLE"
+else
+  probedExecutable="$(ps -ww -o comm= -p "$PID" 2>/dev/null)" || probedExecutable=""
+  AX_APP_BUNDLE="${probedExecutable%/Contents/MacOS/*}"
+  [ "$AX_APP_BUNDLE" != "$probedExecutable" ] \
+    || fail "PID $PID was not launched from an app bundle: ${probedExecutable:-no such process}"
+fi
+[ -d "$AX_APP_BUNDLE/Contents/Resources" ] \
+  || fail "the probed app has no Contents/Resources: $AX_APP_BUNDLE"
+
 AX_STDERR_FILE="$(mktemp "${TMPDIR:-/tmp}/standfast-ax.XXXXXX")" \
   || fail "could not create an Accessibility diagnostic file"
 AX_CLICK_TOOL=""
@@ -353,21 +367,26 @@ else
   fail "the packaged menu did not expose one complete English or Spanish static action set"
 fi
 
+# The packaged catalogue is byte-identical to the source text format
+# (`check-localization-catalogues.sh`), so one line per key. A runner's short
+# state is a `state.short.*` word, or the `state.layer.*` name of the layer
+# that went quiet.
+stateCatalogue="$AX_APP_BUNDLE/Contents/Resources/$menuLanguage.lproj/Localizable.strings"
+[ -f "$stateCatalogue" ] \
+  || fail "the packaged $menuLanguage catalogue is missing: $stateCatalogue"
+allowedRunnerStates="$(sed -nE \
+  's/^"state\.(short|layer)\.[^"]*" = "(.*)";$/\2/p' "$stateCatalogue")"
+[ -n "$allowedRunnerStates" ] \
+  || fail "the packaged $menuLanguage catalogue names no runner state: $stateCatalogue"
+
 while IFS= read -r runnerText || [ -n "$runnerText" ]; do
   [ -n "$runnerText" ] || continue
   runnerIdentity="${runnerText% · *}"
   runnerState="${runnerText##* · }"
   validRunnerState=false
-  if [ "$menuLanguage" = en ]; then
-    case "$runnerState" in
-      Ready|Running|Disconnected|Stopped|Starting|Unknown) validRunnerState=true ;;
-    esac
-  else
-    case "$runnerState" in
-      Listo|Ejecutando|Desconectado|Detenido|Arrancando|Desconocido)
-        validRunnerState=true
-        ;;
-    esac
+  if [ -n "$runnerState" ] \
+    && grep -Fxq -- "$runnerState" <<< "$allowedRunnerStates"; then
+    validRunnerState=true
   fi
   if [ "$runnerIdentity" = "$runnerText" ] || [ -z "$runnerIdentity" ] \
     || [ "$validRunnerState" != true ]; then

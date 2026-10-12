@@ -16,7 +16,13 @@ LIFECYCLE_VALID_TUPLE="true|true|true|true|true|true|true|true|true|true|true|tr
 SETTINGS_VALID_OUTPUT='settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected\nsettings\tdev.standfast.settings.notifications.stopped\nsettings\tdev.standfast.settings.power.prevent-sleep\nsettings\tdev.standfast.settings.startup.open-at-login\nsettings\tdev.standfast.settings.version'
 SETTINGS_PARTIAL_OUTPUT='settings\tdev.standfast.settings.notifications.job-failed\nsettings\tdev.standfast.settings.notifications.disconnected'
 
+PROBED_APP_PID=""
+
 cleanup() {
+  if [ -n "$PROBED_APP_PID" ]; then
+    kill "$PROBED_APP_PID" 2>/dev/null || true
+    wait "$PROBED_APP_PID" 2>/dev/null || true
+  fi
   rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
@@ -260,6 +266,17 @@ printf '%s\n' \
   'exit 0' > "$FAKE_BIN/ax-click"
 chmod +x "$FAKE_BIN/ax-click"
 export STANDFAST_AX_CLICK_TOOL="$FAKE_BIN/ax-click"
+
+# The probe reads runner states from the app its PID was launched from, and
+# `$$` is this shell. Every case gets a bundle packaging the source catalogues,
+# which `check-localization-catalogues.sh` holds byte-identical to the shipped ones.
+PACKAGED_APP="$TEST_ROOT/Standfast.app"
+for language in en es; do
+  mkdir -p "$PACKAGED_APP/Contents/Resources/$language.lproj"
+  cp "$ROOT/Sources/Standfast/Resources/$language.lproj/Localizable.strings" \
+    "$PACKAGED_APP/Contents/Resources/$language.lproj/"
+done
+export STANDFAST_AX_APP_BUNDLE="$PACKAGED_APP"
 
 # shellcheck disable=SC2016 # Variables expand when the generated fake runs.
 printf '%s\n' \
@@ -625,6 +642,151 @@ do
     "static\tFleet — $raw_key\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit" \
     "raw localization key escaped into static AX menu content: Fleet — $raw_key"
 done
+
+probe_menu_against() {
+  local name="$1"
+  local bundle="$2"
+  local menu_output="$3"
+  local probe_capture_dir="$TEST_ROOT/captured-catalogue-$name"
+  mkdir -p "$probe_capture_dir"
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_AX_APP_BUNDLE="$bundle" \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$probe_capture_dir" \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT="$menu_output" \
+    "$AX_CHECK" "$$" 2>&1
+}
+
+# A runner whose GitHub layer went quiet shows the layer's name as its state.
+# The hard-coded list this replaced still said "Unknown", so a correct app
+# failed the gate in exactly that state.
+layer_state_output=""
+if ! layer_state_output="$(probe_menu_against layer-en "$PACKAGED_APP" \
+  'runner\tbuild-mac · GitHub not answering\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit')"
+then
+  fail "the AX smoke rejected a runner whose GitHub layer is not answering: $layer_state_output"
+fi
+assert_contains "$layer_state_output" "$LIFECYCLE_SUCCESS"
+assert_contains "$layer_state_output" \
+  "runner parsed: identity=build-mac | state=GitHub not answering"
+
+spanish_layer_output=""
+if ! spanish_layer_output="$(probe_menu_against layer-es "$PACKAGED_APP" \
+  'runner\tmac-mini-m4 · GitHub sin respuesta\nstatic\tAbrir Standfast\nstatic\tAjustes\nstatic\tSalir')"
+then
+  fail "the AX smoke rejected a Spanish layer state: $spanish_layer_output"
+fi
+assert_contains "$spanish_layer_output" "$LIFECYCLE_SUCCESS"
+assert_contains "$spanish_layer_output" \
+  "runner parsed: identity=mac-mini-m4 | state=GitHub sin respuesta"
+
+# One catalogue, the menu's own: a Spanish word in an English menu is a
+# localization bug, not a state.
+expect_menu_output_rejected \
+  "english-menu-spanish-state" \
+  'runner\tbuild-mac · Listo\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "runner AX menu record has no concrete identity and localized short state"
+
+# A state is a whole catalogue value: a cut-off "GitHub not" is neither
+# "GitHub not answering" nor "GitHub not asked".
+expect_menu_output_rejected \
+  "runner-with-state-fragment" \
+  'runner\tbuild-mac · GitHub not\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+  "runner AX menu record has no concrete identity and localized short state"
+
+# The packaged words, not a list kept beside them: a bundle that ships its own
+# word for Ready is believed, and the source's word is then refused.
+fixture_app="$TEST_ROOT/Fixture.app"
+mkdir -p "$fixture_app/Contents/Resources/en.lproj"
+printf '%s\n' \
+  '"menu.quit" = "Quit";' \
+  '"state.short.ready" = "Fixture ready";' \
+  > "$fixture_app/Contents/Resources/en.lproj/Localizable.strings"
+fixture_word_output=""
+if ! fixture_word_output="$(probe_menu_against fixture-word "$fixture_app" \
+  'runner\tbuild-mac · Fixture ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit')"
+then
+  fail "the AX smoke ignored the packaged catalogue's own state word: $fixture_word_output"
+fi
+assert_contains "$fixture_word_output" "$LIFECYCLE_SUCCESS"
+fixture_source_word_output=""
+if fixture_source_word_output="$(probe_menu_against fixture-source-word "$fixture_app" \
+  'runner\tbuild-mac · Ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit')"
+then
+  fail "the AX smoke accepted a state word the packaged catalogue does not ship"
+fi
+assert_contains "$fixture_source_word_output" \
+  "runner AX menu record has no concrete identity and localized short state"
+
+# Fails closed: no catalogue for the menu's language, or one that names no
+# state, is a broken bundle rather than a runner with nothing to check.
+missing_catalogue_output=""
+if missing_catalogue_output="$(probe_menu_against missing-catalogue "$fixture_app" \
+  'runner\tmac-mini-m4 · Listo\nstatic\tAbrir Standfast\nstatic\tAjustes\nstatic\tSalir')"
+then
+  fail "the AX smoke passed without the packaged Spanish catalogue"
+fi
+assert_contains "$missing_catalogue_output" "the packaged es catalogue is missing"
+
+stateless_app="$TEST_ROOT/Stateless.app"
+mkdir -p "$stateless_app/Contents/Resources/en.lproj"
+printf '%s\n' '"menu.quit" = "Quit";' \
+  > "$stateless_app/Contents/Resources/en.lproj/Localizable.strings"
+stateless_output=""
+if stateless_output="$(probe_menu_against stateless "$stateless_app" \
+  'static\tOpen Standfast\nstatic\tSettings\nstatic\tQuit')"
+then
+  fail "the AX smoke passed against a catalogue that names no runner state"
+fi
+assert_contains "$stateless_output" "the packaged en catalogue names no runner state"
+
+# Without the override the bundle comes from the PID. A symlink keeps the
+# launched path, which is what `ps` reports, and its catalogue's own word proves
+# the probe read that bundle and no other.
+probed_app="$TEST_ROOT/Probed.app"
+mkdir -p "$probed_app/Contents/MacOS" "$probed_app/Contents/Resources/en.lproj"
+ln -s /bin/sleep "$probed_app/Contents/MacOS/Standfast"
+printf '%s\n' '"state.short.ready" = "Launched ready";' \
+  > "$probed_app/Contents/Resources/en.lproj/Localizable.strings"
+"$probed_app/Contents/MacOS/Standfast" 60 &
+PROBED_APP_PID=$!
+for _ in $(seq 50); do
+  case "$(ps -ww -o comm= -p "$PROBED_APP_PID" 2>/dev/null)" in
+    */Contents/MacOS/Standfast) break ;;
+  esac
+  sleep 0.1
+done
+launched_dir="$TEST_ROOT/captured-launched-bundle"
+mkdir -p "$launched_dir"
+launched_output=""
+if ! launched_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_OSASCRIPT_CAPTURE_DIR="$launched_dir" \
+    STANDFAST_OSASCRIPT_MENU_OUTPUT='runner\tbuild-mac · Launched ready\nstatic\tOpen Standfast\nstatic\tSettings\nstatic\tQuit' \
+    env -u STANDFAST_AX_APP_BUNDLE "$AX_CHECK" "$PROBED_APP_PID" 2>&1
+)"; then
+  fail "the AX smoke did not read the bundle its PID was launched from: $launched_output"
+fi
+assert_contains "$launched_output" "$LIFECYCLE_SUCCESS"
+kill "$PROBED_APP_PID" 2>/dev/null || true
+wait "$PROBED_APP_PID" 2>/dev/null || true
+PROBED_APP_PID=""
+
+rm -f "$SENTINEL"
+unbundled_click_log="$TEST_ROOT/unbundled-click-calls"
+unbundled_output=""
+if unbundled_output="$(
+  PATH="$FAKE_BIN:$PATH" STANDFAST_AX_MODE=require \
+    STANDFAST_OSASCRIPT_SENTINEL="$SENTINEL" \
+    STANDFAST_CONTRACT_CLICK_LOG="$unbundled_click_log" \
+    env -u STANDFAST_AX_APP_BUNDLE "$AX_CHECK" "$$" 2>&1
+)"; then
+  fail "the AX smoke accepted a PID that was not launched from an app bundle"
+fi
+assert_contains "$unbundled_output" "was not launched from an app bundle"
+[ ! -e "$SENTINEL" ] || fail "a PID with no app bundle still reached the menu read"
+[ ! -e "$unbundled_click_log" ] || fail "a PID with no app bundle still moved the pointer"
 
 lifecycle_script="$capture_dir/call-2.applescript"
 [ -f "$lifecycle_script" ] || fail "the lifecycle AppleScript was not captured"
