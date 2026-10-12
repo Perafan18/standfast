@@ -816,7 +816,7 @@ enum L10n {
     "menu.quit": "Quit",
     "menu.controlCenter": "Open Standfast",
     "menu.settings": "Settings",
-    "menu.recentJobs": "Recent jobs",
+    "menu.recentJobs": "Recent Jobs",
     "menu.openAtLogin": "Open at login",
     "menu.openAtLogin.failed": "Open at login could not be turned on",
     "menu.openAtLogin.needsApproval":

@@ -642,6 +642,26 @@ private func l10nSource() -> String {
       == "This Mac: Running. GitHub: Offline")
 }
 
+@Test func theRunnerDetailsHeadingsShareOneCapitalisation() throws {
+  // Title case in English, as the Overview's headings are. "Recent jobs" sat
+  // between "Current Job" and "Maintenance", and a grouped form on macOS 26
+  // no longer upper-cases its headers, so the mismatch showed as written.
+  let english = try speaking("en")
+  let spanish = try speaking("es")
+  let headings = [
+    ("controlCenter.status", "Status", "Estado"),
+    ("controlCenter.lastAction", "Last Action", "Última acción"),
+    ("controlCenter.currentJob", "Current Job", "Trabajo actual"),
+    ("menu.recentJobs", "Recent Jobs", "Trabajos recientes"),
+    ("menu.maintenance", "Maintenance", "Mantenimiento"),
+  ]
+  for (key, en, es) in headings {
+    #expect(L10n.t(key, in: [english]) == en, "en/\(key)")
+    #expect(L10n.t(key, in: [spanish]) == es, "es/\(key)")
+    #expect(L10n.t(key, in: []) == en, "fallback/\(key)")
+  }
+}
+
 @Test func theRunnerMenusOwnLinesAreExactInBothLanguages() throws {
   let english = try speaking("en")
   let spanish = try speaking("es")
