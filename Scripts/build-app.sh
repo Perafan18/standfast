@@ -51,6 +51,18 @@ mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
 cp "$EXECUTABLE" "$DEST/Contents/MacOS/Standfast"
 cp Resources/Info.plist "$DEST/Contents/Info.plist"
 
+# Swift Build stamps the deployment target as the linked SDK (`sdk 14.0`), and
+# macOS 26+ draws such an app without Liquid Glass. Restamp every slice with the
+# real SDK before signing; the bundle signature replaces the one vtool breaks.
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+if [ -z "$SDK_VERSION" ]; then
+  echo "build-app.sh: xcrun named no macOS SDK version to stamp the executable with" >&2
+  exit 1
+fi
+MINIMUM_OS="$(plutil -extract LSMinimumSystemVersion raw Resources/Info.plist)"
+xcrun vtool -set-build-version macos "$MINIMUM_OS" "$SDK_VERSION" -replace \
+  -output "$DEST/Contents/MacOS/Standfast" "$DEST/Contents/MacOS/Standfast"
+
 # Both halves of the localisation, and they are not redundant.
 #
 # The SwiftPM bundle is what `L10n.resourceBundle` looks for by name, and it

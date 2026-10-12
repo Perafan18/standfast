@@ -20,10 +20,22 @@ printf '%s\n' \
   '  *" --show-bin-path "*) echo "$STANDFAST_FAKE_PRODUCTS" ;;' \
   'esac' \
   'exit 0' > "$FAKE_BIN/swift"
-printf '%s\n' '#!/bin/bash' 'exit 0' > "$FAKE_BIN/codesign"
+# shellcheck disable=SC2016 # Variables expand when the generated fake runs.
+printf '%s\n' '#!/bin/bash' \
+  'printf "codesign %s\n" "$*" >> "$STANDFAST_FAKE_TOOL_LOG"' 'exit 0' \
+  > "$FAKE_BIN/codesign"
 printf '%s\n' '#!/bin/bash' 'echo "     0 valid identities found"' 'exit 0' \
   > "$FAKE_BIN/security"
-chmod +x "$FAKE_BIN/swift" "$FAKE_BIN/codesign" "$FAKE_BIN/security"
+# shellcheck disable=SC2016 # Variables expand when the generated fake runs.
+printf '%s\n' \
+  '#!/bin/bash' \
+  'printf "xcrun %s\n" "$*" >> "$STANDFAST_FAKE_TOOL_LOG"' \
+  'case " $* " in' \
+  '  *" --show-sdk-version "*) printf "%s\n" "${STANDFAST_FAKE_SDK_VERSION-27.0}" ;;' \
+  'esac' \
+  'exit 0' > "$FAKE_BIN/xcrun"
+chmod +x "$FAKE_BIN/swift" "$FAKE_BIN/codesign" "$FAKE_BIN/security" \
+  "$FAKE_BIN/xcrun"
 
 failures=0
 case_count=0
@@ -63,6 +75,7 @@ run_build_app() {
     SIGN_IDENTITY=- \
     STANDFAST_FAKE_PRODUCTS="$case_dir/products" \
     STANDFAST_FAKE_SWIFT_LOG="$case_dir/swift.log" \
+    STANDFAST_FAKE_TOOL_LOG="$case_dir/tools.log" \
     "$@" \
     "$BUILD_APP" > "$case_dir/output" 2>&1
 }
@@ -156,6 +169,41 @@ if run_build_app; then
   fi
 else
   fail "build-app.sh failed: $(cat "$case_dir/output")"
+fi
+
+first_line_of() {
+  { grep -n -F -- "$1" "$case_dir/tools.log" 2>/dev/null || true; } | head -n 1 | cut -d: -f1
+}
+
+# Swift Build stamps the deployment target as the linked SDK, which macOS 26+
+# draws without Liquid Glass. The restamp has to land before the signature.
+begin_case "the executable is restamped with the SDK it was built against" "Contents/Resources/"
+if run_build_app; then
+  minimum="$(plutil -extract LSMinimumSystemVersion raw "$ROOT/Resources/Info.plist")"
+  executable="$case_dir/Standfast.app/Contents/MacOS/Standfast"
+  restamp="xcrun vtool -set-build-version macos $minimum 27.0 -replace -output $executable $executable"
+  restamp_line="$(first_line_of "$restamp")"
+  sign_line="$(first_line_of "codesign ")"
+  if [ -z "$restamp_line" ]; then
+    fail "no restamp of the packaged executable: $(cat "$case_dir/tools.log")"
+  elif [ -z "$sign_line" ] || [ "$restamp_line" -gt "$sign_line" ]; then
+    fail "the restamp does not come before the bundle is signed"
+  else
+    pass "every slice claims the SDK it was compiled against, before signing"
+  fi
+else
+  fail "build-app.sh failed: $(cat "$case_dir/output")"
+fi
+
+begin_case "xcrun names no SDK version" "Contents/Resources/"
+if run_build_app STANDFAST_FAKE_SDK_VERSION=; then
+  fail "build-app.sh packaged an executable it could not stamp"
+elif grep -Fq 'codesign ' "$case_dir/tools.log"; then
+  fail "the unstamped bundle was signed before the build failed"
+elif grep -Fq 'no macOS SDK version' "$case_dir/output"; then
+  pass "the build stops, naming the missing SDK version, before signing"
+else
+  fail "the failure does not say why: $(cat "$case_dir/output")"
 fi
 
 # ---------------------------------------------------------------------------

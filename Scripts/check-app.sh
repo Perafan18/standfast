@@ -152,6 +152,14 @@ case "$flags" in
   *) fail "the bundle is not signed with the hardened runtime (flags=$flags)" ;;
 esac
 
+# A slice that claims a pre-26 SDK is drawn without Liquid Glass on macOS 26+,
+# however it was compiled; build-app.sh restamps it and this holds it there.
+expected_sdk="$(xcrun --sdk macosx --show-sdk-version)"
+stamped_sdk="$(xcrun vtool -show-build "$APP/Contents/MacOS/Standfast" \
+  | awk '$1 == "sdk" { print $2 }' | sort -u)"
+[ "$stamped_sdk" = "$expected_sdk" ] \
+  || fail "the executable claims SDK ${stamped_sdk:-none}, not the $expected_sdk it was built with; macOS 26 and later would draw it without Liquid Glass"
+
 echo "==> Gatekeeper's assessment"
 "$ROOT/Scripts/check-gatekeeper.sh" "$APP"
 for language in en es; do
