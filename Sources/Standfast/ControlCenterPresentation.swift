@@ -395,10 +395,10 @@ extension RunnerCardPresentation {
     case .restart:
       label = L10n.serviceRestart
       accessibilityLabel = L10n.restartRunner(runnerName)
-      // Not `arrow.clockwise`: that is `Actualizar ahora`, which re-reads the
-      // machine and changes nothing. This one stops and starts a LaunchAgent,
-      // and the two sat on the same card wearing the same circular arrow.
-      symbolName = "restart"
+      // Not `arrow.clockwise`, which is Refresh and changes nothing, nor the
+      // states' `arrow.triangle.2.circlepath`. Not `restart` either: from
+      // macOS 26 that symbol is a hollow ◁, which reads as Back.
+      symbolName = "arrow.circlepath"
     case .openOnGitHub:
       label =
         switch destination {

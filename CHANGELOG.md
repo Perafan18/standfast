@@ -60,16 +60,18 @@ sidebar, toolbar and grouped forms.
   Open Standfast, Settings and Quit, or Abrir Standfast, Ajustes and Salir.
 - **English menu items are in title case,** as the HIG asks: Refresh Now, Show Logs in
   Finder, Start Service. Buttons, the toolbar and Spanish keep sentence case.
+- **Restart wears a circular arrow,** `arrow.circlepath`. From macOS 26 the `restart` symbol
+  it used is a hollow ◁, which reads as Back.
 - **The only animation is an operation receipt appearing,** and it becomes an immediate
   change under Reduce Motion. No state depends on colour or motion alone.
 
 ### Added
 
-- **Show logs in Finder,** in the Runner menu, in a sidebar row's context menu and beside
+- **Show Logs in Finder,** in the Runner menu, in a sidebar row's context menu and beside
   the Maintenance actions. It is offered only where the runner has a log folder of its own,
   which rules out GitLab runners and fleet slots, and only once the runner has made it.
 - **A context menu on each sidebar row** with what can be done to that runner now, Show
-  logs in Finder and Copy name. It acts on the row clicked, and a Stop that would interrupt
+  Logs in Finder and Copy Name. It acts on the row clicked, and a Stop that would interrupt
   a job still asks first. An order in flight, or one that failed, shows on its runner's
   sidebar row too, so an order given to a runner the detail is not showing still answers.
 - **A progress bar for the current job,** filling toward its usual time and gone once the
@@ -92,6 +94,9 @@ sidebar, toolbar and grouped forms.
   drifted: it still allowed "Unknown" and refused the words a runner shows when GitHub or
   GitLab goes quiet, so a correct app failed the gate in exactly that state. It now reads
   them from the catalogue inside the bundle it probes, in the menu's own language.
+- Built with Swift 6.4's default build system, the app claimed it was linked against the
+  macOS 14 SDK, so macOS 26 and later drew it without Liquid Glass. `build-app.sh` now
+  stamps the SDK it really used, and `check-app.sh` fails a bundle that claims another.
 
 ## [0.5.0] — 2026-10-09
 

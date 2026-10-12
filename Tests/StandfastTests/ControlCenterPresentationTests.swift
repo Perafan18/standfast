@@ -803,6 +803,19 @@ private func cutOffHistory() -> (lost: JobRecord, before: JobRecord, JobHistory)
   }
 }
 
+@Test func restartWearsASymbolNoOtherControlOrStateWears() {
+  let subject = card(controlCenterSnapshot(.resolved(.idle)))
+  let restart = subject.action(.restart)?.symbolName
+  #expect(restart == "arrow.circlepath")
+  // Refresh, the other verbs, and the symbols a state draws in the sidebar.
+  let taken = [
+    "arrow.clockwise", "arrow.triangle.2.circlepath", "restart",
+    subject.action(.start)?.symbolName, subject.action(.stop)?.symbolName,
+    subject.action(.openOnGitHub)?.symbolName, subject.stateSymbolName,
+  ]
+  #expect(!taken.contains(restart))
+}
+
 @Test func activeWorkMakesNavigationProminentWithoutChangingItsAXCopy() {
   let subject = card(controlCenterSnapshot(.resolved(.busy)))
   let action = subject.action(.openOnGitHub)
