@@ -34,10 +34,10 @@ body:
       description: >-
         Click Standfast's status icon in the menu bar (the ✓, ⚙, ⚠, ☾, ?, ↻ or tray symbol, not
         the app icon) and choose **Settings**. On the **General** tab, the small line below
-        **Appearance** reads like `Standfast 0.5.0 (5)`; copy it whole. The quick menu and the
+        **Appearance** reads like `Standfast 0.6.0 (6)`; copy it whole. The quick menu and the
         Standfast window do not show it, and the `Runner …` line in a runner's
         **Maintenance** section is the runner's version, not Standfast's.
-      placeholder: Standfast 0.5.0 (5)
+      placeholder: Standfast 0.6.0 (6)
     validations:
       required: true
 
