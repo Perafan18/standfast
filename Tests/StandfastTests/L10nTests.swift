@@ -1150,7 +1150,7 @@ private func specifiers(in format: String) -> [Character] {
   let english = try #require(try catalogue("en")["queue.unknownScope"])
   let spanish = try #require(try catalogue("es")["queue.unknownScope"])
 
-  #expect(english.contains("organisation") && english.contains("enterprise"))
+  #expect(english.contains("organization") && english.contains("enterprise"))
   #expect(spanish.contains("organización") && spanish.contains("empresa"))
 }
 

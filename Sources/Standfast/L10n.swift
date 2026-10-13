@@ -973,7 +973,7 @@ enum L10n {
     "queue.empty":
       "No queued work is waiting for this machine",
     "queue.unknownScope":
-      "GitHub cannot say what is queued for an organisation or enterprise runner",
+      "GitHub cannot say what is queued for an organization or enterprise runner",
     "state.unknown.noToken":
       "Running locally, GitHub not asked — add a GitHub token in Settings",
     "state.unknown.rateLimited":
