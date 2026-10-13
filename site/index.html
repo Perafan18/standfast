@@ -11,13 +11,13 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://perafan18.github.io/standfast/">
 <meta property="og:image" content="https://perafan18.github.io/standfast/img/quick-menu.png">
-<meta property="og:image:alt" content="The Standfast menu: one row per runner with its state, then Refresh now, Open Standfast, Settings and Quit.">
+<meta property="og:image:alt" content="The Standfast menu: one row per runner with its state, then Refresh Now, Open Standfast, Settings and Quit.">
 <link rel="canonical" href="https://perafan18.github.io/standfast/">
 <link rel="icon" href="img/icon.png">
 <style>
-  /* Every colour below is a value Sources/Standfast/StandfastTheme.swift ships,
-     light and dark. A visitor who learns here that orange means "look at this"
-     must find the same orange on first launch. */
+  /* Every color below is a value Sources/Standfast/StandfastTheme.swift shipped
+     in 0.5, light and dark. 0.6.0 moved the app to macOS's semantic colors; the
+     page keeps these until its own redesign (see CONTRIBUTING.md). */
   :root {
     color-scheme: light dark;
     --canvas: #F4F6F8;
@@ -360,7 +360,7 @@
       <a href="#install">Get it</a>
     </nav>
     <div class="tray">
-      <span class="status-item" role="img" id="statusItem" aria-label="Standfast in the menu bar: Idle"><svg aria-hidden="true"><use href="#g-idle"/></svg></span>
+      <span class="status-item" role="img" id="statusItem" aria-label="Standfast in the menu bar: Ready"><svg aria-hidden="true"><use href="#g-idle"/></svg></span>
       <span class="clock" aria-hidden="true">Sat 3:14 AM</span>
     </div>
   </div>
@@ -374,7 +374,7 @@
         <p class="lede">Standfast is a free menu bar app for Macs that host GitHub Actions runners. It asks launchd whether each runner is alive, asks GitHub whether it still counts on it, and never mixes up the two answers.</p>
         <div class="act">
           <a class="button" href="https://github.com/Perafan18/standfast">View on GitHub</a>
-          <small>For macOS 14 or later. Free and open source. Signed and notarized by Apple.</small>
+          <small>For macOS 14 or later. Free and open source. Signed with a Developer ID and notarized by Apple.</small>
         </div>
       </div>
 
@@ -397,7 +397,7 @@
           <p class="aside" id="notAsked" hidden>Not asked. A stopped service is the one thing known for sure, so Standfast spends no request on it.</p>
         </fieldset>
         <div class="readout">
-          <span class="badge tone-healthy" id="badge"><svg aria-hidden="true"><use href="#g-idle"/></svg><span id="stateName">Idle</span></span>
+          <span class="badge tone-healthy" id="badge"><svg aria-hidden="true"><use href="#g-idle"/></svg><span id="stateName">Ready</span></span>
           <p class="verdict" id="verdict" aria-live="polite">Registered, connected and waiting for work. The one you want to see.</p>
           <p class="svc">Meanwhile, <code>./svc.sh status</code> prints <b id="svc">Started:</b></p>
         </div>
@@ -410,11 +410,11 @@
       <h2 id="states-title">One icon answers for every runner on the Mac</h2>
       <p class="intro">The status item shows one state for every runner on the Mac: a job in progress first, then whatever needs fixing, then the quiet states. Open the menu for one row per runner.</p>
       <dl class="legend">
-        <div><dt><span class="badge tone-healthy"><svg aria-hidden="true"><use href="#g-idle"/></svg></span></dt><dd><p class="name">Idle</p>Registered, connected and waiting for work.</dd></div>
-        <div><dt><span class="badge tone-active"><svg aria-hidden="true"><use href="#g-busy"/></svg></span></dt><dd><p class="name">Busy</p>Running a job right now, with which one and for how long.</dd></div>
+        <div><dt><span class="badge tone-healthy"><svg aria-hidden="true"><use href="#g-idle"/></svg></span></dt><dd><p class="name">Ready</p>Registered, connected and waiting for work.</dd></div>
+        <div><dt><span class="badge tone-active"><svg aria-hidden="true"><use href="#g-busy"/></svg></span></dt><dd><p class="name">Running</p>Running a job right now. Standfast says which one and for how long.</dd></div>
         <div><dt><span class="badge tone-attention"><svg aria-hidden="true"><use href="#g-disconnected"/></svg></span></dt><dd><p class="name">Disconnected</p>The process is alive, but GitHub cannot see it. No job is coming.</dd></div>
         <div><dt><span class="badge tone-stopped"><svg aria-hidden="true"><use href="#g-stopped"/></svg></span></dt><dd><p class="name">Stopped</p>The service is not running. Start it from the menu or the Standfast window.</dd></div>
-        <div><dt><span class="badge tone-attention"><svg aria-hidden="true"><use href="#g-unknown"/></svg></span></dt><dd><p class="name">Unknown</p>Standfast could not tell, and says why: no token and no <code>gh</code>, a refused credential, a rate limit, or no answer. Each has a different fix.</dd></div>
+        <div><dt><span class="badge tone-attention"><svg aria-hidden="true"><use href="#g-unknown"/></svg></span></dt><dd><p class="name">Could not tell</p>Standfast names the side it could not read, such as “GitHub not answering”, and says why: no token and no <code>gh</code>, a refused credential, a rate limit, or no answer. Each has a different fix.</dd></div>
         <div><dt><span class="badge tone-active"><svg aria-hidden="true"><use href="#g-starting"/></svg></span></dt><dd><p class="name">Starting</p>You just started it and GitHub has not acknowledged it yet. Held for 30 seconds.</dd></div>
         <div><dt><span class="badge tone-none"><svg aria-hidden="true"><use href="#g-none"/></svg></span></dt><dd><p class="name">No runners</p>This Mac has no runners at all, which is not the same as failing to read one.</dd></div>
       </dl>
@@ -444,7 +444,7 @@ status actions.runner.acme-widget.build-mac:
           <figcaption>On GitHub, the same runner is offline. Only this answer decides whether your build runs.</figcaption>
         </figure>
       </div>
-      <p class="prose">Standfast asks both on every refresh and keeps the answers apart. That is why a runner that is up but unreachable gets a state of its own instead of being filed under stopped: the symptom looks the same, and the fix is not.</p>
+      <p class="prose">Standfast asks both on every refresh and keeps the answers apart. That is why a runner that is up but unreachable gets a state of its own instead of being filed under Stopped: the symptom looks the same, and the fix is not.</p>
     </div>
   </section>
 
@@ -461,9 +461,9 @@ status actions.runner.acme-widget.build-mac:
           <picture>
             <source srcset="img/control-center-dark.png" media="(prefers-color-scheme: dark)">
             <img class="shot" src="img/control-center.png" width="820" height="600" loading="lazy" decoding="async"
-                 alt="The Standfast window. Its sidebar lists the Overview and three runners: build-mac Disconnected, release-mac Running and ios-farm-2. build-mac is selected, and its Status section says This Mac: Running, GitHub: Offline, and 1 job is waiting for this machine. Below are its recent jobs and Maintenance.">
+                 alt="The Standfast window. Its sidebar lists the Overview and three runners: build-mac Disconnected, release-mac Running and ios-farm-2. build-mac is selected, and its Status section says This Mac: Running, GitHub: Offline, and 1 job is waiting for this machine. Below are its Recent Jobs and Maintenance sections.">
           </picture>
-          <figcaption><b>The window</b>An Overview and a sidebar with every runner. Each runner’s page sets its two answers side by side, then the current job, queued work, what happened the last time you used Start, Stop or Restart, recent jobs, the installed version, disk use and cleanup, and logs. The toolbar starts, stops and restarts it and opens the right page on GitHub.</figcaption>
+          <figcaption><b>The window</b>An Overview and a sidebar with every runner. Each runner’s page puts its two answers on rows of their own, with the work queued for it and what happened the last time you used Start, Stop or Restart, then the current job, recent jobs, the installed version, disk use and cleanup, and logs. The toolbar starts, stops and restarts the selected runner and opens the right page on GitHub.</figcaption>
         </figure>
       </div>
     </div>
@@ -480,7 +480,7 @@ status actions.runner.acme-widget.build-mac:
         </div>
         <div>
           <h3>What is waiting for it</h3>
-          <p>With a token, Standfast lists the repository’s queued jobs and counts the ones whose labels this runner carries, by the same rule GitHub uses to hand them out. Organization and enterprise runners say the question cannot be answered there instead of showing an empty queue.</p>
+          <p>With a token, Standfast lists the repository’s queued jobs and counts the ones whose labels this runner carries, by the same rule GitHub uses to hand them out. For organization and enterprise runners, Standfast says GitHub cannot tell what is queued instead of showing an empty queue.</p>
         </div>
         <div>
           <h3>What it costs your disk</h3>
@@ -492,7 +492,7 @@ status actions.runner.acme-widget.build-mac:
               <tr><td>Logs</td><td>9.2 MB</td></tr>
             </table>
           </div>
-          <p>Measured when you ask, broken down by what each folder is for. It offers to delete exactly three things, only while that runner is idle or stopped. Your checkouts and the job’s temporary folder are never offered.</p>
+          <p>Measured when you ask, broken down by what each folder is for. Of the runner’s own folders it offers to delete exactly three, only while that runner is ready or stopped. Your checkouts and the job’s temporary folder are never offered.</p>
         </div>
         <div>
           <h3>Whether it is out of date</h3>
@@ -500,11 +500,11 @@ status actions.runner.acme-widget.build-mac:
         </div>
         <div>
           <h3>Whether the Mac stays awake</h3>
-          <p>If you switch it on, Standfast holds off idle sleep while a job runs and lets go when the work is done. It also warns when the Mac is running hot. It cannot keep a closed laptop awake; macOS offers no public way to promise that.</p>
+          <p>If you switch on “Keep this Mac awake while a job runs” in Settings, Standfast holds off idle sleep while a job runs and lets go when the work is done. It also warns when the Mac is running hot. It cannot keep a closed laptop awake; macOS offers no public way to promise that.</p>
         </div>
         <div>
           <h3>When something breaks</h3>
-          <p>Notifications you choose, one by one: a job failed, a runner disconnected, a runner stopped on its own. Start, Stop and Restart leave a receipt on the runner’s page saying what actually happened, including “uncertain” when a command timed out.</p>
+          <p>Notifications you choose, one by one: a job failed, a runner disconnected, a runner stopped on its own. Start, Stop and Restart leave a receipt on the runner’s page saying what actually happened, including that the result is uncertain when a command timed out.</p>
         </div>
       </div>
     </div>
@@ -553,7 +553,7 @@ status actions.runner.acme-widget.build-mac:
           <picture>
             <source srcset="img/settings-dark.png" media="(prefers-color-scheme: dark)">
             <img class="shot" src="img/settings.png" width="520" height="388" loading="lazy" decoding="async"
-                 alt="Standfast Settings on its Accounts tab. GitHub access says a token is stored and Standfast asks GitHub directly, with a field to paste a new token and Remove token.">
+                 alt="Standfast Settings on its Accounts tab. GitHub access says a token is stored and Standfast asks GitHub directly, with a field to paste a new token and a Remove token button.">
           </picture>
           <figcaption>Settings, where the optional GitHub token lives. The folders of runners started by hand have a tab of their own.</figcaption>
         </figure>
@@ -569,11 +569,11 @@ status actions.runner.acme-widget.build-mac:
           <li><b>No sudo.</b> A Mac runner is a per-user LaunchAgent, and nothing here needs more than your own account.</li>
           <li><b>No telemetry.</b> No analytics, no update checks for Standfast itself, and your runner’s logs never leave the Mac.</li>
           <li><b>No credentials you did not give it.</b> The only tokens it keeps are the ones you paste into Settings, in your login Keychain. Settings says whether one is stored and never shows it.</li>
-          <li><b>No deleting your work.</b> Repository checkouts are never offered for cleanup, and nothing is deleted while that runner has a job.</li>
+          <li><b>No deleting your work.</b> Repository checkouts are never offered for cleanup, and nothing is deleted from a runner while it has a job.</li>
         </ul>
         <ul>
           <li><b>It does not register runners</b> or edit their labels. It watches the ones you set up.</li>
-          <li><b>It does not support GitHub Enterprise Server.</b> Every request goes to github.com, so a runner registered there reads “GitHub not answering”.</li>
+          <li><b>It does not support GitHub Enterprise Server.</b> Every GitHub request goes to github.com, so a runner registered on GitHub Enterprise Server reads “GitHub not answering”.</li>
           <li><b>It does not keep a closed laptop awake.</b> Idle sleep, yes; the lid, no.</li>
           <li>Every file it reads, command it runs and request it makes is listed in the <a href="https://github.com/Perafan18/standfast/blob/main/SECURITY.md">security policy</a>.</li>
         </ul>
@@ -586,7 +586,7 @@ status actions.runner.acme-widget.build-mac:
       <h2 id="install-title">Install it with Homebrew</h2>
       <p class="prose">The app is signed with a Developer ID and notarized by Apple, so it opens like any other.</p>
 <pre class="build" aria-label="Command to install Standfast with Homebrew">brew install --cask perafan18/tap/standfast</pre>
-      <p class="prose">Or download <code>Standfast.zip</code> from the <a href="https://github.com/Perafan18/standfast/releases/latest">latest release</a> and move the app to Applications. To build it from source instead, run <code>git clone https://github.com/Perafan18/standfast.git</code>, then <code>make run</code>.</p>
+      <p class="prose">Or download <code>Standfast.zip</code> from the <a href="https://github.com/Perafan18/standfast/releases/latest">latest release</a> and move the app to Applications. To build it from source instead, with Xcode 16 or later, run <code>git clone https://github.com/Perafan18/standfast.git</code>, then <code>cd standfast</code> and <code>make run</code>.</p>
       <p class="act"><a class="button" href="https://github.com/Perafan18/standfast">View on GitHub</a></p>
     </div>
   </section>
@@ -594,7 +594,7 @@ status actions.runner.acme-widget.build-mac:
 
 <footer>
   <div class="wrap">
-    <p>Standfast is free and open source under the MIT licence.</p>
+    <p>Standfast is free and open source under the MIT license.</p>
     <nav aria-label="Project">
       <a href="https://github.com/Perafan18/standfast">Source</a>
       <a href="https://github.com/Perafan18/standfast/blob/main/SECURITY.md">Security</a>
@@ -607,9 +607,9 @@ status actions.runner.acme-widget.build-mac:
   // The resolver's own rules: a stopped service is not asked about, and the
   // connection is judged before the work, so an unseen runner is never "busy".
   const STATES = {
-    idle: { name: 'Idle', tone: 'healthy', glyph: 'g-idle', svc: 'Started:',
+    idle: { name: 'Ready', tone: 'healthy', glyph: 'g-idle', svc: 'Started:',
       verdict: 'Registered, connected and waiting for work. The one you want to see.' },
-    busy: { name: 'Busy', tone: 'active', glyph: 'g-busy', svc: 'Started:',
+    busy: { name: 'Running', tone: 'active', glyph: 'g-busy', svc: 'Started:',
       verdict: 'Running a job right now. Standfast says which one and how long it usually takes.' },
     disconnected: { name: 'Disconnected', tone: 'attention', glyph: 'g-disconnected', svc: 'Started:',
       verdict: 'The process is alive, but GitHub cannot see it. No job is coming, and nothing on the Mac looks wrong.' },

@@ -30,30 +30,35 @@ Only the second one decides whether your build runs. That is why a runner that i
 unreachable gets a state of its own instead of being filed under "stopped" — the symptom
 looks similar and the fix is not.
 
-## What the menu-bar status icon means
+## What the menu bar status icon means
 
-| Icon | State | Meaning |
+The icon answers for every runner on the Mac at once: a job in progress first, then
+whatever needs fixing, then the quiet states. The quick menu has a row for each runner.
+
+| Icon | Shown as | Meaning |
 |---|---|---|
-| ✓ | `idle` | Registered, connected, waiting for work. The one you want to see. |
-| ⚙ | `busy` | Running a job right now. |
-| ⚠ | `disconnected` | The process is alive, but GitHub cannot see it. No job is coming. |
-| ☾ | `stopped` | The service is not running. Start it from the quick menu or the Standfast window. |
-| ? | `unknown` | Standfast could not tell — and says which of the reasons it was. |
-| ↻ | `starting` | You just started it; GitHub has not acknowledged it yet. Held for 30s. |
+| ✓ | Ready | Registered, connected, waiting for work. The one you want to see. |
+| ⚙ | Running | Running a job right now. |
+| ⚠ | Disconnected | The process is alive, but GitHub cannot see it. No job is coming. |
+| ☾ | Stopped | The service is not running. Start it from the quick menu or the Standfast window. |
+| ? | The answer that went quiet, such as *GitHub not answering* | Standfast could not tell — and says why. |
+| ↻ | Starting | You just started it; GitHub has not acknowledged it yet. Held for 30s. |
 | ◌ | — | This Mac has no runners at all. Not a failure to read one. |
 
-`unknown` is never a shrug. It says which of the reasons it was — no token in Settings and
-no GitHub CLI either, a credential GitHub refused, a rate limit, an answer with nothing
-usable in it, *launchd could not be asked*, and their GitLab and managed-fleet
-counterparts — because each one has a different fix.
+Standfast never answers with a shrug when it cannot tell. It names the answer that went quiet
+and why — no token in Settings and no GitHub CLI either (*GitHub not asked*), a credential
+GitHub refused, a rate limit, an answer with nothing usable in it, *launchd could not be
+asked*, and their GitLab and managed-fleet counterparts — because each one has a different
+fix. In the code these states are `idle`, `busy`, `disconnected`, `stopped`, `unknown` and
+`starting`.
 
 ## Quick menu, window and Settings
 
 The quick menu is deliberately small. It shows one row per runner, in discovery order and
 marked with its state's symbol, each opening a submenu with that runner's state, progress,
 current managed job and latest operation receipt; any compact discovery or thermal warning;
-when Standfast last looked; and four fixed actions: Refresh, Open Standfast, Settings, and
-Quit. A conclusively stopped runner may offer Start inside its submenu. Stop, Restart,
+when Standfast last looked; and four fixed actions: Refresh Now, Open Standfast, Settings,
+and Quit. A conclusively stopped runner may offer Start inside its submenu. Stop, Restart,
 history, maintenance, preferences and confirmations do not live there.
 
 **Open Standfast** brings forward one persistent window, named Standfast: a sidebar of your
@@ -61,8 +66,8 @@ runners beside a detail form for the one you select. The sidebar keeps discovery
 groups runners under GitHub, GitLab and Managed Fleet once there is more than one kind.
 Runners that share a name, as the Mac's hostname often makes them, are titled with what
 tells them apart, as in the menu: `mac-mini · web-app`. A row that is ready and waiting
-leaves its state to its symbol, so the rows with words are the ones to look at. The
-detail answers the two questions on rows of their own — is it running on this Mac, and will
+leaves its state to its symbol, so the rows with words are the ones to look at. The detail
+form answers the two questions on rows of their own — is it running on this Mac, and will
 GitHub or GitLab give it work — then shows its current job, the latest operation outcome,
 recent history, installed version, manual disk measurement and safe cleanup, and its logs.
 Start, Stop, Restart and the runner's destination sit in the window's toolbar, and in a
@@ -78,29 +83,31 @@ Service operations keep their own receipts per runner. In-flight work is visible
 immediately and remains visible for as long as the command is running. An order in flight,
 or one that failed, also shows on its runner's sidebar row, so an order given from that
 row's context menu still answers while another runner is selected. After an operation
-reaches an accepted, uncertain, or failed outcome, its terminal receipt remains for a nominal
-five-minute scan-wall-clock window and is pruned by the next normal scan at or after that wall-clock
-boundary. A system clock correction can shorten or extend the displayed interval. After that
-nominal window, any terminal receipt—including a failure—can expire before you see it; the
-runner's current state remains, but that operation explanation is no longer displayed. A
-command that returned is described as *request accepted*, not as a state the next probe has
-not proved. Timeouts say the result is uncertain, and Restart says when Stop completed but
-the Start phase failed or timed out so the recovery step is clear.
+reaches an accepted, uncertain, or failed outcome, its terminal receipt remains for a
+nominal five-minute wall-clock window and is pruned by the next normal scan at or after the
+window ends. A system clock correction can shorten or extend the displayed interval. After
+that nominal window, any terminal receipt — including a failure — can expire before you see
+it; the runner's current state remains, but that operation explanation is no longer
+displayed. A command that returned is described as *request sent*, not as a state the next
+probe has not proved. Timeouts say the result is uncertain, and Restart says when Stop
+completed but the Start phase failed or timed out, so the recovery step is clear.
 
-**Settings** has three tabs. General owns the notification switches, SleepGuard, Open at
-Login, and whether Standfast also takes a Dock tile; Runners, the folders of runners started
-by hand; Accounts, the optional GitHub token and an optional token for each GitLab instance
-gitlab-runner's `config.toml` names. Those preferences share their existing state with the
-app; moving the controls did not create a second copy.
+**Settings** has three tabs. General owns the notification switches, the switch that keeps
+this Mac awake while a job runs, Open at login, and whether Standfast also takes a Dock
+tile; Runners, the folders of runners started by hand; Accounts, the optional GitHub token
+and an optional token for each GitLab instance named in gitlab-runner's `config.toml`. Those
+preferences share their existing state with the app; moving the controls did not create a
+second copy.
 
 ## Accessibility and app identity
 
 The status item exposes both the Standfast label and the aggregate fleet value to assistive
 technology. The sidebar rows, the detail form and operation feedback expose names, roles
 and values; native controls preserve keyboard order and visible focus, and text accompanies
-every meaningful symbol and status dot. No state depends on color or motion alone. The only
-animation — an operation receipt appearing — becomes an immediate change under Reduce
-Motion.
+every meaningful symbol and status dot except a ready runner's, which leaves its state to
+the symbol while VoiceOver still reads the word. No state depends on color or motion alone.
+The only animation — an operation receipt appearing — becomes an immediate change under
+Reduce Motion.
 
 The app draws with macOS's own controls, text styles and semantic colors, so it follows
 light and dark, Increase Contrast and Reduce Transparency the way the system does. On
@@ -129,7 +136,7 @@ Standfast already makes for that runner, so the running line appears only once G
 so.
 
 "Usually" is the median of the last few **successful** runs *of that same job*. Not the
-mean, and not every run: a build cancelled after ten seconds is a real event and a
+mean, and not every run: a build canceled after ten seconds is a real event and a
 terrible estimate, and one of them would drag a mean down by half a minute and keep it
 there. **With fewer than three runs to go on, Standfast shows no estimate at all** —
 elapsed time only. A number invented from two samples is worse than no number.
@@ -149,19 +156,19 @@ Each runner's **Maintenance** section measures both, broken down by what each di
 *for* rather than as one total:
 
 ```
+Disk use measured 4m ago
 Tool cache — 4.33 GB
 Repository checkouts — 431 MB
 Downloaded actions — 16.6 MB
 Logs — 9.2 MB
-Measured 4m ago
 ```
 
 The breakdown is the point. 4.5 GB is a number to be alarmed by; 4.33 GB of *cache* is a
 number to press a button about. It is measured with `du` when you ask, never on a timer,
 and the Maintenance section says how old the numbers are even while it is collapsed.
 
-Standfast offers to delete exactly three things, and the shortness of that list is the
-feature:
+Of the runner's own folders, Standfast offers to delete exactly three, and the shortness of
+that list is the feature:
 
 | Offered | Why |
 |---|---|
@@ -178,17 +185,19 @@ a job in flight, and it is empty whenever the runner is idle.
 Deleting is offered **only while that runner is idle or stopped**, read off that runner and
 never off the fleet, and the state is checked again immediately before anything goes — a
 job can arrive between the click and the delete. The deletion itself is a rename: the
-directory is moved aside in one atomic syscall and taken apart afterwards, so a job that
+directory is moved aside in one atomic syscall and taken apart afterward, so a job that
 lands a microsecond late finds *no* tool cache, which is a slower build, rather than half a
 tool cache, which is a failed one.
 
 The log the runner is writing right now is never deleted, and neither is the history
-Standfast shows you.
+Standfast shows you. The one other thing ever offered is Standfast's own: cache folders an
+earlier cleanup moved aside into `_work/.standfast-trash` under old names that no longer
+say which cache they held.
 
 ## Open at login
 
 Off by default, and switched on from Settings. Standfast asks macOS to register it and
-then asks macOS back what actually happened, so the checkbox shows the state of the
+then asks macOS back what actually happened, so the switch shows the state of the
 registration rather than the state of the request — including the case where macOS keeps
 the registration and the user has switched it off in System Settings, where nothing failed
 and the app still will not launch.
@@ -224,8 +233,8 @@ ditto "$(brew --prefix standfast)/Standfast.app" /Applications/Standfast.app
 open /Applications/Standfast.app
 ```
 
-Each upgrade is a new build, so macOS asks once whether it may read the token the previous
-build stored in your Keychain; choose Always Allow. You can also
+Each upgrade is a new build, so macOS asks once whether the new build may read the token
+the previous build stored in your Keychain; choose Always Allow. You can also
 [build it from source](#building-from-source) with `git`.
 
 ### Requirements
@@ -255,7 +264,7 @@ installed, and the `.runner` file each one keeps beside itself:
 
 No path to type and no repository to name. If `gh` is already signed in, there is no token
 to paste either. Several runners on one Mac work out of the box and are told apart by where
-they are registered when they share a name. Runners registered to an **organisation** or to
+they are registered when they share a name. Runners registered to an **organization** or to
 a GitHub Enterprise Cloud **account** work too.
 
 Three other kinds of runner are found from where they already describe themselves:
@@ -270,7 +279,7 @@ Three other kinds of runner are found from where they already describe themselve
 - **Runners started by hand with `./run.sh`**, which leave no LaunchAgent. They are never
   guessed by walking the disk: you add their folder in Settings, and Standfast re-reads it
   on every scan and watches the runner's process. It cannot start or stop them, and says so
-  under the runner's Status and on its greyed toolbar buttons.
+  in the runner's Status section and on its grayed toolbar buttons.
 
 Each runner is asked about by its own `agentId`, so a second runner on the same repository
 can never be mistaken for the first.
@@ -286,11 +295,11 @@ These are real and deliberate, not oversights:
 - **GitHub Enterprise Server is not supported.** The host in the runner's `gitHubUrl` is
   parsed for the scope and then thrown away: status is asked of `api.github.com` — or of
   `github.com` through `gh` when no token is stored — and the workflow-runs or
-  runner-settings destination is built there too. A GHES runner reads "GitHub not answering". (Runners
-  registered to a GitHub Enterprise Cloud *account* — `github.com/enterprises/...` — do
-  work.)
+  runner-settings destination is built there too. A GHES runner reads
+  "GitHub not answering". (Runners registered to a GitHub Enterprise Cloud *account* —
+  `github.com/enterprises/...` — do work.)
 - **Queued work is answered only for repository runners.** GitHub has no endpoint that
-  lists what is waiting at organization or enterprise level, so those runners say the
+  lists what is waiting at the organization or enterprise level, so those runners say the
   question cannot be answered there instead of showing an empty queue.
 - **State is re-read every 15 seconds**, and a slow answer from GitHub or `gh` can stretch
   that. The menu says when it last looked, which is the only honest way to tell.
@@ -302,7 +311,7 @@ These are real and deliberate, not oversights:
   runner directory, the Standfast window's Overview keeps it visible as unreadable and the
   quick menu surfaces a compact discovery warning. Delete the stray `.plist` to clear it.
 - **A returned service command is not a proved state.** `svc.sh start` can exit 0 before
-  launchd and GitHub agree on the result, so Standfast reports the request as accepted and
+  launchd and GitHub agree on the result, so Standfast reports the request as sent and
   lets the following probes establish the runner's state. A timeout remains explicitly
   uncertain rather than being called success or failure.
 
@@ -317,10 +326,10 @@ Standfast launches and then no more often than every 24 hours while that same in
 open; relaunching starts a new instance and a new first check.
 
 With a token stored in Settings, those requests go straight to `api.github.com` over HTTPS.
-Without one, status and the release check
-go through the installed GitHub CLI, launched with the environment Standfast inherited.
-Current `gh` versions may send their own pseudonymous telemetry; Standfast neither adds to
-nor suppresses that delegated behavior. GitHub documents the data and opt-out controls at
+Without one, status and the release check go through the installed GitHub CLI, launched
+with the environment Standfast inherited. Current `gh` versions may send their own
+pseudonymous telemetry; Standfast neither adds to nor suppresses that delegated behavior.
+GitHub documents the data and opt-out controls at
 [GitHub CLI telemetry](https://cli.github.com/telemetry). In particular,
 `GH_TELEMETRY=false` or `DO_NOT_TRACK=true` disables it for the inherited environment.
 
@@ -338,7 +347,7 @@ uploads `_diag` contents; see [SECURITY.md](SECURITY.md) for the complete bounda
 ## Building from source
 
 You need Xcode 16 or later; the Command Line Tools alone cannot build it, because from the
-macOS 27 SDK on SwiftUI's `@State` is a macro whose plugin ships only inside Xcode.app.
+macOS 27 SDK on, SwiftUI's `@State` is a macro whose plugin ships only inside Xcode.app.
 macOS 26 and later draw Liquid Glass only for an app built with Xcode 26 or later.
 
 ```sh
@@ -369,7 +378,7 @@ Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
 conventions this codebase actually enforces, and for the list of changes that look
 like obvious cleanups and are regressions.
 
-## Licence
+## License
 
 MIT. See [LICENSE](LICENSE). What changed and when is in
 [CHANGELOG.md](CHANGELOG.md).

@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [0.6.0] — Unreleased
 
 A native redesign. Standfast now draws with macOS's own controls, text styles and semantic
-colours, laid out the way System Settings lays out its own. On macOS 26 and later the system
+colors, laid out the way System Settings lays out its own. On macOS 26 and later the system
 gives the sidebar, the toolbar, the menus and the Settings tabs their Liquid Glass;
 Standfast draws no glass of its own. macOS 14 and 15 run the same code and get their own
 sidebar, toolbar and grouped forms. The glass needs a build with Xcode 26 or later, which
@@ -20,8 +20,8 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
   under GitHub, GitLab and Managed Fleet once there is more than one kind. The selection
   lasts while the window stays open and comes back when macOS restores the window, and a
   Mac with one runner opens on it. "Standfast Control Center" clashed with macOS's own
-  Control Center, so the window is titled "Standfast" in English and Spanish, and the copy
-  that named it — the log cleanup and confirmation messages among it — now names the app.
+  Control Center, so the window is named "Standfast" in English and Spanish, and the copy
+  that named it — the log cleanup and confirmation messages included — now names the app.
   It opens at 820×600 and stops shrinking at 680×440, where sidebar and detail still fit
   side by side.
 - **Runners that share a name read apart.** `config.sh` proposes the Mac's hostname, so one
@@ -42,7 +42,7 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
   the first is a verdict on the code.
 - **Start, Stop, Restart and the runner's destination move into the window's toolbar,**
   where a disabled one still says why in its tooltip. While Standfast has a Dock tile they
-  are also in a new Runner menu in the menu bar, beside Show logs in Finder and Refresh now.
+  are also in a new Runner menu in the menu bar, beside Show Logs in Finder and Refresh Now.
   In the window, ⌘R belongs to the toolbar's Refresh now rather than the Runner menu's,
   since the menu bar is missing without a Dock tile. Refresh now keeps its name beside its
   icon, because the window's state and receipt lines tell you to use it by that name.
@@ -63,18 +63,18 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
 - **Settings is three tabs of grouped forms** — General, Runners and Accounts — and opens
   on General. Each tab is as tall as what it holds; on a display too short for one, such as
   a 13-inch MacBook Air at Larger Text, the tab fits the screen and its form scrolls, so
-  every switch stays in reach. Return in a token field saves it. A notice keeps its words in primary text
-  beside a multicolour warning triangle, so the line somebody has to act on is no longer
-  the faintest one in the pane.
+  every switch stays in reach. Return in a token field saves the token. A notice keeps its
+  words in primary text beside a multicolor warning triangle, so the line somebody has to
+  act on is no longer the faintest one in the pane.
 - **The quick menu is grouped by separators,** each runner item wears its state's symbol,
-  and Refresh now, Settings and Quit take ⌘R, ⌘, and ⌘Q. The item names are unchanged:
+  and Refresh Now, Settings and Quit take ⌘R, ⌘, and ⌘Q. The item names are unchanged:
   Open Standfast, Settings and Quit, or Abrir Standfast, Ajustes and Salir.
 - **English menu items are in title case,** as the HIG asks: Refresh Now, Show Logs in
   Finder, Start Service. Buttons, the toolbar and Spanish keep sentence case.
 - **Restart wears a circular arrow,** `arrow.circlepath`. From macOS 26 the `restart` symbol
   it used is a hollow ◁, which reads as Back.
 - **The only animation is an operation receipt appearing,** and it becomes an immediate
-  change under Reduce Motion. No state depends on colour or motion alone.
+  change under Reduce Motion. No state depends on color or motion alone.
 
 ### Added
 
@@ -94,8 +94,8 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
 - **Card folding.** The sidebar and an Overview ordered by attention give a broken runner
   the visibility folding was there to protect. The folds 0.5 stored are cleared at launch.
 - **The hand-measured palette, spacing tokens and type scale,** and the tests that measured
-  their contrast. macOS owns the colours now and adapts them to light and dark, Increase
-  Contrast and Reduce Transparency by itself. A source test bans drawn glass, colours,
+  their contrast. macOS owns the colors now and adapts them to light and dark, Increase
+  Contrast and Reduce Transparency by itself. A source test bans drawn glass, colors,
   materials and point sizes of the app's own, and keeps every `#available` check in one
   file.
 
@@ -104,12 +104,10 @@ the release now checks for; built with Xcode 16, Standfast keeps the pre-26 look
 - The strict Accessibility gate kept its own list of runner state words, and it had
   drifted: it still allowed "Unknown" and refused the words a runner shows when GitHub or
   GitLab goes quiet, so a correct app failed the gate in exactly that state. It now reads
-  them from the catalogue inside the bundle it probes, in the menu's own language.
+  them from the catalog inside the bundle it probes, in the menu's own language.
 - Built with Swift 6.4's default build system, the app claimed it was linked against the
   macOS 14 SDK, so macOS 26 and later drew it without Liquid Glass. `build-app.sh` now
   stamps the SDK it really used, and `check-app.sh` fails a bundle that claims another.
-- A sidebar row's context menu for a runner with nothing to start, stop or restart opened
-  on a separator.
 
 ## [0.5.0] — 2026-10-09
 
@@ -135,10 +133,10 @@ builds it from source on your Mac.
 - **A slim quick menu** for a three-second glance. It shows one row per runner, in
   discovery order, each opening a submenu with that runner's state, progress, current
   managed job and latest operation receipt; discovery and thermal alerts; freshness;
-  Refresh; Open Standfast; Settings; and Quit. A conclusively stopped runner may offer
+  Refresh now; Open Standfast; Settings; and Quit. A conclusively stopped runner may offer
   Start; Stop, Restart, history, maintenance, preferences, and confirmations stay out of
   the quick surface.
-- **A separate Settings scene** for notification choices, SleepGuard, Open at Login, the
+- **A separate Settings scene** for notification choices, SleepGuard, Open at login, the
   optional Dock tile, the GitHub and GitLab tokens, and the folders of runners started by
   hand, using the same long-lived preference state as the rest of the app.
 - **Accessibility semantics for the new surfaces.** The menu-bar item exposes the product
@@ -189,7 +187,7 @@ builds it from source on your Mac.
 - The operational interface uses native `GroupBox`, `LabeledContent`, `ControlGroup`,
   `Form`, and system semantic styles, with no custom color or type scale in the app UI.
 - The app names its state layers when they disagree — local and remote no longer collapse
-  into one word — the service verbs name their object (`Parar servicio`, not `Parar`), the
+  into one word. The service verbs name their object (`Parar servicio`, not `Parar`), the
   idle state is called `Listo` in both the short and long forms, and the preferences window
   has one name instead of two.
 - Job rows say when before they say how long, in words: `hace 6d · duró 43s`. A bare
@@ -243,7 +241,7 @@ builds it from source on your Mac.
 Fixed in the pre-launch review, before anything was published:
 
 - **Building and releasing.** `make app` and the release failed on a clean checkout with
-  Xcode 27, whose Swift Build backend nests the localisation catalogues one level deeper in
+  Xcode 27, whose Swift Build backend nests the localization catalogs one level deeper in
   the resource bundle. The Homebrew formula could not build inside Homebrew's own sandbox,
   and could not build with the Command Line Tools alone, which lack SwiftUI's macro plugin;
   it now asks for Xcode. The release is universal, so Intel Macs can open the download; a
@@ -261,19 +259,19 @@ Fixed in the pre-launch review, before anything was published:
   count capped by GitHub says it is partial.
 - **Keychain reads never freeze the app.** Tokens are read off the main thread, one read per
   item at a time, so a locked Keychain or an upgraded build asking for access raises one
-  dialog instead of one per runner, and a refusal is not asked again every refresh. `gh`
-  installed through MacPorts, nix, mise or asdf is found when Standfast is opened from
-  Finder or at login.
+  dialog instead of one per runner, and access that was refused is not asked for again every
+  refresh. `gh` installed through MacPorts, nix, mise or asdf is found when Standfast is
+  opened from Finder or at login.
 - **GitLab.** Each instance keeps its own token, sent only to that instance, only over
   https, and never along a redirect to another origin. Instances on another port, under a
   path or at an IPv6 address are asked where they are, instead of crashing the Control
   Center or asking the wrong server. A runner paused in GitLab reads as paused and is not
   announced as disconnected; the card of an instance served over http says it is not
-  asked and offers no token field, keeping Remove; a hand-edited
-  `config.toml` with CRLF, a BOM or commented-out sections keeps its runners; same-named
-  runners on one instance are two cards; a GitLab runner GitLab cannot see says GitLab,
-  links to GitLab, offers no disk measurement of folders it never uses, and Settings
-  offers a token card for a gitlab-runner registered after launch.
+  asked and offers no token field, keeping Remove; a hand-edited `config.toml` with CRLF,
+  a BOM or commented-out sections keeps its runners; same-named runners on one instance
+  are two cards; a GitLab runner GitLab cannot see says GitLab, links to GitLab, offers no
+  disk measurement of folders it never uses, and Settings offers a token card for a
+  gitlab-runner registered after launch.
 - **Runners started by hand.** They are found in folders with accented names, under /tmp
   or /var, or behind a symlink; they no longer read as stopped, or announce a crash, while
   they update or restart themselves; Standfast looks for them among your own processes
@@ -290,14 +288,14 @@ Fixed in the pre-launch review, before anything was published:
   and a `.github` checkout counts as a checkout.
 - **Notifications.** "Disconnected" is announced once the disconnection has lasted 30
   seconds, so a runner still registering at login, after a wake or after a restart is not
-  a false alarm, and that wait starts again after a sleep or a clock step; an unreadable reading no longer makes the next real one look new; two
-  runners with the same name get their own banners; and the permission notice is re-read
-  whenever Settings is shown.
+  a false alarm, and that wait starts again after a sleep or a clock step; an unreadable
+  reading no longer makes the next real one look new; two runners with the same name get
+  their own banners; and the permission notice is re-read whenever Settings is shown.
 - **The model and its surfaces.** Automatic refresh survives a clock set backwards. A
   maintenance refusal says why it refused instead of always blaming new work, and its
   notices clear on Measure or Cancel. A capped queue with no matches no longer claims
   nothing is waiting. The prominent buttons stay legible in a window that is not in front,
-  turning the Dock tile off keeps Settings in front, Open at Login reflects changes made in
+  turning the Dock tile off keeps Settings in front, Open at login reflects changes made in
   System Settings, and the login-items pane is named as macOS 15 names it.
 - **Copy.** Enterprise runners are named when GitHub cannot show their queue, and several
   Spanish lines were corrected: "1 o más trabajos", consistent gender for "Mac", and
@@ -322,12 +320,11 @@ half gigabytes a year of text nobody will ever read.
   downloaded, the repository checkouts, and the logs. The breakdown is the point — a total
   is something to be alarmed by, a cache is something to press a button about.
 - **Measured on demand and never on the refresh loop.** `du -sk` in a child process rather
-  than a Foundation enumerator, because that is what the system optimises for a couple of
+  than a Foundation enumerator, because that is what the system optimizes for a couple of
   hundred thousand files; 0.16 s warm on the 4.5 GB above (0.24 s for the whole reading,
   plan included), and seconds on a Mac that has just woken. No timer and no staleness rule
-  either — the number is taken when somebody
-  asks for it, and the line under it says how old it is, which is what makes reading on
-  demand honest rather than lazy.
+  either — the number is taken when somebody asks for it, and the line under it says how
+  old it is, which is what makes reading on demand honest rather than lazy.
 - **Freeing the two caches, and only those two.** `_work/_tool` and `_work/_actions` are
   re-fetched on a miss, so losing either costs one slow build and nothing else. The
   repository checkouts are never offered: nothing in one is a cache, a workflow that wrote
@@ -351,7 +348,7 @@ half gigabytes a year of text nobody will ever read.
   the listener has open is never deleted, and neither are the newest 25 listener logs —
   that number is `JobLogReader`'s own reach and not a second opinion about it: the reader
   walks the active log plus 24 rotations behind it, so a floor of 24 would take the file
-  its walk ends on. On a laptop that is ordinary rather than exotic, because every sleep
+  its walk ends on. On a laptop, that is ordinary rather than exotic, because every sleep
   and wake rotates a log without running a single job. A sweep therefore cannot quietly
   shorten the job history the Control Center shows.
 - **The runner's own version**, read out of the header its listener writes, with the newest
@@ -364,7 +361,7 @@ half gigabytes a year of text nobody will ever read.
   a browser tab at a fixture repository on whoever's machine was running it. The test that
   covered it asserted only that no command had been spawned — and opening a URL spawns
   none, so nothing ever failed. The opener now goes behind a seam like the notification
-  centre and the power assertion, and the test pins the URL.
+  center and the power assertion, and the test pins the URL.
 
 ## [0.3.0] — development milestone, integrated into 0.5.0
 
@@ -379,7 +376,7 @@ a day of which one in six carries information.
 - **Notifications for the three things you cannot find out by looking**: a job that
   failed, a runner GitHub can no longer see, and a runner that stopped without being
   asked to. Each has its own switch, all of them off on a fresh install. Successful and
-  cancelled jobs are deliberately silent.
+  canceled jobs are deliberately silent.
 - **A stop you ordered is never reported back to you.** Stop and Restart tell the watcher
   a stop is coming, which is the only evidence there is: `launchctl` cannot say who
   brought a service down.
@@ -396,7 +393,7 @@ a day of which one in six carries information.
   Mac sleep out from under another. The menu says what it cannot do: closing the lid still
   sleeps the Mac.
 - **A thermal line, and only when macOS is actually throttling.** `.serious` and
-  `.critical` get a row; nothing else does. When a job has also overrun the estimate v0.2
+  `.critical` get a row; nothing else does. When a job has also overrun the estimate 0.2.0
   computes, a second line says so — which is the only situation where the temperature
   answers a question somebody has.
 
@@ -420,7 +417,7 @@ token, nothing to configure.
   1m 20s, usually 2m 50s`, read from the runner's own `_diag` listener log.
 - **An estimate that admits when it does not know.** "Usually" is the median of the last
   five *successful* runs of that same job — not the mean, and not every run, because a
-  build cancelled after ten seconds would drag a mean down by half a minute and keep it
+  build canceled after ten seconds would drag a mean down by half a minute and keep it
   there. With fewer than three runs to go on, no estimate is shown at all.
 - **The last five jobs**, with how each one ended and how long it took, in a submenu per
   runner. A job whose listener died mid-run is listed as interrupted rather than silently
@@ -455,7 +452,7 @@ the source build reusable without claiming a published distribution.
   scanning `~/Library/LaunchAgents` and reading each runner's own `.runner` file. No path,
   repository or token to enter.
 - **Support for several runners on one Mac**, told apart by where they are registered when
-  they share a name, and for runners registered to an **organisation** or to a GitHub
+  they share a name, and for runners registered to an **organization** or to a GitHub
   Enterprise Cloud **account**.
 - A distinct reason on every `unknown` state — the GitHub CLI missing, present but not
   authenticated, silent, or launchd unreadable — because each has a different fix.

@@ -13,7 +13,7 @@ notification authorization when you enable one. Standfast:
 - reads the same `.runner` file in each folder you add in Settings for a runner started by
   hand with `./run.sh`;
 - reads gitlab-runner's `~/.gitlab-runner/config.toml` when it exists, for each runner's
-  id, name and instance address. The file also holds each runner's own token; Standfast
+  ID, name and instance address. The file also holds each runner's own token; Standfast
   reads past it with the rest of the file but never keeps, uses or sends it;
 - reads the read-only fleet snapshot at
   `~/.local/state/actions-runner-fleet/status-v1.json` when a supervisor publishes one;
@@ -25,7 +25,7 @@ notification authorization when you enable one. Standfast:
   stored or sent;
 - runs `/bin/bash` on your runner's own `svc.sh` to start and stop it, in that runner's
   own directory;
-- runs `/usr/bin/du` to measure the runner directories shown by housekeeping;
+- runs `/usr/bin/du` to measure the runner directories the Maintenance section shows;
 - with a GitHub token stored in Settings, sends HTTPS requests to `api.github.com` with
   that token: each runner's status, the public latest `actions/runner` release, and — for
   repository runners only — that repository's queued workflow runs and their jobs;
@@ -45,31 +45,35 @@ notification authorization when you enable one. Standfast:
 - opens GitHub workflow runs for repository-scoped runners, or the runner settings page
   for organization- and enterprise-scoped runners, or — for a GitLab runner — the GitLab
   instance its `config.toml` names, which may be a plain `http` address, in your default
-  browser when you ask;
+  browser when you ask; likewise a managed-fleet slot's current job, its workflow run and
+  its pull requests, over `https` at the host and repository the supervisor's snapshot
+  names, and GitHub's guide to adding a self-hosted runner, on `docs.github.com`, when
+  this Mac has none;
 - when you ask, copies a runner's name to the general pasteboard, and asks Finder to reveal
   a runner's own `_diag` folder;
 - stores its switches, the folders you add for hand-started runners, the Dock preference,
   and the names of the GitLab instances that have had a token section in Settings — never a
-  token — in `UserDefaults`, so a token for an instance `config.toml` no longer names keeps
-  its Remove button across launches; asks macOS to register or unregister its login item
-  when you change that switch; and posts the notifications you enable;
-- keeps the selected runner's label in the Control Center window's scene storage, which
+  token — in `UserDefaults`, so a token for an instance that `config.toml` no longer names
+  keeps its **Remove token** button across launches; asks macOS to register or unregister
+  its login item when you change **Open at login**; and posts the notifications you enable;
+- keeps the selected runner's label in the Standfast window's scene storage, which
   macOS saves with the window's restorable state. For a runner started by hand, that label
   holds its folder's path;
 - while sleep prevention is enabled and at least one runner has work, holds a macOS
   `.idleSystemSleepDisabled` activity assertion; it releases the assertion when the switch
   is disabled, when the next completed scan observes no remaining work, or when the
   Standfast process exits; and
-- after an explicit housekeeping confirmation, creates a temporary directory inside the
-  runner's `_work`, moves and deletes the selected caches, or deletes the eligible old
-  diagnostic logs in `_diag` while preserving the active and retained listener logs.
+- after an explicit maintenance confirmation, creates a temporary directory inside the
+  runner's `_work`, moves and deletes the selected caches, deletes what an earlier cleanup
+  left in that directory, or deletes the eligible old diagnostic logs in `_diag` while
+  preserving the active and retained listener logs.
 
-Before housekeeping measures or deletes anything, it resolves the runner, work and
+Before maintenance measures or deletes anything, it resolves the runner, work and
 diagnostics paths and refuses a target that resolves outside the runner. A runner whose
-work folder is configured outside its own directory is still watched, but housekeeping
+work folder is configured outside its own directory is still watched, but maintenance
 abstains for it and says why. A `_work/_tool` or `_work/_actions` that is itself a
-symbolic link — a cache kept on another disk, for instance — is left in place. Its private
-trash directory must be a real directory rather than a symbolic link. These pathname
+symbolic link — a cache kept on another disk, for instance — is left in place. Standfast's
+private trash directory must be a real directory rather than a symbolic link. These pathname
 checks protect against stale or accidental filesystem configuration; they are not a
 sandbox against another process running concurrently as the same user. Such a process
 already has the same file authority and can replace a checked path before the next
@@ -85,8 +89,8 @@ Standfast does not upload `_diag` contents or other job data.
 When it uses `gh`, Standfast launches it with the environment it inherited; it neither
 injects nor removes GitHub authentication, update-notifier, or telemetry variables. Current
 `gh` versions may send their own pseudonymous telemetry unless the user disables it; see
-[GitHub CLI telemetry](https://cli.github.com/telemetry). `GH_TELEMETRY=false` or
-`DO_NOT_TRACK=true` disables that telemetry in the environment Standfast inherits.
+[GitHub CLI telemetry](https://cli.github.com/telemetry). Setting `GH_TELEMETRY=false` or
+`DO_NOT_TRACK=true` in the environment Standfast inherits disables that telemetry.
 Depending on the installed `gh` version and configuration, `gh` may also perform its own
 update check or other related traffic when invoked. Standfast does not initiate or inspect
 those delegated behaviors: the only API calls it explicitly asks `gh` to make are runner
@@ -108,28 +112,29 @@ Standfast keeps **only the tokens you paste into Settings**, and both are option
   `gitlab-token@<instance>`, so one instance's token is never offered to another.
 
 Each is a generic-password item in the login Keychain, which does not sync: it can be read
-while that keychain is unlocked, and only by an app on the item's access list, which is why
-a rebuilt app is asked once. Settings says whether a token is
-stored and never displays it, and **Remove token** deletes the Keychain item. Standfast
+while that Keychain is unlocked, and only by an app on the item's access list, which is why
+macOS asks once whether a rebuilt app may read it. Settings says whether a token is stored
+and never displays it, and **Remove token** deletes the Keychain item. Standfast
 never writes a token to `UserDefaults`, a file or a log. The token is re-read from the
-Keychain for each request rather than held in memory, off the main thread and through a
-gate that keeps one read per item in flight: a locked Keychain, or one asking whether this
-build may read the item, raises one dialog rather than one per runner, and a refusal is
-not asked again every refresh until you save or remove the token in Settings.
+Keychain for each request rather than held in memory. Each read runs off the main thread
+and through a gate that keeps one read per item in flight: a locked Keychain, or one
+asking whether this build may read the item, raises one dialog rather than one per runner,
+and after a refusal Standfast does not ask again until you save or remove the token in
+Settings.
 
 Every request goes only to the origin it was addressed to: a redirect to another scheme,
 host or port is not followed, because the request carries a credential.
 
 A refused token or a rate limit is reported as such. It never quietly falls through to
-`gh`, which would hide a credential you deliberately configured being wrong.
+`gh`, which would hide that a credential you deliberately configured is wrong.
 
 When no GitHub token is stored, Standfast calls `gh` with the inherited environment and
 leaves credential selection to that CLI. For `github.com`, `gh` documents `GH_TOKEN` and
 then `GITHUB_TOKEN` as taking precedence over credentials previously stored by `gh auth
 login`; when neither is set, `gh` can use its own stored authentication. Standfast never
 inspects, reads, copies or logs any of those tokens or credentials. It also never uses a
-runner's own credentials: it does not open the actions runner's `.credentials` files, and
-it never keeps or sends the runner tokens in gitlab-runner's `config.toml`.
+runner's own credentials: it does not open the GitHub Actions runner's `.credentials` files,
+and it never keeps or sends the runner tokens in gitlab-runner's `config.toml`.
 
 A consequence worth stating plainly: a request carries the authority of whichever
 credential made it — your stored token or the one `gh` selects. Standfast only reads with
@@ -157,7 +162,7 @@ lets a restored runner's bash script work when its execute bit is missing.
 
 Please report privately rather than in a public issue: open a
 [security advisory](https://github.com/Perafan18/standfast/security/advisories/new) on the
-repository. You will get an acknowledgement within a few days.
+repository. You will get an acknowledgment within a few days.
 
 This is a small hobby project maintained by one person. There is no bounty and no formal
 SLA, but genuine reports will be taken seriously and credited unless you prefer otherwise.

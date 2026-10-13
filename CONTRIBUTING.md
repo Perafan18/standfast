@@ -45,28 +45,28 @@ permission CI cannot grant.
   ```
 
   `swift format`, with a space: the Command Line Tools ship it as a subcommand of
-  `swift`, not as a `swift-format` binary on PATH.
+  `swift`, not as a `swift-format` binary on `PATH`.
 - **The build has zero warnings** and CI fails on any. Keep it that way.
-- **The app draws with the system's look.** System text styles and semantic colours only:
-  no colour, material or point size of its own, and no glass, which macOS 26 and later draw
+- **The app draws with the system's look.** System text styles and semantic colors only:
+  no color, material or point size of its own, and no glass, which macOS 26 and later draw
   themselves. Every `#available` check lives in `StandfastTheme.swift`, and never inside a
   toolbar builder, where it warns on the macOS 14 target and the warning fails the build. A
   symbol only the macOS 26 SDK has sits behind `#if compiler(>=6.2)`, because Xcode 16 still
   builds this. `nativeLookSourceBans` and the test beside it read the sources for all of it.
-- User-facing strings go through `L10n`, never inline. Add the key to both catalogues and
+- User-facing strings go through `L10n`, never inline. Add the key to both catalogs and
   to the English fallback table in the same change.
 - **A format that mixes `%d` and `%@` must keep them in the same order in every
-  catalogue.** `String(format:)` matches specifiers to arguments by position and verifies
+  catalog.** `String(format:)` matches specifiers to arguments by position and verifies
   nothing, so a translation that reorders them reads an `Int` through `%@` and dereferences
   it as a pointer — a crash, not a wrong line, and Spanish word order makes the reorder a
   plausible edit. `everyTranslationTakesItsArgumentsInTheSameOrderAndTheSameTypes` compares
-  the specifier sequence of every key across catalogues, so this is checked for new keys
+  the specifier sequence of every key across catalogs, so this is checked for new keys
   without anyone adding them to a list.
 
 ## Writing tests
 
 The bar here is higher than "it passes". Several tests in this repo were rewritten after
-review because they could not fail — they re-asserted what a neighbouring test already
+review because they could not fail — they reasserted what a neighboring test already
 covered, or they built their expectation out of the very constant they were testing.
 
 Before you submit, **break your implementation on purpose** and confirm your test dies.
@@ -116,10 +116,10 @@ state.
 
 **Blocking entry points are named `blocking*`.** `blockingState`, `blockingStart`,
 `blockingStop`, `blockingIsRunning`, `blockingRunnerStatus`. They occupy a whole thread
-inside `waitUntilExit()`, twice per call, up to the command timeout. Do not call them
-from the UI: use the `async` facades, which hop to `DispatchQueue.global()`. `Task {}` and
-`Task.detached {}` both land on the cooperative pool, whose width is the core count, so
-"off the main actor" is not enough.
+inside `waitUntilExit()` or on a network answer, up to the timeout (`blockingState` twice
+per call). Do not call them from the UI: use the `async` facades, which hop to a thread of
+their own through `offCooperativePool`. `Task {}` and `Task.detached {}` both land on the
+cooperative pool, whose width is the core count, so "off the main actor" is not enough.
 
 **Do not drop the `codesign` line at the end of `Scripts/build-app.sh`.** On the ad-hoc
 branch it looks like something only a release needs. It is not: SwiftPM leaves the
@@ -131,7 +131,7 @@ reports against the one `Info.plist` claims, which is the only way this failure 
 from outside.
 
 **Do not drop `--options runtime` from either branch of the signing.** The hardened
-runtime is a notarisation requirement, so a release signed without it is refused — but the
+runtime is a notarization requirement, so a release signed without it is refused — but the
 refusal comes from Apple's notary service, minutes after the upload, in a message that
 names no file. It is applied to the ad-hoc build too so that a contributor's app is
 subject to the same restrictions as the shipped one, and anything the hardened runtime
@@ -146,7 +146,7 @@ keeps `JobLogReader.retainedListenerLogs` of them, and that is `maxFiles + 1`. T
 looks like an off-by-one somebody left in and it is the opposite: `coldStart` reads the
 active log *and then* walks `maxFiles` further files back, so the reach is `maxFiles + 1`
 files and a floor of `maxFiles` deletes the one the walk ends on. What that costs is the
-Control Center's job history going short the next time the listener rotates — no crash, no
+Standfast window's job history going short the next time the listener rotates — no crash, no
 error, five rows quietly becoming two — and the sweep is the last place anybody would look
 for the reason. It is also not an exotic case: on a laptop every sleep and wake rotates a log
 without running a single job, so twenty-five rotations go by long before twenty jobs do.
@@ -159,13 +159,14 @@ points at a `RunnerDirectorySandbox` or a `HousekeepingSandbox` under
 that a *refusal* can be asserted as "nothing was called". "The directory is still there" is
 satisfied by a delete that failed as well as by one that never ran, and only one of those is
 the code working. The suite runs on machines with a real runner on them, and the difference
-between the two is one wrong string.
+between a sandbox and that runner is one wrong string.
 
 ## Packaging and scene-lifecycle changes
 
 Run the strict packaging/lifecycle check if you touch `Scripts/build-app.sh`,
 `Scripts/check-app-ax.sh`, `Resources/Info.plist`, the scenes in `App.swift`, the menu
-handlers in `QuickMenuView.swift`, or the Control Center/Settings window roots:
+handlers in `QuickMenuView.swift`, or the roots of the Standfast window
+(`ControlCenterView`) and Settings:
 
 ```sh
 make check          # swift test, then the script below
@@ -178,18 +179,19 @@ job, now that CI runs here too — makes those clicks time out, and the failure 
 whichever step happened to be in flight. Two consecutive runs failing at *different* steps
 is that, not a regression. Wait for the runner to go idle and run it again.
 
-It assembles the bundle, **deletes `.build`**, launches the app and confirms it is still
-alive. It then requires the status menu, singleton Control Center, Settings lifecycle,
-focus, and background-agent state to be readable through Accessibility. Run it in an
-unlocked graphical session after granting Accessibility permission to the calling terminal;
-missing permission is a failure. That deletion is the point — with the build directory
-present, a broken bundle still resolves and the failure hides. No unit test can catch this
-class of bug.
+The check assembles the bundle, **deletes `.build`**, launches the app and confirms it is
+still alive. It then requires the status menu, singleton Standfast window, Settings
+lifecycle, focus, and background-agent state to be readable through Accessibility. Run it
+in an unlocked graphical session after granting Accessibility permission to the calling
+terminal; missing permission is a failure. Deleting `.build` is the point — with the build
+directory present, a broken bundle still resolves and the failure hides. No unit test can
+catch this class of bug.
 
 CI deliberately uses `STANDFAST_AX_MODE=skip ./Scripts/check-app.sh`. That explicit mode
-continues the packaging, launch, process-survival, and background-agent checks while printing
-that menu, windows, and Accessibility are not covered. A green CI package job is therefore
-not evidence that Control Center or Settings opens, focuses, or closes correctly.
+still runs the packaging, launch, process-survival, and background-agent checks while
+printing that menu, windows, and Accessibility are not covered. A green CI package job is
+therefore not evidence that the Standfast window or Settings opens, focuses, or closes
+correctly.
 
 ## The oldest macOS this runs on
 
@@ -197,8 +199,10 @@ Five files say it, and nothing in the build links them: the deployment target in
 `Package.swift`, `LSMinimumSystemVersion` in `Resources/Info.plist`, sentences in
 `README.md` and on the landing page, and one in the bug report form
 (`.github/ISSUE_TEMPLATE/bug_report.yml`). `Tests/Scripts/MinimumOSContractTests.sh` fails
-when any of them disagree — bump one and the rest keep promising the old number, which is an
-app macOS will happily install onto a system it can no longer run on.
+when any of them disagree — bump one and the rest keep promising the old number, which makes
+an app macOS will happily install onto a system it can no longer run on. The formula and the
+tap's cask say it too, as `depends_on macos: :sonoma`, and no test reads either: change
+them by hand with the rest.
 
 **What that number is backed by, and what it is not.** The deployment target is real: the
 compiler refuses an API newer than it, on every machine, for free. Nothing else is checked.
@@ -232,7 +236,7 @@ budget**. At one call per runner every fifteen seconds, that is the difference b
 personal token lasting indefinitely and running out. The failure mode if this breaks is
 silent: unconditional requests are still correct, so nothing goes red until the limit does.
 
-For the same reason `URLSessionHTTPClient` runs with no HTTP cache. URLSession will
+For the same reason `URLSessionHTTPClient` runs with no HTTP cache. `URLSession` will
 otherwise answer a conditional request from its own store and never tell the caller a 304
 happened.
 
@@ -265,23 +269,24 @@ Spotlight, where searching "Stan" returned seven identical icons whose names wer
 before the timestamp that told them apart. Anything older than a rollback needs is what git
 is for: every release is a tag.
 
-## Signing and notarisation
+## Signing and notarization
 
 `build-app.sh` picks its identity itself and says which one it used:
 
-1. `$SIGN_IDENTITY`, when set — and if that identity is not in the keychain the build
-   **fails** rather than falling back, because a caller who named one is releasing.
+1. `$SIGN_IDENTITY`, when set. `-` asks for ad-hoc, which is what CI and the formula
+   pass; any other identity that is not in the keychain **fails** the build rather than
+   falling back, because a caller who named one is releasing.
 2. A **Developer ID Application** certificate, when the keychain has one. It is selected
    by SHA-1, not by name: renewing a certificate leaves two with the same common name and
    `codesign` refuses an ambiguous match.
 3. Ad-hoc, so a contributor with no certificate still gets a working app.
 
-Only a Developer ID Application certificate notarises. Apple Development and Apple
+Only a Developer ID Application certificate notarizes. Apple Development and Apple
 Distribution certificates are deliberately not used even when present — signing with one
 produces a bundle that passes `codesign --verify` and is still refused on every Mac but
 the one that built it.
 
-Notarisation needs credentials that are not in this repository and never should be. Store
+Notarization needs credentials that are not in this repository and never should be. Store
 them once:
 
 ```sh
@@ -292,26 +297,29 @@ xcrun notarytool store-credentials "standfast-notary" \
 
 The password is an **app-specific** password from
 [appleid.apple.com](https://appleid.apple.com) under Sign-In and Security; the normal
-Apple ID password is refused. `Scripts/notarize.sh` uses that profile if it exists and
-`APPLE_ID` / `TEAM_ID` / `APP_SPECIFIC_PASSWORD` otherwise, and refuses to upload anything
-when neither is present rather than failing halfway through a release.
+Apple ID password is refused. `Scripts/notarize.sh` takes an App Store Connect API key from
+`NOTARY_KEY` / `NOTARY_KEY_ID` / `NOTARY_ISSUER` first, which is what the release workflow
+passes, then that profile if it exists, then `APPLE_ID` / `TEAM_ID` /
+`APP_SPECIFIC_PASSWORD`, and refuses to upload anything when none is present rather than
+failing halfway through a release.
 
-CI never signs with a real identity. The certificate stays on the release manager's
-machine, and what CI covers is that the ad-hoc branch still produces a bundle with a real
-identity, and that `notarize.sh` refuses to submit one.
+`ci.yml` never signs with a real identity; only the release workflow does, with the
+certificate it imports from the repository's secrets. What CI covers is that the ad-hoc
+branch still produces a bundle with a real bundle identity, and that `notarize.sh` refuses
+to submit it.
 
 ## The website
 
 `site/` holds the landing page, and `.github/workflows/pages.yml` publishes it. It is a
-separate lane on purpose: a copy change must not re-run the macOS test matrix, and a
-failing Swift test must not take the website down.
+separate lane on purpose: publishing a copy change must not wait on the macOS tests, and a
+failing Swift test must not take the website down. It does not spare the Mac a run:
+`ci.yml` has no path filter, so a change to `site/` runs the Swift tests too.
 
-**Nothing is published yet.** The site goes live when the repository becomes public, not
-before. Until then the workflow's `verify` job still runs on every change to `site/`, and
-the `publish` job is skipped — deliberately present and skipped rather than absent, so the
-deployment path is reviewed and ready on the day it is wanted instead of being written
-under release pressure. To turn it on: set the repository's Pages source to GitHub Actions,
-then set the repository variable `STANDFAST_PUBLISH_SITE` to `true`.
+**The site is live** at `https://perafan18.github.io/standfast/`, published since 0.5.0. The
+workflow's `verify` job runs on every change to `site/`, and the `publish` job deploys each
+one that reaches `main`: the repository's Pages source is GitHub Actions and the repository
+variable `STANDFAST_PUBLISH_SITE` is `true`. Set that variable to anything else and the job
+is skipped, leaving the live site as it was.
 
 **The page has no build step and no dependencies.** It is one HTML file with its CSS and
 its script inline, plus the screenshots in `site/img/`. That is not laziness — the product
@@ -321,21 +329,21 @@ repository to show for it. The workflow fails on any `src` or `href` pointing at
 other than `github.com` or the site's own `perafan18.github.io`. Add a generator only when
 there are pages enough to justify one; today there is a single page and a README.
 
-**Every colour on the page is a value the app actually ships**, copied from
+**Every color on the page is a value the app actually ships**, copied from
 `Sources/Standfast/StandfastTheme.swift`. The page and the product are one identity or they
 are two, and a visitor who learns that orange means attention must find the same orange on
 first launch. If you change a token in the theme, the page is downstream of it.
 
 **That paragraph is stale until the website's own redesign.** 0.6.0 deleted the palette the
-page copies: the app now draws with macOS's semantic colours, which change with appearance,
+page copies: the app now draws with macOS's semantic colors, which change with appearance,
 contrast setting and macOS version and have no one value to copy. The page still carries
-0.5's colours. Its screenshots, and `site/img/hero.png` at the top of the README, were
-retaken with the redesign, so the page shows the window it describes. The colours are
+0.5's colors. Its screenshots, and `site/img/hero.png` at the top of the README, were
+retaken with the redesign, so the page shows the window it describes. The colors are
 redone in the website phase, which comes after the app's; until then, do not patch the
 palette toward the app piece by piece.
 
 **The screenshots are real, and they are the point.** This is a visual macOS app; a page
-that describes the Control Center in prose and never shows it is not doing its job. Retake
+that describes the Standfast window in prose and never shows it is not doing its job. Retake
 them from a build of `main` whenever a surface changes shape. They show invented runners
 only (`build-mac`, `release-mac` and `ios-farm-2` on `acme`), from a throwaway build whose
 answers are made up: never a real Mac's runners, repositories or account. They are
@@ -365,13 +373,13 @@ repository does not use.
 
 ## Pull requests from forks
 
-Every CI job runs on the release manager's own Mac, as the account that also signs releases.
-A pull request from a fork runs the workflow files it brings with it, so the `if:` guard on
-each job keeps a fork off that Mac only while the fork leaves the workflows alone; one that
-edits them can delete the guard.
+Every job in `ci.yml` runs on the release manager's own Mac, as the account that also signs
+releases. A pull request from a fork runs the workflow files it brings with it, so the `if:`
+guard on each job keeps a fork off that Mac only while the fork leaves the workflows alone;
+one that edits them can delete the guard.
 
-**The control is a repository setting, and it must be on before the repository is public:**
-Settings › Actions › General › approval for fork pull request workflows → *Require approval
+**The control is a repository setting, and it must stay on:** Settings › Actions › General ›
+*Approval for running fork pull request workflows from contributors* → *Require approval
 for all external contributors*. GitHub's default only asks for a contributor's first pull
 request, which lets anybody with one merged change run code on the signing Mac without
 anyone looking.
@@ -381,43 +389,47 @@ Approving a run is reviewing its code. Never approve a fork run that touches `.g
 
 ## Releasing
 
-**Pushing the tag is the release.** `.github/workflows/release.yml` signs, notarises,
+**Pushing the tag is the release.** `.github/workflows/release.yml` signs, notarizes,
 staples, verifies and publishes on the self-hosted Mac; nothing about a release is done by
 hand on somebody's laptop. This section used to say the opposite, and the two rails
 produced a locally signed bundle that was never attached to anything.
 
 The version is written in two places that no build step keeps in step:
 `CFBundleShortVersionString` in `Resources/Info.plist`, and the tag inside `url` in
-`Formula/standfast.rb`. CI compares them and fails when they disagree, which is the only
-thing standing between a bump and an app that reports last release's version forever.
+`Formula/standfast.rb`. CI compares them and fails when they disagree, and the release
+workflow refuses a tag that is not the version `Info.plist` says. Those two checks are all
+that stands between a bump and an app that reports the last release's version forever.
 
 So a release is, in order:
 
 1. Bump `CFBundleShortVersionString`, increment `CFBundleVersion`, and update the formula's
    `url` tag together, in one commit.
-2. In `CHANGELOG.md`, replace `— Unreleased` on that version's heading with the date, and
+2. In `CHANGELOG.md`, replace `Unreleased` on that version's heading with the date, and
    open a new Unreleased heading above it.
 3. **Tag** `v<version>` and push the tag. That is the whole trigger.
-4. The workflow then signs with the Developer ID certificate, notarises, staples, proves
+4. The workflow then signs with the Developer ID certificate, notarizes, staples, proves
    Gatekeeper accepts the result, **creates the GitHub Release** and attaches
    `Standfast.zip`. It does not create a release that already exists, and it does not
    upload without one.
 5. **sha256**: the formula builds from the tag's *source* archive, not from the attached
    `Standfast.zip`, so the checksum is of that archive:
    `curl -sL https://github.com/Perafan18/standfast/archive/refs/tags/v<version>.tar.gz | shasum -a 256`.
-   Replace `REPLACE_ON_RELEASE` in the formula with it.
+   Replace the formula's `sha256` with it.
 6. **Formula**: copy it into the tap.
+7. **Cask**: in the tap's `Casks/standfast.rb`, set `version` to the new version and
+   `sha256` to the checksum of the `Standfast.zip` the workflow attached:
+   `curl -sL https://github.com/Perafan18/standfast/releases/download/v<version>/Standfast.zip | shasum -a 256`.
 
 **A tag with any signing secret missing fails.** It does not skip. A green check over a
 release that does not exist is the failure nobody notices until somebody tries to download
 it. The six the gate requires are `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`,
 `KEYCHAIN_PASSWORD`, `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8_BASE64` — all of them,
-because a run that passed a three-secret gate and died at notarisation had already imported
+because a run that passed a three-secret gate and died at notarization had already imported
 a certificate into the host's keychain.
 
 ### Rehearsing it
 
-`workflow_dispatch` is the smoke test: it signs, notarises, staples and verifies exactly as
+`workflow_dispatch` is the smoke test: it signs, notarizes, staples and verifies exactly as
 a tag does, publishes nothing, and **keeps the signed app as a workflow artifact** so the
 run leaves something you can actually open. With secrets missing it skips green, because
 anybody may run it and "not configured yet" is not a failure.
@@ -442,10 +454,10 @@ spctl --assess --type install -vv .build/Standfast.app   # must say "accepted"
 `--type install` matters: plain `spctl --assess` uses the execute rule, which is not the
 one that rejects a quarantined download.
 
-The workflow signs the bundle this repository builds. The formula builds from source on
-the user's own machine, so what Homebrew installs is signed ad-hoc by their own toolchain
-and never touches Gatekeeper — which is why building from source is the default. The
-notarised bundle is what a direct download needs.
+The workflow signs the bundle this repository builds, and that notarized bundle is what
+the cask and a direct download install. The formula builds from source on the user's own
+machine instead, so what it installs is signed ad-hoc by their own toolchain and never
+touches Gatekeeper.
 
 `CFBundleVersion` is the monotonically increasing build number. It does not have to equal a
 semantic-version component, but every published bundle still needs a new one.
