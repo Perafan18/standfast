@@ -286,7 +286,7 @@ These are real and deliberate, not oversights:
 - **GitHub Enterprise Server is not supported.** The host in the runner's `gitHubUrl` is
   parsed for the scope and then thrown away: status is asked of `api.github.com` — or of
   `github.com` through `gh` when no token is stored — and the workflow-runs or
-  runner-settings destination is built there too. A GHES runner reads `unknown`. (Runners
+  runner-settings destination is built there too. A GHES runner reads "GitHub not answering". (Runners
   registered to a GitHub Enterprise Cloud *account* — `github.com/enterprises/...` — do
   work.)
 - **Queued work is answered only for repository runners.** GitHub has no endpoint that
