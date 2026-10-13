@@ -413,7 +413,7 @@
         <div><dt><span class="badge tone-healthy"><svg aria-hidden="true"><use href="#g-idle"/></svg></span></dt><dd><p class="name">Idle</p>Registered, connected and waiting for work.</dd></div>
         <div><dt><span class="badge tone-active"><svg aria-hidden="true"><use href="#g-busy"/></svg></span></dt><dd><p class="name">Busy</p>Running a job right now, with which one and for how long.</dd></div>
         <div><dt><span class="badge tone-attention"><svg aria-hidden="true"><use href="#g-disconnected"/></svg></span></dt><dd><p class="name">Disconnected</p>The process is alive, but GitHub cannot see it. No job is coming.</dd></div>
-        <div><dt><span class="badge tone-stopped"><svg aria-hidden="true"><use href="#g-stopped"/></svg></span></dt><dd><p class="name">Stopped</p>The service is not running. Start it from the menu or the Control Center.</dd></div>
+        <div><dt><span class="badge tone-stopped"><svg aria-hidden="true"><use href="#g-stopped"/></svg></span></dt><dd><p class="name">Stopped</p>The service is not running. Start it from the menu or the Standfast window.</dd></div>
         <div><dt><span class="badge tone-attention"><svg aria-hidden="true"><use href="#g-unknown"/></svg></span></dt><dd><p class="name">Unknown</p>Standfast could not tell, and says why: no token and no <code>gh</code>, a refused credential, a rate limit, or no answer. Each has a different fix.</dd></div>
         <div><dt><span class="badge tone-active"><svg aria-hidden="true"><use href="#g-starting"/></svg></span></dt><dd><p class="name">Starting</p>You just started it and GitHub has not acknowledged it yet. Held for 30 seconds.</dd></div>
         <div><dt><span class="badge tone-none"><svg aria-hidden="true"><use href="#g-none"/></svg></span></dt><dd><p class="name">No runners</p>This Mac has no runners at all, which is not the same as failing to read one.</dd></div>
@@ -453,17 +453,17 @@ status actions.runner.acme-widget.build-mac:
       <h2 id="surfaces-title">A glance from the menu, the whole picture in one window</h2>
       <div class="surfaces">
         <figure>
-          <img class="shot" src="img/quick-menu.png" width="219" height="202" loading="lazy" decoding="async"
-               alt="The Standfast menu: build-mac Disconnected, release-mac Running, ios-farm-2 Ready, Checked just now, then Refresh now, Open Standfast, Settings and Quit.">
+          <img class="shot" src="img/quick-menu.png" width="257" height="235" loading="lazy" decoding="async"
+               alt="The Standfast menu: build-mac Disconnected, release-mac Running, ios-farm-2 Ready, Checked just now, then Refresh Now, Open Standfast, Settings and Quit.">
           <figcaption><b>The menu</b>One row per runner, warnings about discovery or heat, when Standfast last looked, and four actions. A stopped runner can be started from here. Everything else lives one click away.</figcaption>
         </figure>
         <figure>
           <picture>
             <source srcset="img/control-center-dark.png" media="(prefers-color-scheme: dark)">
-            <img class="shot" src="img/control-center.png" width="540" height="720" loading="lazy" decoding="async"
-                 alt="The Standfast Control Center. Its header says one runner needs attention. The build-mac card is marked Disconnected, shows its last job and one job waiting for it, and offers Stop service, Restart service and View runs. Below it, release-mac is Running testflight, 1 minute 21 seconds in, usually 2 minutes 50 seconds.">
+            <img class="shot" src="img/control-center.png" width="820" height="600" loading="lazy" decoding="async"
+                 alt="The Standfast window. Its sidebar lists the Overview and three runners: build-mac Disconnected, release-mac Running and ios-farm-2. build-mac is selected, and its Status section says This Mac: Running, GitHub: Offline, and 1 job is waiting for this machine. Below are its recent jobs and Maintenance.">
           </picture>
-          <figcaption><b>The Control Center</b>A card per runner with its local and GitHub state, the current job, Start, Stop and Restart, what happened the last time you used them, recent jobs, the installed version, disk use and cleanup, logs, and a link to the right page on GitHub.</figcaption>
+          <figcaption><b>The window</b>An Overview and a sidebar with every runner. Each runner’s page sets its two answers side by side, then the current job, queued work, what happened the last time you used Start, Stop or Restart, recent jobs, the installed version, disk use and cleanup, and logs. The toolbar starts, stops and restarts it and opens the right page on GitHub.</figcaption>
         </figure>
       </div>
     </div>
@@ -471,7 +471,7 @@ status actions.runner.acme-widget.build-mac:
 
   <section id="details" aria-labelledby="details-title">
     <div class="wrap">
-      <h2 id="details-title">The questions a runner card answers</h2>
+      <h2 id="details-title">The questions Standfast answers for each runner</h2>
       <div class="details">
         <div>
           <h3>Which job, and for how long</h3>
@@ -504,7 +504,7 @@ status actions.runner.acme-widget.build-mac:
         </div>
         <div>
           <h3>When something breaks</h3>
-          <p>Notifications you choose, one by one: a job failed, a runner disconnected, a runner stopped on its own. Start, Stop and Restart leave a receipt on the card saying what actually happened, including “uncertain” when a command timed out.</p>
+          <p>Notifications you choose, one by one: a job failed, a runner disconnected, a runner stopped on its own. Start, Stop and Restart leave a receipt on the runner’s page saying what actually happened, including “uncertain” when a command timed out.</p>
         </div>
       </div>
     </div>
@@ -552,10 +552,10 @@ status actions.runner.acme-widget.build-mac:
         <figure>
           <picture>
             <source srcset="img/settings-dark.png" media="(prefers-color-scheme: dark)">
-            <img class="shot" src="img/settings.png" width="480" height="680" loading="lazy" decoding="async"
-                 alt="Standfast Settings: notification switches for a failed job, a disconnected runner and a runner that stops on its own; a Runners started by hand card with Add a runner folder; and a GitHub access card saying a token is stored, with Remove token.">
+            <img class="shot" src="img/settings.png" width="520" height="388" loading="lazy" decoding="async"
+                 alt="Standfast Settings on its Accounts tab. GitHub access says a token is stored and Standfast asks GitHub directly, with a field to paste a new token and Remove token.">
           </picture>
-          <figcaption>Settings, where the optional token and the folders of hand-started runners live.</figcaption>
+          <figcaption>Settings, where the optional GitHub token lives. The folders of runners started by hand have a tab of their own.</figcaption>
         </figure>
       </div>
     </div>
@@ -610,7 +610,7 @@ status actions.runner.acme-widget.build-mac:
     idle: { name: 'Idle', tone: 'healthy', glyph: 'g-idle', svc: 'Started:',
       verdict: 'Registered, connected and waiting for work. The one you want to see.' },
     busy: { name: 'Busy', tone: 'active', glyph: 'g-busy', svc: 'Started:',
-      verdict: 'Running a job right now. The card says which one and how long it usually takes.' },
+      verdict: 'Running a job right now. Standfast says which one and how long it usually takes.' },
     disconnected: { name: 'Disconnected', tone: 'attention', glyph: 'g-disconnected', svc: 'Started:',
       verdict: 'The process is alive, but GitHub cannot see it. No job is coming, and nothing on the Mac looks wrong.' },
     stopped: { name: 'Stopped', tone: 'stopped', glyph: 'g-stopped', svc: 'Stopped',

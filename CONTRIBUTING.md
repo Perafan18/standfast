@@ -329,15 +329,18 @@ first launch. If you change a token in the theme, the page is downstream of it.
 **That paragraph is stale until the website's own redesign.** 0.6.0 deleted the palette the
 page copies: the app now draws with macOS's semantic colours, which change with appearance,
 contrast setting and macOS version and have no one value to copy. The page still carries
-0.5's colours and screenshots of 0.5's single-column Control Center, and `site/img/hero.png`
-at the top of the README is one of them. Both are redone in the website phase, which comes
-after the app's; until then, do not patch the page toward the app piece by piece.
+0.5's colours. Its screenshots, and `site/img/hero.png` at the top of the README, were
+retaken with the redesign, so the page shows the window it describes. The colours are
+redone in the website phase, which comes after the app's; until then, do not patch the
+palette toward the app piece by piece.
 
 **The screenshots are real, and they are the point.** This is a visual macOS app; a page
 that describes the Control Center in prose and never shows it is not doing its job. Retake
-them from a build of `main` whenever a surface changes shape. They are captured at 1x on a
-non-Retina display, which is why they look soft next to the type — recapturing on a Retina
-Mac is a standing improvement, not a redesign.
+them from a build of `main` whenever a surface changes shape. They show invented runners
+only (`build-mac`, `release-mac` and `ios-farm-2` on `acme`), from a throwaway build whose
+answers are made up: never a real Mac's runners, repositories or account. They are
+captured at 1x on a non-Retina display, which is why they look soft next to the type —
+recapturing on a Retina Mac is a standing improvement, not a redesign.
 
 **There is no custom domain.** The site is served at its `github.io` address, and a domain
 gets bought when there is evidence somebody wants this — not before. Anything that assumes

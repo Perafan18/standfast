@@ -1,6 +1,6 @@
 # Standfast
 
-![The Standfast app icon and the headline "Know whether your Mac's runners will get work." beside the Standfast Control Center, where build-mac on acme/widget is Disconnected with 1 job waiting for this machine, and release-mac is Running](site/img/hero.png)
+![The Standfast app icon and the headline "Know whether your Mac's runners will get work." beside the Standfast window, where build-mac on acme/widget is selected: running on this Mac, offline on GitHub, with 1 job waiting for this machine](site/img/hero.png)
 
 Standfast is a menu bar app for the self-hosted GitHub Actions runners on your Mac. It tells
 you whether each one is actually going to get work, not only whether its process is up. A
