@@ -303,10 +303,10 @@ Fixed in the pre-launch review, before anything was published:
   Spanish lines were corrected: "1 o más trabajos", consistent gender for "Mac", and
   sentences that had lost their subject.
 
-No Standfast version has been published yet. The 0.1.0 through 0.4.0 sections below are
+0.5.0 is the first published version. The 0.1.0 through 0.4.0 sections below are
 integrated development milestones that were built and reviewed in sequence, never tags or
-public releases. They remain separate because each records a distinct stage of the current
-unreleased source tree.
+public releases. They remain separate because each records a distinct stage of the source
+tree 0.5.0 was cut from.
 
 ## [0.4.0] — development milestone, integrated into 0.5.0
 
