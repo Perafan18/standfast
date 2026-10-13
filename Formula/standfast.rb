@@ -1,4 +1,4 @@
-# Builds Standfast from source. The signed, notarised download is the cask:
+# Builds Standfast from source. The signed, notarized download is the cask:
 # `brew install --cask perafan18/tap/standfast`. Building needs Xcode, because
 # SwiftUI's macros ship only inside Xcode.app (see `depends_on xcode`).
 class Standfast < Formula

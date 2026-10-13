@@ -209,7 +209,7 @@ jobs:
           done
           echo "SDK: $sdks"
 
-      - name: Notarise and staple
+      - name: Notarize and staple
         if: steps.gate.outputs.configured == 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}

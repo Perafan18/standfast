@@ -135,7 +135,7 @@ slices_step="Both architectures are in the executable"
 slices_line="$(line_of "- name: $slices_step")"
 if [ -z "$slices_line" ] \
   || [ "$slices_line" -lt "$(line_of "- name: Build and sign")" ] \
-  || [ "$slices_line" -gt "$(line_of "- name: Notarise and staple")" ]; then
+  || [ "$slices_line" -gt "$(line_of "- name: Notarize and staple")" ]; then
   fail "nothing checks the executable's slices between building and notarising"
 else
   slices_dir="$(mktemp -d "${TMPDIR:-/tmp}/standfast-release-slices.XXXXXX")"
@@ -196,7 +196,7 @@ glass_step="Every slice claims a macOS 26 or later SDK"
 glass_line="$(line_of "- name: $glass_step")"
 if [ -z "$glass_line" ] \
   || [ "$glass_line" -lt "$(line_of "- name: Build and sign")" ] \
-  || [ "$glass_line" -gt "$(line_of "- name: Notarise and staple")" ]; then
+  || [ "$glass_line" -gt "$(line_of "- name: Notarize and staple")" ]; then
   fail "nothing checks the executable's SDK between building and notarising"
 else
   glass_dir="$(mktemp -d "${TMPDIR:-/tmp}/standfast-release-sdk.XXXXXX")"

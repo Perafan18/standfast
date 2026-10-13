@@ -60,13 +60,11 @@ jobs:
           fi
           echo "==> No offsite subresources"
 
-  # Publication waits for the repository to be public. Until then this job is
-  # skipped rather than absent, so the deployment path is reviewed and ready on
-  # the day it is wanted instead of being written under release pressure — and
-  # it cannot leave a red run on `main` for a Pages site nobody has enabled yet.
-  #
-  # To publish: set the repository's Pages source to GitHub Actions, then set
-  # the repository variable STANDFAST_PUBLISH_SITE to `true`.
+  # Publishes from `main` only, and only while the repository variable
+  # STANDFAST_PUBLISH_SITE is `true` (set since 2026-10-09, when the repository
+  # went public, with the Pages source set to GitHub Actions). Gated rather than
+  # absent: unset the variable and the job is skipped, not red, without anyone
+  # having to rewrite the deployment path under pressure.
   publish:
     name: Publish the site
     needs: verify

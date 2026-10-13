@@ -160,7 +160,7 @@ elif [ -n "${SIGN_IDENTITY:-}" ]; then
     # Application certificate notarises.
     *)
       echo "build-app.sh: $description is not a Developer ID Application" >&2
-      echo "  certificate. The bundle will not notarise." >&2
+      echo "  certificate. The bundle will not notarize." >&2
       ;;
   esac
 elif [ -n "$identities" ]; then
@@ -210,7 +210,7 @@ else
     echo "Signed ad-hoc: no Developer ID Application certificate in the keychain."
   fi
   echo "  The app will work on this Mac. Gatekeeper will refuse it on any other."
-  echo "  Releases must be signed and notarised — see CONTRIBUTING.md."
+  echo "  Releases must be signed and notarized — see CONTRIBUTING.md."
 fi
 
 # LaunchServices caches bundle metadata by mtime; without this a rebuilt app

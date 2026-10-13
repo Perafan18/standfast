@@ -31,12 +31,12 @@ case "$signature" in
   *"Authority=Developer ID Application:"*) ;;
   *)
     echo "  the bundle is not signed with a Developer ID Application" >&2
-    echo "  certificate. Apple notarises nothing else — an ad-hoc, Apple" >&2
+    echo "  certificate. Apple notarizes nothing else — an ad-hoc, Apple" >&2
     echo "  Development or Apple Distribution signature is rejected." >&2
     echo "" >&2
     echo "  Install a Developer ID Application certificate, then:" >&2
     echo "    ./Scripts/build-app.sh" >&2
-    fail "nothing to notarise"
+    fail "nothing to notarize"
     ;;
 esac
 
@@ -106,7 +106,7 @@ else
   # failed". The app-specific password is not the Apple ID password and is not
   # obtainable from this machine: it is minted at appleid.apple.com.
   cat >&2 <<EOF
-notarize.sh: no notarisation credentials.
+notarize.sh: no notarization credentials.
 
   Store them once, and every later release picks them up with no arguments:
 
@@ -129,7 +129,7 @@ notarize.sh: no notarisation credentials.
   interactive Apple account and nothing is stored on the machine. Export
   NOTARY_KEY (path to the AuthKey_XXXX.p8), NOTARY_KEY_ID and NOTARY_ISSUER.
   The key is minted at App Store Connect -> Users and Access -> Integrations,
-  and the same key that uploads builds also notarises.
+  and the same key that uploads builds also notarizes.
 EOF
   exit 1
 fi
@@ -149,7 +149,7 @@ ditto -c -k --keepParent "$APP" "$ZIP"
 echo "==> Submitting to Apple (this takes minutes, not seconds)"
 if ! xcrun notarytool submit "$ZIP" "${credentials[@]}" --wait; then
   echo "" >&2
-  echo "  Notarisation failed. The reason is in the log, not in the output" >&2
+  echo "  Notarization failed. The reason is in the log, not in the output" >&2
   echo "  above — fetch it with the submission id printed there:" >&2
   echo "    xcrun notarytool log <submission-id> --keychain-profile $PROFILE" >&2
   exit 1
@@ -169,4 +169,4 @@ xcrun stapler validate "$APP"
 # not the one that rejects a quarantined download.
 spctl --assess --type install -vv "$APP"
 
-echo "Notarised and stapled $APP"
+echo "Notarized and stapled $APP"

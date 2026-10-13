@@ -29,11 +29,11 @@ case "$signature" in
         # that one rejection is the expected answer on the release manager's
         # Mac. Once stapled, nothing excuses one.
         if xcrun stapler validate "$APP" >/dev/null 2>&1; then
-          fail "notarised, stapled, and still rejected by Gatekeeper"
+          fail "notarized, stapled, and still rejected by Gatekeeper"
         fi
         case "$assessment" in
           *"source=Unnotarized Developer ID"*)
-            echo "    (Developer ID, not notarised yet: rejection here is expected;"
+            echo "    (Developer ID, not notarized yet: rejection here is expected;"
             echo "     notarize.sh asserts acceptance after stapling)" ;;
           *) fail "signed with a Developer ID and rejected by Gatekeeper" ;;
         esac ;;
