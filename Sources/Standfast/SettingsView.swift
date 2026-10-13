@@ -377,6 +377,7 @@ private struct SettingsFooter: View {
         }
       }
     }
+    .formFooterStyle()
   }
 }
 

@@ -210,3 +210,21 @@ private func fittedHeight(_ view: some View) -> CGFloat {
   #expect(
     fittedHeight(content.classicStandfastBar(.bottom, showing: hot) { Text($0) }) > bare)
 }
+
+@Test func everyFormFooterIsSetTheWayMacOS26SetsIt() {
+  // macOS 14 and 15 put a footer's text at body size against the trailing
+  // edge, where 26 sets it small from the leading one. Each footer of the
+  // runner's page takes the style, and every Settings footer is one view.
+  let card = standfastSource("RunnerCardView.swift")
+  let settings = standfastSource("SettingsView.swift")
+  let footers = card.components(separatedBy: "} footer: {").count - 1
+
+  #expect(footers == 3)
+  #expect(card.components(separatedBy: ".formFooterStyle()").count - 1 == footers)
+  for block in settings.components(separatedBy: "} footer: {").dropFirst() {
+    let content = block.prefix(while: { $0 != "}" })
+    #expect(content.contains("supportingText(") || content.contains("SettingsFooter("))
+  }
+  #expect(settings.contains("    .formFooterStyle()\n  }\n}"))
+  #expect(settings.contains("SettingsFooter(footer: presentation.footer"))
+}

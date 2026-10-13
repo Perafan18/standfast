@@ -75,6 +75,21 @@ enum StandfastTheme {
 // sidebar, toolbar, menus and alerts; views ask for none.
 
 extension View {
+  /// A grouped form's section footer as macOS 26 and later draw it: small,
+  /// secondary, under the rows' text. macOS 14 and 15 set it at body size
+  /// against the trailing edge (2026-10-13, both in a VM), so only they change.
+  @ViewBuilder func formFooterStyle() -> some View {
+    if #available(macOS 26, *) {
+      self
+    } else {
+      // 10 pt is the rows' inset there, measured on 15.
+      font(.footnote)
+        .foregroundStyle(.secondary)
+        .padding(.leading, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
   /// The one action a toolbar puts forward: bordered prominent, not a glass
   /// style. It takes a `ToolbarItem` of its own, out of any group. On macOS
   /// 27 the system draws it as a tinted glass circle on a platter of its own,

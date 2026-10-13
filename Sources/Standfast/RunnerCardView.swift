@@ -104,6 +104,7 @@ struct RunnerCardView: View {
             Text(note)
           }
         }
+        .formFooterStyle()
       }
     } else {
       Section {
@@ -253,6 +254,7 @@ struct RunnerCardView: View {
     } footer: {
       if case .unavailable = card.history {
         Label(L10n.historyUnavailable(), systemImage: "exclamationmark.triangle")
+          .formFooterStyle()
       }
     }
   }
@@ -359,6 +361,7 @@ struct RunnerCardView: View {
             Text(note)
           }
         }
+        .formFooterStyle()
       }
     }
   }
