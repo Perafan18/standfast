@@ -169,7 +169,7 @@ func measured(
 ) -> DiskMeasurement {
   let named: [(String, DiskEntryKind, Int64)] = [
     ("_tool", .toolCache, toolCache), ("_actions", .actionCache, actionCache),
-    ("nest-rules-app", .checkout, checkout), ("_temp", .temporary, temporary),
+    ("gadget-app", .checkout, checkout), ("_temp", .temporary, temporary),
     ("_PipelineMapping", .other, other),
   ]
   return DiskMeasurement(

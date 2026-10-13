@@ -10,8 +10,8 @@ import Testing
 @Test func repositoryNamesMayContainDashes() {
   // The LaunchAgent label collapses owner and repo into one dashed string;
   // this is why the URL is the source of truth and the label is not.
-  let scope = RunnerScope(gitHubURL: "https://github.com/Perafan18/nest-rules-app")
-  #expect(scope == .repository(owner: "Perafan18", name: "nest-rules-app"))
+  let scope = RunnerScope(gitHubURL: "https://github.com/acme/gadget-app")
+  #expect(scope == .repository(owner: "acme", name: "gadget-app"))
 }
 
 @Test func parsesOrganizationScope() {

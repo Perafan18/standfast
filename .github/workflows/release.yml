@@ -1,7 +1,7 @@
 # Tag → signed, notarised Standfast.app.
 #
-# Modelled on nest-rules-app's testflight.yml, which solved the same problem on
-# the same Mac. Two differences matter:
+# Modelled on the TestFlight workflow of another app built on the same Mac,
+# which solved the same problem there. Two differences matter:
 #
 #   1. That app ships through TestFlight, so it signs with an *Apple
 #      Distribution* certificate. Standfast ships through Homebrew and direct
@@ -12,7 +12,7 @@
 #      here.
 #
 # ── Required secrets ─────────────────────────────────────────────────────────
-# Already set (copied from 1Password, shared with nest-rules-app):
+# Already set (copied from 1Password, shared with that app):
 #   ASC_KEY_ID            App Store Connect API key id
 #   ASC_ISSUER_ID         issuer id (one per team)
 #   ASC_KEY_P8_BASE64     base64 of AuthKey_XXXX.p8
@@ -59,9 +59,8 @@ permissions:
 
 jobs:
   release:
-    # Self-hosted, on the Mac that already has the toolchain warm. NOTE: the
-    # runner currently registered on that Mac belongs to nest-rules-app, so
-    # this repository needs its own — a Mac can host several.
+    # Self-hosted, on the Mac that already has the toolchain warm and a runner
+    # registered to this repository (a Mac can host several).
     runs-on: [self-hosted, macOS, ARM64]
 
     steps:

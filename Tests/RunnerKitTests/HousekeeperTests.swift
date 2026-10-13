@@ -19,7 +19,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   try sandbox.makeWorkFolder("_tool", kilobytes: 8)
   try sandbox.makeWorkFolder("_actions", kilobytes: 1)
   try sandbox.makeWorkFolder("_temp")
-  try sandbox.makeWorkFolder("nest-rules-app", kilobytes: 4)
+  try sandbox.makeWorkFolder("gadget-app", kilobytes: 4)
 
   let outcome = try Housekeeper().blockingClean(
     .toolCache, in: sandbox.runner, isStillSafe: { true })
@@ -27,7 +27,7 @@ private let now = Date(timeIntervalSince1970: 1_785_962_174)
   #expect(outcome == .done)
   // The repository checkout above all: it is the one directory here whose
   // contents are not a cache, and this app never offers to delete it.
-  #expect(sandbox.names(in: sandbox.work) == ["_actions", "_temp", "nest-rules-app"])
+  #expect(sandbox.names(in: sandbox.work) == ["_actions", "_temp", "gadget-app"])
 }
 
 @Test func theTrashIsNotLeftBehind() throws {

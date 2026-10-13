@@ -33,7 +33,7 @@ private final class HousekeepingSandbox: @unchecked Sendable {
     self.name = name
     root = URL(fileURLWithPath: NSTemporaryDirectory())
       .appendingPathComponent("model-\(UUID().uuidString)")
-    for folder in ["_work/_tool", "_work/_actions", "_work/nest-rules-app", "_diag"] {
+    for folder in ["_work/_tool", "_work/_actions", "_work/gadget-app", "_diag"] {
       try FileManager.default.createDirectory(
         at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
     }
@@ -254,7 +254,7 @@ private struct QueueNotingCommands: CommandRunning {
   subject.perform(.cleanToolCache, on: snapshot(display: .resolved(.idle), of: sandbox))
   await subject.quiesce()
 
-  #expect(sandbox.names(in: "_work") == ["_actions", "nest-rules-app"])
+  #expect(sandbox.names(in: "_work") == ["_actions", "gadget-app"])
   #expect(subject.notice(for: sandbox.runner) == nil)
   // The numbers on screen described a directory that is no longer there.
   #expect(subject.measurement(for: sandbox.runner)?.report?.bytes(of: .toolCache) == 0)

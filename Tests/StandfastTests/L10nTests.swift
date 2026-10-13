@@ -909,8 +909,8 @@ private func isTitleCase(_ line: String) -> Bool {
       == "build-mac · Ready")
   #expect(
     L10n.quickMenuRunnerInScope(
-      "mac-mini-m4", "nest-rules-app", "Ready", in: [english])
-      == "mac-mini-m4 · nest-rules-app · Ready")
+      "mac-mini-m4", "gadget-app", "Ready", in: [english])
+      == "mac-mini-m4 · gadget-app · Ready")
   #expect(
     L10n.quickMenuRunnerInScope(
       "mac-mini-m4", "acme/standfast", "Running", in: [english])
