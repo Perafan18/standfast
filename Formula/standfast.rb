@@ -5,7 +5,7 @@ class Standfast < Formula
   desc "Menu bar app for self-hosted GitHub Actions runners on macOS"
   homepage "https://github.com/Perafan18/standfast"
   url "https://github.com/Perafan18/standfast/archive/refs/tags/v0.6.0.tar.gz"
-  sha256 "REPLACE_ON_RELEASE"
+  sha256 "d98a23f39fee86004cc502e2268a8c5455f5655d57fa255f68ce5bddb6c41cd8"
   license "MIT"
   head "https://github.com/Perafan18/standfast.git", branch: "main"
 
