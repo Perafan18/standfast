@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] — Unreleased
+## [0.6.0] — 2026-10-13
 
 A native redesign. Standfast now draws with macOS's own controls, text styles and semantic
 colors, laid out the way System Settings lays out its own. On macOS 26 and later the system
