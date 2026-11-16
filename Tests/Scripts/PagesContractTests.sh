@@ -261,6 +261,10 @@ run_case "a link imagesrcset is an external load" fail '
   <link rel="preload" as="image" imagesrcset="https://cdn.example/a.png 1x">
 '
 
+run_case "a trailing boolean attribute does not hide an import map" fail '
+  <script type="importmap" async>{"imports":{"app":"https://cdn.example/app.js"}}</script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

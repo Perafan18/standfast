@@ -92,7 +92,7 @@ attr_compact_text="$(printf '%s' "$compact_text" | normalize_attribute_slashes)"
 # their own so every URL inside one is judged as a load.
 importmap_text="$(
   printf '%s' "$decoded_text" | perl -0777 -ne '
-    my $attr = qr/(?:[\s\/]*[^\s=\/>]+(?:\s*=\s*(?:"[^"]*"|'\''[^'\'']*'\''|[^\s>]+)|(?=[\s\/])))/;
+    my $attr = qr/(?:[\s\/]*[^\s=\/>]+(?:\s*=\s*(?:"[^"]*"|'\''[^'\'']*'\''|[^\s>]+)|(?=[\s\/>])))/;
     while (/<script\b$attr*?[\s\/]*type\s*=\s*["\x27]?importmap["\x27]?$attr*[\s\/]*>(.*?)<\/script\s*>/gis) {
       print "$1\n"
     }
