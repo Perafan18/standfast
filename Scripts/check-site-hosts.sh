@@ -57,6 +57,16 @@ page_text="$(printf '%s' "$decoded_text" | tr '\n' ' ')"
 compact_text="$(printf '%s' "$decoded_text" | tr -d '\t\r\n')"
 code_text="$(printf '%s' "$page_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
 code_compact_text="$(printf '%s' "$compact_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
+# Import maps carry their module URLs as JSON strings, with no attribute or
+# call for the context patterns below to anchor on. Pull those blocks out on
+# their own so every URL inside one is judged as a load.
+importmap_text="$(
+  printf '%s' "$decoded_text" | perl -0777 -ne '
+    while (/<script\b[^>]*\btype\s*=\s*["\x27]?importmap["\x27]?[^>]*>(.*?)<\/script\s*>/gis) {
+      print "$1\n"
+    }
+  '
+)"
 
 # Loading a resource is stricter than linking to it: GitHub is a fine place
 # for a reader to choose to go, and no place for this page to fetch code,
@@ -75,7 +85,7 @@ extract_urls() {
 
 single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data|poster)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
 srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
-context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\()[^)]*|@import[[:space:]]*\"[^\"]*\"|@import[[:space:]]*'[^']*'|import[[:space:]]*${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
+context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\(|Worker[[:space:]]*\(|SharedWorker[[:space:]]*\(|addModule[[:space:]]*\(|serviceWorker[[:space:]]*\.[[:space:]]*register[[:space:]]*\()[^)]*|@import[[:space:]]*\"[^\"]*\"|@import[[:space:]]*'[^']*'|import[[:space:]]*${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
 
 load_urls="$(
   {
@@ -87,6 +97,7 @@ load_urls="$(
     printf '%s' "$compact_text" | grep -oiE "$context_pattern" || true
     printf '%s' "$code_text" | grep -oiE "$context_pattern" || true
     printf '%s' "$code_compact_text" | grep -oiE "$context_pattern" || true
+    printf '%s' "$importmap_text"
   } | extract_urls | sort -u
 )"
 subresources="$(

@@ -160,6 +160,19 @@ run_case "HTML between slash-star markers is still live markup" fail '
   /* <script src="https://cdn.example/app.js"></script> */
 '
 
+run_case "an import map module is an external load" fail '
+  <script type="importmap">{"imports":{"app":"https://cdn.example/app.js"}}</script>
+  <script type="module">import "app";</script>
+'
+
+run_case "a Worker module is an external load" fail '
+  <script>new Worker("https://cdn.example/worker.js");</script>
+'
+
+run_case "a SharedWorker module is an external load" fail '
+  <script>new SharedWorker("https://cdn.example/worker.js");</script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
