@@ -33,11 +33,13 @@ quote_class='["'\'']'
 # other load sharing its line or hiding in its query string, and a srcset
 # has to be read candidate by candidate rather than only at its first URL.
 extract_urls() {
-  grep -oE "(https?|wss?)://[^\"'[:space:],)]+" || true
+  # Case-insensitive like the context greps that feed it: a browser reads
+  # `HTTPS://` exactly as happily as the lowercase spelling.
+  grep -oiE "(https?|wss?)://[^\"'[:space:],)]+" || true
 }
 
 single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?https?://[^\"'[:space:]]*)"
-srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*')"
+srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
 context_pattern="((url\(|@import|fetch\(|WebSocket\(|EventSource\()[^)]*)"
 
 load_urls="$(
@@ -49,7 +51,7 @@ load_urls="$(
 )"
 subresources="$(
   printf '%s\n' "$load_urls" \
-    | grep -vE '^https://perafan18\.github\.io/' || true
+    | grep -viE '^https://perafan18\.github\.io/' || true
 )"
 note_matches "external subresources:" "$subresources"
 

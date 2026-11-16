@@ -72,6 +72,14 @@ run_case "an allowed URL inside a query string does not launder the host" fail '
   <script src="https://cdn.example/app.js?next=https://perafan18.github.io/standfast/"></script>
 '
 
+run_case "an uppercase scheme is still an external load" fail '
+  <script src="HTTPS://cdn.example/app.js"></script>
+'
+
+run_case "an unquoted srcset is still inspected" fail '
+  <source srcset=https://cdn.example/a.png>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
