@@ -201,6 +201,18 @@ run_case "CSS hex escapes in an import URL do not hide its host" fail '
   <style>@import url("https:\2f\2fcdn.example/site.css");</style>
 '
 
+run_case "backslashes in an attribute URL do not hide its host" fail '
+  <script src="https:\\cdn.example/app.js"></script>
+'
+
+run_case "a backslash protocol-relative attribute URL does not hide its host" fail '
+  <img src="\\cdn.example/a.png">
+'
+
+run_case "an escaped newline inside a fetch URL does not hide its host" fail '
+  <script>fetch("https:\u000a\u002f\u002fcdn.example/x")</script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

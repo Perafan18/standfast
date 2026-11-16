@@ -56,6 +56,7 @@ normalize_code_escapes() {
     s/\\x([0-9a-fA-F]{2})/hex($1) < 128 ? chr(hex($1)) : $&/ge;
     s/\\([0-9a-fA-F]{1,6})[[:space:]]?/hex($1) < 128 ? chr(hex($1)) : $&/ge;
     s/\\/\//g;
+    s/[\t\r\n]//g;
   '
 }
 # CSS and JS also treat a comment as a token separator (`@import/**/"…"`).
@@ -109,7 +110,11 @@ load_urls="$(
     printf '%s' "$compact_text" | grep -oiE "$single_url_pattern" || true
     printf '%s' "$compact_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$compact_text" | grep -oiE "$context_pattern" || true
+    printf '%s' "$code_text" | grep -oiE "$single_url_pattern" || true
+    printf '%s' "$code_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$code_text" | grep -oiE "$context_pattern" || true
+    printf '%s' "$code_compact_text" | grep -oiE "$single_url_pattern" || true
+    printf '%s' "$code_compact_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$code_compact_text" | grep -oiE "$context_pattern" || true
     printf '%s' "$importmap_text"
   } | extract_urls | sort -u
@@ -125,6 +130,10 @@ links="$(
     printf '%s' "$page_text" \
       | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
     printf '%s' "$compact_text" \
+      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
+    printf '%s' "$code_text" \
+      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
+    printf '%s' "$code_compact_text" \
       | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
   } | grep -vEi "${quote_class}[[:space:]]*((https?:)?//)(github\\.com|perafan18\\.github\\.io)/" || true
 )"
