@@ -35,7 +35,7 @@ jobs:
     name: Verify the site
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The page promises the product collects nothing and talks to nobody it
       # does not name. A stylesheet, font or script pulled from another host
@@ -74,7 +74,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The artifact is served verbatim: no Jekyll runs on this path. That is
       # why `site/` carries no `_config.yml` and needs no `.nojekyll` — the
@@ -85,9 +85,9 @@ jobs:
       # GitHub ignores that file and reads the custom domain from the
       # repository's Pages settings instead. A `CNAME` in the tree would look
       # load-bearing and be inert.
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
