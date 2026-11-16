@@ -16,8 +16,9 @@ import Testing
 /// trust — so they get rendered rather than described.
 ///
 /// Off by default. Set `STANDFAST_RENDER_DIR` to a writable directory to
-/// produce the PNGs; without it the whole suite skips this file, because
-/// writing images is not something a test run should do behind your back.
+/// produce the PNGs; without it this test is disabled rather than passing
+/// without rendering, because writing images is not something a test run
+/// should do behind your back — and a green no-op would claim it had.
 private var renderDirectory: URL? {
   ProcessInfo.processInfo.environment["STANDFAST_RENDER_DIR"]
     .map { URL(fileURLWithPath: $0) }
@@ -111,8 +112,9 @@ private func detail(
     card: card, thermalLine: nil, performMaintenance: { _ in }, showLogs: {})
 }
 
-@Test @MainActor func renderTheStatesAScreenshotOfAWorkingMacNeverShows() async throws {
-  guard let directory = renderDirectory else { return }
+@Test(.enabled(if: renderDirectory != nil))
+@MainActor func renderTheStatesAScreenshotOfAWorkingMacNeverShows() async throws {
+  let directory = try #require(renderDirectory)
   try FileManager.default.createDirectory(
     at: directory, withIntermediateDirectories: true)
 

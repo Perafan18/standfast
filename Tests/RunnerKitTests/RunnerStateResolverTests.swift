@@ -393,6 +393,33 @@ private func confirm(
   #expect(counter.probes == 0)
 }
 
+@Test func confirmedStateAsksGitLabAboutAGitLabRunner() {
+  let gitLabURL = URL(string: "https://gitlab.example.com/api/v4/runners/91")!
+  let http = FakeHTTPClient([
+    gitLabURL: [.ok(#"{"id":91,"status":"online","tag_list":["macos"]}"#)]
+  ])
+  let gitHub = StubGitHub(result: .failure(.noAnswer), asked: StubGitHub.Recorder())
+  let resolver = RunnerStateResolver(
+    isServiceRunning: { _ in false }, github: gitHub,
+    gitLab: GitLabAPIClient(tokens: { _ in FakeTokenStore("glpat-x") }, http: http))
+
+  #expect(resolver.blockingConfirmedState(for: gitLabRunner) == .idle)
+  #expect(gitHub.asked.questions.isEmpty)
+}
+
+@Test func confirmedStateKeepsAGitLabFailureInGitLabsWords() {
+  let gitHub = StubGitHub(result: .failure(.noAnswer), asked: StubGitHub.Recorder())
+  let resolver = RunnerStateResolver(
+    isServiceRunning: { _ in false }, github: gitHub,
+    gitLab: GitLabAPIClient(tokens: { _ in FakeTokenStore(nil) }, http: FakeHTTPClient()))
+
+  let state = resolver.blockingConfirmedState(for: gitLabRunner)
+
+  #expect(state == .unknown(.gitLabNoToken))
+  #expect(!state.allowsHousekeeping)
+  #expect(gitHub.asked.questions.isEmpty)
+}
+
 @Test func aMissingTokenIsItsOwnReason() {
   // Not folded into `.notAuthenticated`. That case means a credential was
   // tried and refused, and its instruction — authenticate — is the wrong

@@ -236,8 +236,17 @@ public struct RunnerStateResolver: Sendable {
     }
     let remote: RemoteStatus
     do {
-      remote = try github.blockingRunnerStatus(id: runner.agentId, scope: runner.scope)
+      // Same provider dispatch as `blockingReading`: asking the GitHub client
+      // about a GitLab runner spends the wrong token on the wrong API and,
+      // on failure, hands back instructions for the wrong provider.
+      if case .gitLab(let instance) = runner.scope {
+        remote = try gitLab.blockingRunnerStatus(id: runner.agentId, instance: instance)
+      } else {
+        remote = try github.blockingRunnerStatus(id: runner.agentId, scope: runner.scope)
+      }
     } catch let failure as GitHubError {
+      return .unknown(UnknownReason(failure))
+    } catch let failure as GitLabError {
       return .unknown(UnknownReason(failure))
     } catch {
       return .unknown(.noAnswer)

@@ -87,10 +87,13 @@ public struct ProcessCommandRunner: CommandRunning {
     let watchdog = Watchdog(process)
     watchdog.arm(timeout: timeout, terminationGrace: terminationGrace)
 
-    // Drain before waiting: a child that fills the pipe buffer blocks forever
-    // if we wait first.
-    let data = out.fileHandleForReading.readDataToEndOfFile()
+    // Drain concurrently, but let the direct child decide when the command is
+    // finished. A descendant it spawned can inherit stdout and delay EOF
+    // indefinitely; it must not keep a completed or timed-out command (and
+    // the thread waiting on it) hanging around.
+    let output = ProcessOutputCollector(out.fileHandleForReading)
     process.waitUntilExit()
+    let data = output.finish()
 
     if watchdog.disarm() { throw CommandError.timedOut(executable: executable) }
     // Lossy decoding on purpose: one stray byte turning a whole `launchctl
@@ -98,6 +101,41 @@ public struct ProcessCommandRunner: CommandRunning {
     return CommandResult(
       standardOutput: String(decoding: data, as: UTF8.self),
       exitCode: process.terminationStatus)
+  }
+}
+
+/// Collects stdout without letting EOF define the lifetime of the command.
+///
+/// `availableData` returns each chunk as it arrives, which keeps a chatty
+/// child from filling the pipe while the caller waits for that child itself.
+/// After the direct child exits, a brief grace lets bytes it had already put
+/// in the pipe land here. A descendant still holding the pipe after that is
+/// not this command finishing late; waiting for it was the hang.
+private final class ProcessOutputCollector: @unchecked Sendable {
+  private let lock = NSLock()
+  private let finished = DispatchSemaphore(value: 0)
+  private var data = Data()
+
+  init(_ handle: FileHandle) {
+    Thread.detachNewThread { [self] in
+      autoreleasepool {
+        while true {
+          let chunk = handle.availableData
+          guard !chunk.isEmpty else { break }
+          lock.lock()
+          data.append(chunk)
+          lock.unlock()
+        }
+        finished.signal()
+      }
+    }
+  }
+
+  func finish() -> Data {
+    _ = finished.wait(timeout: .now() + .milliseconds(100))
+    lock.lock()
+    defer { lock.unlock() }
+    return data
   }
 }
 

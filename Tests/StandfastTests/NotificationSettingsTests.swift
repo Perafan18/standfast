@@ -320,6 +320,43 @@ private func settings(
   #expect(delivery.posted[0].body.contains("testflight"))
 }
 
+@Test @MainActor func anEventDuringThePermissionPromptIsPostedIfPermissionLands() async {
+  let delivery = FakeNotificationDelivery()
+  delivery.suspendsAuthorizationStatusReads = true
+  let notifications = settings(delivery)
+  notifications.setEnabled(.jobFailed, true)
+  for _ in 0..<100 where delivery.authorizationStatusReads < 1 {
+    await Task.yield()
+  }
+
+  notifications.deliver([.jobFailed(runner: "mac-mini-m4", job: "testflight")])
+  #expect(delivery.posted.isEmpty)
+
+  delivery.resolveAuthorizationStatusRead(1, as: .authorized)
+  await notifications.quiesce()
+
+  #expect(delivery.posted.count == 1)
+  #expect(delivery.posted.first?.body.contains("testflight") == true)
+}
+
+@Test @MainActor func anEventDuringThePermissionPromptIsNotPostedIfPermissionIsRefused()
+  async
+{
+  let delivery = FakeNotificationDelivery()
+  delivery.suspendsAuthorizationStatusReads = true
+  let notifications = settings(delivery)
+  notifications.setEnabled(.jobFailed, true)
+  for _ in 0..<100 where delivery.authorizationStatusReads < 1 {
+    await Task.yield()
+  }
+
+  notifications.deliver([.jobFailed(runner: "mac-mini-m4", job: "testflight")])
+  delivery.resolveAuthorizationStatusRead(1, as: .denied)
+  await notifications.quiesce()
+
+  #expect(delivery.posted.isEmpty)
+}
+
 @Test @MainActor func withEverySwitchOffNothingIsPostedAtAll() {
   let delivery = FakeNotificationDelivery()
   let notifications = settings(delivery)

@@ -309,6 +309,16 @@ public struct RunnerDiscovery: Sendable {
     let manual = manualRunners()
     let gitLab = gitLabRunners()
     let managedFleet = managedFleetRunners()
+    // A hand-started runner this scan could not read still has a knowable
+    // identity: its label is built from the very directory the operator
+    // named. A GitLab or managed-fleet source it could not read names no
+    // label at all, so absence there proves nothing.
+    let manualPossiblyInstalledLabels = Set(
+      manual.unreadable.map(DiscoveredRunner.manualLabel(for:)))
+    let otherSourcesAreInconclusive =
+      !gitLab.unreadable.isEmpty || !managedFleet.unreadable.isEmpty
+    let otherPossiblyInstalledLabels: Set<String>? =
+      otherSourcesAreInconclusive ? nil : manualPossiblyInstalledLabels
 
     let entries: [URL]
     do {
@@ -317,7 +327,8 @@ public struct RunnerDiscovery: Sendable {
       if Self.isNoSuchFile(error) {
         return DiscoveryResult(
           runners: manual.runners + gitLab.runners + managedFleet.runners,
-          unreadable: manual.unreadable + gitLab.unreadable + managedFleet.unreadable)
+          unreadable: manual.unreadable + gitLab.unreadable + managedFleet.unreadable,
+          possiblyInstalledLabels: otherPossiblyInstalledLabels)
       }
       return DiscoveryResult(
         runners: manual.runners + gitLab.runners + managedFleet.runners,
@@ -332,8 +343,8 @@ public struct RunnerDiscovery: Sendable {
 
     var runners: [DiscoveredRunner] = []
     var unreadable: [URL] = []
-    var possiblyInstalledLabels: Set<String> = []
-    var hasUnidentifiedCandidate = !managedFleet.unreadable.isEmpty
+    var possiblyInstalledLabels = manualPossiblyInstalledLabels
+    var hasUnidentifiedCandidate = otherSourcesAreInconclusive
     for candidate in candidates {
       let resolved = runner(fromPlistAt: candidate)
       if let runner = resolved.runner {
@@ -366,11 +377,14 @@ public struct RunnerDiscovery: Sendable {
 
   private func managedFleetRunners() -> (runners: [DiscoveredRunner], unreadable: [URL]) {
     guard let file = managedFleetSnapshotFile else { return ([], []) }
-    guard FileManager.default.fileExists(atPath: file.path) else { return ([], []) }
-    guard let snapshot = try? ManagedFleetSnapshot(contentsOf: file) else {
-      return ([], [file])
+    do {
+      let snapshot = try ManagedFleetSnapshot(contentsOf: file)
+      return (snapshot.runners(snapshotFile: file), [])
+    } catch {
+      // No existence check first: a snapshot rotated away between one and
+      // the read is absent, not corrupt, and must not flash as a failure.
+      return Self.isNoSuchFile(error) ? ([], []) : ([], [file])
     }
-    return (snapshot.runners(snapshotFile: file), [])
   }
 
   /// The runners `config.toml` declares. A missing file is a Mac without
@@ -378,8 +392,14 @@ public struct RunnerDiscovery: Sendable {
   /// cannot use is reported by name, because dropping a runner the file
   /// plainly declares is how half a fleet goes missing in silence.
   private func gitLabRunners() -> (runners: [DiscoveredRunner], unreadable: [URL]) {
-    guard let text = try? String(contentsOf: gitLabConfigFile, encoding: .utf8) else {
-      return ([], [])
+    let text: String
+    do {
+      text = try String(contentsOf: gitLabConfigFile, encoding: .utf8)
+    } catch {
+      // Only absence is the quiet "no gitlab-runner here" answer. A file
+      // that exists but cannot be decoded or read may declare runners, and
+      // folding it into absence is how they vanish without a name.
+      return Self.isNoSuchFile(error) ? ([], []) : ([], [gitLabConfigFile])
     }
     guard let reading = try? GitLabRunnerConfigFile.reading(text) else {
       return ([], [gitLabConfigFile])

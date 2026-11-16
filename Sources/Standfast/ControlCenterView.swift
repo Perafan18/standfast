@@ -177,6 +177,7 @@ struct ControlCenterToolbar: ToolbarContent {
     // this runner's own: why its service is out of reach, or else its state.
     .help(action.isEnabled ? action.accessibilityLabel : (card.serviceNote ?? card.state))
     .accessibilityLabel(action.accessibilityLabel)
+    .accessibilityInputLabels([Text(action.label), Text(action.accessibilityLabel)])
     .accessibilityIdentifier(identifier(for: action.kind, of: card))
   }
 

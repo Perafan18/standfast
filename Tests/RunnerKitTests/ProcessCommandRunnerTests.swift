@@ -241,6 +241,18 @@ private func makeChatterFile() throws -> URL {
       .result?.standardOutput == "done\n")
 }
 
+@Test func returnsWhenAChildExitsEvenIfADescendantKeepsStdoutOpen() {
+  // The direct child can finish while a descendant it spawned still holds the
+  // writing end of stdout. Waiting for EOF would make that descendant, which
+  // this runner did not launch, decide when the command returns.
+  let started = Date()
+  let box = runAgainstADeadline(
+    runner, "/bin/sh", ["-c", "(sleep 5) & echo ready"])
+
+  #expect(box?.result?.standardOutput == "ready\n")
+  #expect(Date().timeIntervalSince(started) < 3)
+}
+
 @Test func givesUpOnAProcessThatNeverFinishes() throws {
   // `gh` does network I/O, and a stalled TLS handshake would otherwise block
   // this thread forever.

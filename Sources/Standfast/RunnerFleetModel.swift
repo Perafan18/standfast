@@ -242,12 +242,15 @@ final class RunnerFleetModel: ObservableObject {
   /// In that case an empty menu is honest UI, but it is not evidence that work
   /// previously observed on that label has ended.
   ///
-  /// Dated, because retention has a bound (INV-005). Evidence from a runner
-  /// discovery can still see is refreshed every scan and never expires; what
-  /// expires is evidence being *retained* for a runner that stopped resolving
-  /// while busy. Without the bound, a half-finished uninstall of a busy runner
-  /// kept this Mac awake until somebody noticed the power bill.
-  private var activityEvidence: [String: (busy: Bool, observedAt: Date)] = [:]
+  /// Dated, because retention has a bound (INV-005). A remote-confirmed busy
+  /// runner refreshes its evidence on every scan. An unresolved claim from
+  /// the log alone keeps the first scan that observed that same running job,
+  /// so repeating the observation cannot renew it forever; evidence retained
+  /// for a runner that stopped resolving expires from its last observation.
+  /// Without the bound, a half-finished uninstall of a busy runner kept this
+  /// Mac awake until somebody noticed the power bill.
+  private var activityEvidence:
+    [String: (busy: Bool, observedAt: Date, logStartedAt: Date?)] = [:]
 
   /// Ten times the longest job this machine has ever run. A job that genuinely
   /// outlives it loses the sleep guard — unless any readable runner is still
@@ -260,15 +263,39 @@ final class RunnerFleetModel: ObservableObject {
   static let idleAnswerGrace: TimeInterval = 2 * 60
 
   /// GitHub's answer, with the log standing in where GitHub cannot say.
-  private static func isDoingWork(_ snapshot: RunnerSnapshot) -> Bool {
+  ///
+  /// A log-only claim is dated from the first scan that observed that running
+  /// job, identified by its start. Later scans of the same start line retain
+  /// that date, including after the claim has expired; without the expired
+  /// identity, the next scan would mistake the same line for a new claim and
+  /// hold the Mac awake for another lifetime.
+  private static func activityEvidence(
+    for snapshot: RunnerSnapshot,
+    previous: (busy: Bool, observedAt: Date, logStartedAt: Date?)?,
+    at startedAt: Date
+  ) -> (busy: Bool, observedAt: Date, logStartedAt: Date?) {
     switch snapshot.display.resolvedState {
-    case .busy?: true
-    case .stopped?: false
+    case .busy?:
+      return (busy: true, observedAt: startedAt, logStartedAt: nil)
+    case .stopped?:
+      return (busy: false, observedAt: startedAt, logStartedAt: nil)
     case .idle?:
-      snapshot.jobs.running.map {
-        snapshot.stateReadAt.timeIntervalSince($0.startedAt) < idleAnswerGrace
-      } ?? false
-    default: snapshot.jobs.running != nil
+      let busy =
+        snapshot.jobs.running.map {
+          snapshot.stateReadAt.timeIntervalSince($0.startedAt) < idleAnswerGrace
+        } ?? false
+      return (busy: busy, observedAt: startedAt, logStartedAt: nil)
+    default:
+      guard let running = snapshot.jobs.running else {
+        return (busy: false, observedAt: startedAt, logStartedAt: nil)
+      }
+      let firstObservedAt =
+        previous?.logStartedAt == running.startedAt ? previous!.observedAt : startedAt
+      return (
+        busy: startedAt.timeIntervalSince(firstObservedAt)
+          < retainedBusyEvidenceLifetime,
+        observedAt: firstObservedAt, logStartedAt: running.startedAt
+      )
     }
   }
 
@@ -742,17 +769,20 @@ final class RunnerFleetModel: ObservableObject {
         isServiceActionReserved: serviceActionsInFlight.contains(runner.label),
         operation: operations[runner.label])
     }
+    let previousActivityEvidence = activityEvidence
     activityEvidence = activityEvidence.filter { entry in
       guard retainedLabels.contains(entry.key) else { return false }
-      // The bound applies only here, to evidence surviving on retention. A
-      // runner the scan resolved gets a fresh date two lines down.
+      // The bound applies here to evidence surviving only on retention. A
+      // resolved runner replaces its entry below, preserving a log-only
+      // claim's first observation date when it has one.
       return startedAt.timeIntervalSince(entry.value.observedAt)
         < Self.retainedBusyEvidenceLifetime
     }
     for snapshot in snapshots {
-      activityEvidence[snapshot.runner.label] = (
-        busy: Self.isDoingWork(snapshot), observedAt: startedAt
-      )
+      activityEvidence[snapshot.runner.label] = Self.activityEvidence(
+        for: snapshot,
+        previous: previousActivityEvidence[snapshot.runner.label],
+        at: startedAt)
     }
     notice = FleetNotice.resolving(
       runners: scan.found.runners, unreadable: scan.found.unreadable,

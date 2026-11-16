@@ -70,6 +70,9 @@ extension DisplayState {
     switch self {
     case .resolved(.idle): .healthy
     case .resolved(.busy), .resolved(.unknown(.managedFleetWaiting)), .starting: .active
+    // GitLab answered on purpose: somebody is draining this runner. It is
+    // not the warning colour's business any more than it is the header's.
+    case .resolved(.unknown(.gitLabPaused)): .neutral
     case .resolved(.disconnected), .resolved(.unknown): .attention
     case .resolved(.stopped): .stopped
     }
@@ -77,7 +80,9 @@ extension DisplayState {
 
   var needsAttention: Bool {
     switch self {
-    case .resolved(.unknown(.managedFleetWaiting)): false
+    case .resolved(.unknown(.managedFleetWaiting)),
+      .resolved(.unknown(.gitLabPaused)):
+      false
     case .resolved(.disconnected), .resolved(.unknown): true
     default: false
     }
@@ -218,11 +223,24 @@ struct RunnerRow: Equatable {
 
   /// One finished job. Carries its own identity rather than being rendered by
   /// its text: two runs of the same job that took the same time produce the
-  /// same line, and `ForEach` over repeated identifiers is undefined. A start
-  /// time is unique per runner because a runner runs one job at a time.
+  /// same line, and `ForEach` over repeated identifiers is undefined. The
+  /// identity is the same one `JobRow` uses — a start time is *not* enough
+  /// on its own, because listener timestamps are second-granular and two
+  /// fast jobs can share that second (INV-002).
   struct RecentJob: Equatable, Identifiable {
-    let id: Date
+    let id: JobRow.ID
     let text: String
+  }
+
+  static func recentJobs(from records: some Sequence<JobRecord>) -> [RecentJob] {
+    var occurrences: [Date: Int] = [:]
+    return records.map { record in
+      let occurrence = occurrences[record.startedAt, default: 0]
+      occurrences[record.startedAt] = occurrence + 1
+      return RecentJob(
+        id: JobRow.ID(startedAt: record.startedAt, occurrence: occurrence),
+        text: record.historyLine)
+    }
   }
 
   /// How many finished jobs the menu lists.
@@ -352,12 +370,12 @@ extension RunnerSnapshot {
         // want to go and look at.
         .init(kind: .openOnGitHub, label: L10n.openOnGitHub, isEnabled: true),
       ],
-      recentJobs: jobs.records
-        // The running job already has a line of its own, with the one thing
-        // this list cannot give it: how long it has been going.
-        .filter { $0 != liveJob }
-        .prefix(RunnerRow.recentJobsShown)
-        .map { RunnerRow.RecentJob(id: $0.startedAt, text: $0.historyLine) })
+      recentJobs: RunnerRow.recentJobs(
+        from: jobs.records
+          // The running job already has a line of its own, with the one thing
+          // this list cannot give it: how long it has been going.
+          .filter { $0 != liveJob }
+          .prefix(RunnerRow.recentJobsShown)))
   }
 }
 

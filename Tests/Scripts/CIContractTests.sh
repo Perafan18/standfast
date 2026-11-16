@@ -29,6 +29,17 @@ fi
 grep -q 'RunWatchdogRegression.sh' "$WORKFLOW" \
   || { echo "FAIL: nothing runs the watchdog regression any more" >&2; exit 1; }
 
+# A hung test must not hold the only runner until GitHub's global deadline,
+# and the public-diff scan and Pages host contract stay wired into Hygiene.
+grep -q 'timeout-minutes: 20' "$WORKFLOW" \
+  || { echo "FAIL: the test step has no timeout of its own" >&2; exit 1; }
+grep -q 'No private workspace references in the pushed diff' "$WORKFLOW" \
+  || { echo "FAIL: pushed diffs bypass the public-diff scan" >&2; exit 1; }
+grep -q 'BEFORE_SHA' "$WORKFLOW" \
+  || { echo "FAIL: the pushed-diff scan does not name its base" >&2; exit 1; }
+grep -q 'Tests/Scripts/PagesContractTests.sh' "$WORKFLOW" \
+  || { echo "FAIL: nothing runs the Pages contract any more" >&2; exit 1; }
+
 # ── Where the work runs ──────────────────────────────────────────────────────
 #
 # The premise of the product, applied to the product: these are Pedro's Macs,

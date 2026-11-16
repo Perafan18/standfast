@@ -745,6 +745,51 @@ private struct DirectoryListingFailure: Error {}
   #expect(result.unreadable.map(\.path) == [config.path])
 }
 
+@Test func aGitLabConfigThatCannotBeDecodedIsNamedInsteadOfVanishing() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let config = box.root.appendingPathComponent("config.toml")
+  try Data([0xff, 0xfe, 0xfd]).write(to: config)
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, gitLabConfigFile: config
+  ).discover()
+
+  #expect(result.runners.isEmpty)
+  #expect(result.unreadable.map(\.path) == [config.path])
+  #expect(result.possiblyInstalledLabels == nil)
+}
+
+@Test func anUnreadableManualRunnerStaysPossiblyInstalledUnderItsKnownLabel() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let directory = try box.addManualRunner(
+    named: "not-a-runner", agentId: 0, gitHubUrl: "x", runnerFile: .missing)
+
+  let result = discovery(in: box, manualDirectories: [directory]).discover()
+
+  #expect(
+    result.possiblyInstalledLabels
+      == [DiscoveredRunner.manualLabel(for: directory)])
+}
+
+@Test func aSkippedGitLabRunnerMakesAbsenceInconclusive() throws {
+  let box = try Sandbox()
+  defer { box.cleanUp() }
+  let config = box.root.appendingPathComponent("config.toml")
+  try """
+  [[runners]]
+    name = "pre-15"
+    url = "https://gitlab.com"
+  """.write(to: config, atomically: true, encoding: .utf8)
+
+  let result = RunnerDiscovery(
+    launchAgentsDirectory: box.launchAgents, gitLabConfigFile: config
+  ).discover()
+
+  #expect(result.possiblyInstalledLabels == nil)
+}
+
 @Test func bothProvidersComeBackFromOneScan() throws {
   let box = try Sandbox()
   defer { box.cleanUp() }
