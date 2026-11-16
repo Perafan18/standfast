@@ -124,6 +124,14 @@ run_case "a dynamic module import is an external load" fail '
   <script type="module">await import("https://cdn.example/app.js");</script>
 '
 
+run_case "numeric entities without semicolons do not hide a host" fail '
+  <script src="https:&#47&#47cdn.example/app.js"></script>
+'
+
+run_case "a spaced dynamic import is still an external load" fail '
+  <script type="module">await import ("https://cdn.example/app.js");</script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

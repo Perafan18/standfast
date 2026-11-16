@@ -28,8 +28,8 @@ quote_class='["'\'']'
 # first. Without this, `https:&#47;&#47;host` is invisible to every grep.
 decoded_text="$(
   perl -0777 -pe '
-    s/&#([0-9]+);/$1 < 128 ? chr($1) : $&/ge;
-    s/&#[xX]([0-9a-fA-F]+);/hex($1) < 128 ? chr(hex($1)) : $&/ge;
+    s/&#([0-9]+);?/$1 < 128 ? chr($1) : $&/ge;
+    s/&#[xX]([0-9a-fA-F]+);?/hex($1) < 128 ? chr(hex($1)) : $&/ge;
     s/&colon;/:/g;
     s/&sol;/\//g;
     s/&Tab;/\t/g;
@@ -61,7 +61,7 @@ extract_urls() {
 
 single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
 srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
-context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import\()[^)]*|@import[[:space:]]+\"[^\"]*\"|@import[[:space:]]+'[^']*'|import[[:space:]]+${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
+context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\()[^)]*|@import[[:space:]]+\"[^\"]*\"|@import[[:space:]]+'[^']*'|import[[:space:]]+${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
 
 load_urls="$(
   {
