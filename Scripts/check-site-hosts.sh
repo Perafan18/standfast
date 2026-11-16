@@ -24,20 +24,29 @@ note_matches() {
 
 quote_class='["'\'']'
 # An HTML parser decodes character references in attribute values before it
-# ever sees a URL, so decode the ASCII ones (and the named colon/solidus)
-# first. Without this, `https:&#47;&#47;host` is invisible to every grep.
+# ever sees a URL, so decode the ASCII ones first. Two passes because an
+# iframe `srcdoc` is parsed again: `&amp;quot;` becomes `&quot;` for the
+# outer document and a real quote for the inner one. Named references are
+# matched case-insensitively (&QUOT; is its own entity). Without this,
+# `https:&#47;&#47;host` is invisible to every grep.
 decoded_text="$(
   perl -0777 -pe '
-    s/&#([0-9]+);?/$1 < 128 ? chr($1) : $&/ge;
-    s/&#[xX]([0-9a-fA-F]+);?/hex($1) < 128 ? chr(hex($1)) : $&/ge;
-    s/&quot;/"/g;
-    s/&apos;/chr(39)/ge;
-    s/&colon;/:/g;
-    s/&sol;/\//g;
-    s/&Tab;/\t/g;
-    s/&NewLine;/\n/g;
+    for my $pass (1..2) {
+      s/&#([0-9]+);?/$1 < 128 ? chr($1) : $&/ge;
+      s/&#[xX]([0-9a-fA-F]+);?/hex($1) < 128 ? chr(hex($1)) : $&/ge;
+      s/&quot;/"/gi;
+      s/&apos;/chr(39)/gei;
+      s/&colon;/:/gi;
+      s/&sol;/\//gi;
+      s/&Tab;/\t/gi;
+      s/&NewLine;/\n/gi;
+      s/&amp;/&/gi;
+    }
   ' "$PAGE"
 )"
+# CSS and JS also treat a comment as a token separator (`@import/**/"…"`),
+# so the copies below scan with block comments flattened to a space.
+decoded_text="$(printf '%s' "$decoded_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
 # Tags and attributes may be split across lines. The checks below only ever
 # extract URLs, never report line numbers, so scan one flattened copy of the
 # page instead of letting a newline become a hiding place.
@@ -61,9 +70,9 @@ extract_urls() {
   grep -oiE "(((https?|wss?)://)|//)[^\"'[:space:],)]+" || true
 }
 
-single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
+single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data|poster)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
 srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
-context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\()[^)]*|@import[[:space:]]+\"[^\"]*\"|@import[[:space:]]+'[^']*'|import[[:space:]]+${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
+context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\()[^)]*|@import[[:space:]]*\"[^\"]*\"|@import[[:space:]]*'[^']*'|import[[:space:]]*${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
 
 load_urls="$(
   {

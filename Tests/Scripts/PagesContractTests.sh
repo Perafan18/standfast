@@ -136,6 +136,26 @@ run_case "quote entities inside srcdoc do not hide a script host" fail '
   <iframe srcdoc="<script src=&quot;https://cdn.example/app.js&quot;></script>"></iframe>
 '
 
+run_case "uppercase and double-encoded quote entities do not hide a host" fail '
+  <iframe srcdoc="<script src=&amp;quot;https://cdn.example/app.js&QUOT;></script>"></iframe>
+'
+
+run_case "a CSS import without a space is still an external load" fail '
+  <style>@import"https://cdn.example/site.css";</style>
+'
+
+run_case "a CSS import separated by a comment is still an external load" fail '
+  <style>@import/**/"https://cdn.example/site.css";</style>
+'
+
+run_case "a module import without a space is still an external load" fail '
+  <script type="module">import"https://cdn.example/app.js";</script>
+'
+
+run_case "a video poster is an external load" fail '
+  <video poster="https://cdn.example/poster.png"></video>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
