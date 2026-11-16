@@ -44,9 +44,10 @@ decoded_text="$(
     }
   ' "$PAGE"
 )"
-# CSS and JS also treat a comment as a token separator (`@import/**/"…"`),
-# so the copies below scan with block comments flattened to a space.
-decoded_text="$(printf '%s' "$decoded_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
+# CSS and JS also treat a comment as a token separator (`@import/**/"…"`).
+# HTML does not: markup between `/*` and `*/` at document level is live. So
+# block comments are flattened only in the extra copies used for CSS/JS
+# contexts, never in the copies the tag scans read.
 # Tags and attributes may be split across lines. The checks below only ever
 # extract URLs, never report line numbers, so scan one flattened copy of the
 # page instead of letting a newline become a hiding place.
@@ -54,6 +55,8 @@ page_text="$(printf '%s' "$decoded_text" | tr '\n' ' ')"
 # URL parsers also delete tab and newline characters *inside* a URL, so a
 # second copy with those removed catches `https://` split from its host.
 compact_text="$(printf '%s' "$decoded_text" | tr -d '\t\r\n')"
+code_text="$(printf '%s' "$page_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
+code_compact_text="$(printf '%s' "$compact_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
 
 # Loading a resource is stricter than linking to it: GitHub is a fine place
 # for a reader to choose to go, and no place for this page to fetch code,
@@ -82,6 +85,8 @@ load_urls="$(
     printf '%s' "$compact_text" | grep -oiE "$single_url_pattern" || true
     printf '%s' "$compact_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$compact_text" | grep -oiE "$context_pattern" || true
+    printf '%s' "$code_text" | grep -oiE "$context_pattern" || true
+    printf '%s' "$code_compact_text" | grep -oiE "$context_pattern" || true
   } | extract_urls | sort -u
 )"
 subresources="$(

@@ -156,6 +156,10 @@ run_case "a video poster is an external load" fail '
   <video poster="https://cdn.example/poster.png"></video>
 '
 
+run_case "HTML between slash-star markers is still live markup" fail '
+  /* <script src="https://cdn.example/app.js"></script> */
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
