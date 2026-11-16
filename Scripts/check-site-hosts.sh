@@ -59,6 +59,19 @@ normalize_code_escapes() {
     s/[\t\r\n]//g;
   '
 }
+
+# Attribute URLs get only the slash spellings a special-scheme URL parser
+# folds together. Decoding every escape here would invent `>` and quote
+# delimiters inside earlier attributes and cut a later `src` out of its tag.
+normalize_attribute_slashes() {
+  perl -0777 -pe '
+    s/\\u(?:002f|005c)/\//gi;
+    s/\\x(?:2f|5c)/\//gi;
+    s/\\(?:2f|5c)(?![0-9a-fA-F])/\//gi;
+    s/\\/\//g;
+    s/[\t\r\n]//g;
+  '
+}
 # CSS and JS also treat a comment as a token separator (`@import/**/"…"`).
 # HTML does not: markup between `/*` and `*/` at document level is live. So
 # block comments are flattened only in the extra copies used for CSS/JS
@@ -72,6 +85,8 @@ page_text="$(printf '%s' "$decoded_text" | tr '\n' ' ')"
 compact_text="$(printf '%s' "$decoded_text" | tr -d '\t\r\n')"
 code_text="$(printf '%s' "$page_text" | normalize_code_escapes | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
 code_compact_text="$(printf '%s' "$compact_text" | normalize_code_escapes | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
+attr_text="$(printf '%s' "$page_text" | normalize_attribute_slashes)"
+attr_compact_text="$(printf '%s' "$compact_text" | normalize_attribute_slashes)"
 # Import maps carry their module URLs as JSON strings, with no attribute or
 # call for the context patterns below to anchor on. Pull those blocks out on
 # their own so every URL inside one is judged as a load.
@@ -110,11 +125,11 @@ load_urls="$(
     printf '%s' "$compact_text" | grep -oiE "$single_url_pattern" || true
     printf '%s' "$compact_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$compact_text" | grep -oiE "$context_pattern" || true
-    printf '%s' "$code_text" | grep -oiE "$single_url_pattern" || true
-    printf '%s' "$code_text" | grep -oiE "$srcset_pattern" || true
+    printf '%s' "$attr_text" | grep -oiE "$single_url_pattern" || true
+    printf '%s' "$attr_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$code_text" | grep -oiE "$context_pattern" || true
-    printf '%s' "$code_compact_text" | grep -oiE "$single_url_pattern" || true
-    printf '%s' "$code_compact_text" | grep -oiE "$srcset_pattern" || true
+    printf '%s' "$attr_compact_text" | grep -oiE "$single_url_pattern" || true
+    printf '%s' "$attr_compact_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$code_compact_text" | grep -oiE "$context_pattern" || true
     printf '%s' "$importmap_text"
   } | extract_urls | sort -u
@@ -131,9 +146,9 @@ links="$(
       | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
     printf '%s' "$compact_text" \
       | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
-    printf '%s' "$code_text" \
+    printf '%s' "$attr_text" \
       | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
-    printf '%s' "$code_compact_text" \
+    printf '%s' "$attr_compact_text" \
       | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
   } | grep -vEi "${quote_class}[[:space:]]*((https?:)?//)(github\\.com|perafan18\\.github\\.io)/" || true
 )"

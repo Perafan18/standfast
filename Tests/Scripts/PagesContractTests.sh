@@ -213,6 +213,10 @@ run_case "an escaped newline inside a fetch URL does not hide its host" fail '
   <script>fetch("https:\u000a\u002f\u002fcdn.example/x")</script>
 '
 
+run_case "an escaped greater-than does not cut off a backslash src" fail '
+  <script data-x="\u003e" src="https:\\cdn.example/app.js"></script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
