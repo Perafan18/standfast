@@ -387,10 +387,12 @@ private struct PresentationUntouchableFiles: DestructiveFileOperations {
   let subject = ControlCenterHeaderPresentation.building(
     overview: overview, readAt: readAt, now: controlCenterNow)
 
-  #expect(subject.summary == L10n.stateBusy)
-  #expect(subject.shortSummary == L10n.stateRunningShort)
-  #expect(subject.symbolName == "gearshape.2.fill")
-  #expect(subject.tone == .active)
+  // The aggregate itself is the disconnected runner now: it outranks the busy
+  // one, because it is the state that asks somebody to act.
+  #expect(subject.summary == L10n.stateDisconnected)
+  #expect(subject.shortSummary == L10n.stateDisconnectedShort)
+  #expect(subject.symbolName == "exclamationmark.triangle")
+  #expect(subject.tone == .attention)
   #expect(subject.attention == L10n.runnerAttention(1))
   #expect(subject.freshness == L10n.checkedAgo("4m"))
 }
