@@ -185,6 +185,22 @@ run_case "escaped backslashes in a fetch URL do not hide its host" fail '
   <script>fetch("https:\\/\\/cdn.example/x")</script>
 '
 
+run_case "an escaped script close does not truncate an import map" fail '
+  <script type="importmap">{"imports":{"x":"<\/script>","app":"https://cdn.example/app.js"}}</script>
+'
+
+run_case "a unicode greater-than escape does not invent a tag boundary" fail '
+  <script data-x="&#92;u003e" src="https://cdn.example/app.js"></script>
+'
+
+run_case "JS hex escapes in a fetch URL do not hide its host" fail '
+  <script>fetch("https:\x2f\x2fcdn.example/x")</script>
+'
+
+run_case "CSS hex escapes in an import URL do not hide its host" fail '
+  <style>@import url("https:\2f\2fcdn.example/site.css");</style>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

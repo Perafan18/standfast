@@ -46,15 +46,18 @@ decoded_text="$(
 )"
 # JSON and JS string escapes are the next layer a browser decodes before
 # loading: an escaped or unicode-escaped solidus is a slash there, and a
-# special-scheme URL
-# parser also reads a backslash as a slash. Normalise both spellings in the
-# scan copies so `extract_urls` judges the host the browser will use.
-decoded_text="$(
-  printf '%s' "$decoded_text" | perl -0777 -pe '
+# special-scheme URL parser also reads a backslash as a slash. Normalise
+# those spellings only in code/import-map copies below. Applying this to
+# the whole page would invent delimiters an HTML parser never sees (a
+# `>` or script close spelled as an escape inside an attribute value).
+normalize_code_escapes() {
+  perl -0777 -pe '
     s/\\u([0-9a-fA-F]{4})/hex($1) < 128 ? chr(hex($1)) : $&/ge;
+    s/\\x([0-9a-fA-F]{2})/hex($1) < 128 ? chr(hex($1)) : $&/ge;
+    s/\\([0-9a-fA-F]{1,6})[[:space:]]?/hex($1) < 128 ? chr(hex($1)) : $&/ge;
     s/\\/\//g;
   '
-)"
+}
 # CSS and JS also treat a comment as a token separator (`@import/**/"…"`).
 # HTML does not: markup between `/*` and `*/` at document level is live. So
 # block comments are flattened only in the extra copies used for CSS/JS
@@ -66,8 +69,8 @@ page_text="$(printf '%s' "$decoded_text" | tr '\n' ' ')"
 # URL parsers also delete tab and newline characters *inside* a URL, so a
 # second copy with those removed catches `https://` split from its host.
 compact_text="$(printf '%s' "$decoded_text" | tr -d '\t\r\n')"
-code_text="$(printf '%s' "$page_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
-code_compact_text="$(printf '%s' "$compact_text" | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
+code_text="$(printf '%s' "$page_text" | normalize_code_escapes | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
+code_compact_text="$(printf '%s' "$compact_text" | normalize_code_escapes | perl -0777 -pe 's{/\*.*?\*/}{ }gs')"
 # Import maps carry their module URLs as JSON strings, with no attribute or
 # call for the context patterns below to anchor on. Pull those blocks out on
 # their own so every URL inside one is judged as a load.
@@ -76,7 +79,7 @@ importmap_text="$(
     while (/<script\b[^>]*\btype\s*=\s*["\x27]?importmap["\x27]?[^>]*>(.*?)<\/script\s*>/gis) {
       print "$1\n"
     }
-  '
+  ' | normalize_code_escapes
 )"
 
 # Loading a resource is stricter than linking to it: GitHub is a fine place
