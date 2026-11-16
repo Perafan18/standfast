@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The menu bar icon puts a disconnected runner ahead of a busy one.** With one runner
+  running a job and another up but unreachable, the icon showed Running; it now shows
+  Disconnected, because a busy runner asks nothing of anyone and a disconnected one asks
+  for a fix. Every other ranking is unchanged, and the quick menu still lists each runner.
+
 ## [0.6.0] — 2026-10-13
 
 A native redesign. Standfast now draws with macOS's own controls, text styles and semantic

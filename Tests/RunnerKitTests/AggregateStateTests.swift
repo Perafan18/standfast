@@ -4,15 +4,25 @@ import Testing
 
 // MARK: - The order of precedence
 
-@Test func busyBeatsEverything() {
+@Test func busyBeatsTheQuietStates() {
   #expect(AggregateState.summarising([.idle, .busy, .stopped]) == .busy)
-  #expect(AggregateState.summarising([.disconnected, .busy]) == .busy)
   #expect(AggregateState.summarising([.unknown(.noAnswer), .busy]) == .busy)
 }
 
 @Test func disconnectedBeatsIdleBecauseItNeedsAttention() {
   #expect(AggregateState.summarising([.idle, .disconnected]) == .disconnected)
   #expect(AggregateState.summarising([.stopped, .disconnected]) == .disconnected)
+}
+
+@Test func disconnectedBeatsBusyBecauseBusyAsksNothingOfAnyone() {
+  // Feedback from the Product Hunt launch (2026-10-26): the icon should answer
+  // "do I have to do something?", and a busy runner never asks for action, so
+  // a disconnected one outranks it whichever order they are discovered in.
+  #expect(AggregateState.summarising([.disconnected, .busy]) == .disconnected)
+  #expect(AggregateState.summarising([.busy, .disconnected]) == .disconnected)
+  #expect(
+    AggregateState.summarising([.idle, .busy, .disconnected, .stopped])
+      == .disconnected)
 }
 
 @Test func unknownOutranksIdleButNotDisconnected() {

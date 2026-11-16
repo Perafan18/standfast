@@ -4,7 +4,7 @@ import Foundation
 ///
 /// There is only one icon and there may be any number of runners, so something
 /// has to be chosen. The order is by how much each state asks of a human:
-/// work in progress first, then what needs fixing, then the quiet states. The
+/// what needs fixing first, then work in progress, then the quiet states. The
 /// menu itself still lists every runner, so nothing is hidden — only ranked.
 public enum AggregateState {
   /// Nil for no runners at all. A Mac without runners is not a broken Mac, and
@@ -12,13 +12,14 @@ public enum AggregateState {
   /// that was never installed in the first place.
   public static func summarising(_ states: [RunnerState]) -> RunnerState? {
     if states.isEmpty { return nil }
-    // Something is being built right now: the one thing a person might be
-    // waiting on, so it outranks even the problems.
-    if states.contains(.busy) { return .busy }
-    // Then the states that need a human. `disconnected` outranks `unknown`
-    // because it is a definite fault, where unknown only means this app could
-    // not see well enough to say.
+    // A definite fault first: `disconnected` is the one state that asks a
+    // human to do something now, and it outranks even work in progress — a
+    // busy runner is not something anybody acts on. It also outranks
+    // `unknown`, where this app only could not see well enough to say.
     if states.contains(.disconnected) { return .disconnected }
+    // Something is being built right now: the one thing a person might be
+    // waiting on, ahead of the states that merely could not be read.
+    if states.contains(.busy) { return .busy }
     // Kept whole rather than rebuilt as a bare `.unknown`: the reason is what
     // lets the menu name the fix, and dropping it here would waste the work
     // done to keep it. A managed slot between ephemeral registrations is a

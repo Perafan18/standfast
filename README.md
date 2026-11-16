@@ -32,8 +32,8 @@ looks similar and the fix is not.
 
 ## What the menu bar status icon means
 
-The icon answers for every runner on the Mac at once: a job in progress first, then
-whatever needs fixing, then the quiet states. The quick menu has a row for each runner.
+The icon answers for every runner on the Mac at once: whatever needs fixing first, then
+a job in progress, then the quiet states. The quick menu has a row for each runner.
 
 | Icon | Shown as | Meaning |
 |---|---|---|
