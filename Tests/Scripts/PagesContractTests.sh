@@ -217,6 +217,10 @@ run_case "an escaped greater-than does not cut off a backslash src" fail '
   <script data-x="\u003e" src="https:\\cdn.example/app.js"></script>
 '
 
+run_case "a quoted greater-than does not cut off a following src" fail '
+  <script data-tip="a > b" src="https://cdn.example/app.js"></script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

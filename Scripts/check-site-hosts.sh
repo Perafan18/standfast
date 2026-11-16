@@ -113,8 +113,12 @@ extract_urls() {
   grep -oiE "(((https?|wss?)://)|//)[^\"'[:space:],)]+" || true
 }
 
-single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data|poster)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
-srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
+# A quoted attribute value may itself contain `>`, so the run up to the
+# load-bearing attribute has to step over quoted spans intact instead of
+# stopping at the first greater-than sign it meets.
+tag_interior="([^>\"']|\"[^\"]*\"|'[^']*')+"
+single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)${tag_interior}(src|href|data|poster)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
+srcset_pattern="(<(img|source)${tag_interior}srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)${tag_interior}srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)${tag_interior}srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
 context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\(|Worker[[:space:]]*\(|SharedWorker[[:space:]]*\(|addModule[[:space:]]*\(|serviceWorker[[:space:]]*\.[[:space:]]*register[[:space:]]*\()[^)]*|@import[[:space:]]*\"[^\"]*\"|@import[[:space:]]*'[^']*'|import[[:space:]]*${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
 
 load_urls="$(
