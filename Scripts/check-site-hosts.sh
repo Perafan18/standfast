@@ -23,13 +23,26 @@ note_matches() {
 }
 
 quote_class='["'\'']'
+# An HTML parser decodes character references in attribute values before it
+# ever sees a URL, so decode the ASCII ones (and the named colon/solidus)
+# first. Without this, `https:&#47;&#47;host` is invisible to every grep.
+decoded_text="$(
+  perl -0777 -pe '
+    s/&#([0-9]+);/$1 < 128 ? chr($1) : $&/ge;
+    s/&#[xX]([0-9a-fA-F]+);/hex($1) < 128 ? chr(hex($1)) : $&/ge;
+    s/&colon;/:/g;
+    s/&sol;/\//g;
+    s/&Tab;/\t/g;
+    s/&NewLine;/\n/g;
+  ' "$PAGE"
+)"
 # Tags and attributes may be split across lines. The checks below only ever
 # extract URLs, never report line numbers, so scan one flattened copy of the
 # page instead of letting a newline become a hiding place.
-page_text="$(tr '\n' ' ' <"$PAGE")"
+page_text="$(printf '%s' "$decoded_text" | tr '\n' ' ')"
 # URL parsers also delete tab and newline characters *inside* a URL, so a
 # second copy with those removed catches `https://` split from its host.
-compact_text="$(tr -d '\t\r\n' <"$PAGE")"
+compact_text="$(printf '%s' "$decoded_text" | tr -d '\t\r\n')"
 
 # Loading a resource is stricter than linking to it: GitHub is a fine place
 # for a reader to choose to go, and no place for this page to fetch code,
@@ -46,9 +59,9 @@ extract_urls() {
   grep -oiE "(((https?|wss?)://)|//)[^\"'[:space:],)]+" || true
 }
 
-single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?(https?://|//)[^\"'[:space:]]*)"
+single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
 srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
-context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\()[^)]*|@import[[:space:]]+\"[^\"]*\"|@import[[:space:]]+'[^']*')"
+context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import\()[^)]*|@import[[:space:]]+\"[^\"]*\"|@import[[:space:]]+'[^']*'|import[[:space:]]+${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
 
 load_urls="$(
   {
@@ -69,10 +82,10 @@ note_matches "external subresources:" "$subresources"
 links="$(
   {
     printf '%s' "$page_text" \
-      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}((https?:)?//)[^\"']*${quote_class}" || true
+      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
     printf '%s' "$compact_text" \
-      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}((https?:)?//)[^\"']*${quote_class}" || true
-  } | grep -vEi "${quote_class}((https?:)?//)(github\\.com|perafan18\\.github\\.io)/" || true
+      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}[[:space:]]*((https?:)?//)[^\"']*${quote_class}" || true
+  } | grep -vEi "${quote_class}[[:space:]]*((https?:)?//)(github\\.com|perafan18\\.github\\.io)/" || true
 )"
 note_matches "unexpected outbound links:" "$links"
 

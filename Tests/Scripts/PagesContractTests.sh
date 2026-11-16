@@ -104,6 +104,26 @@ run_case "a parenthesis-free CSS import does not drag later links in" pass '
   <a href="https://github.com/Perafan18/standfast">Source</a>
 '
 
+run_case "HTML entities in a URL do not hide its host" fail '
+  <script src="https:&#47;&#47;cdn.example/app.js"></script>
+'
+
+run_case "an entity-encoded scheme is still an external load" fail '
+  <script src="&#104;ttps://cdn.example/app.js"></script>
+'
+
+run_case "leading space inside a quoted URL is still an external load" fail '
+  <script src=" https://cdn.example/app.js"></script>
+'
+
+run_case "a static module import is an external load" fail '
+  <script type="module">import "https://cdn.example/app.js";</script>
+'
+
+run_case "a dynamic module import is an external load" fail '
+  <script type="module">await import("https://cdn.example/app.js");</script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
