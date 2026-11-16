@@ -44,6 +44,17 @@ decoded_text="$(
     }
   ' "$PAGE"
 )"
+# JSON and JS string escapes are the next layer a browser decodes before
+# loading: an escaped or unicode-escaped solidus is a slash there, and a
+# special-scheme URL
+# parser also reads a backslash as a slash. Normalise both spellings in the
+# scan copies so `extract_urls` judges the host the browser will use.
+decoded_text="$(
+  printf '%s' "$decoded_text" | perl -0777 -pe '
+    s/\\u([0-9a-fA-F]{4})/hex($1) < 128 ? chr(hex($1)) : $&/ge;
+    s/\\/\//g;
+  '
+)"
 # CSS and JS also treat a comment as a token separator (`@import/**/"…"`).
 # HTML does not: markup between `/*` and `*/` at document level is live. So
 # block comments are flattened only in the extra copies used for CSS/JS

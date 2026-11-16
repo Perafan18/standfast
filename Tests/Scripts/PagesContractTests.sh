@@ -173,6 +173,18 @@ run_case "a SharedWorker module is an external load" fail '
   <script>new SharedWorker("https://cdn.example/worker.js");</script>
 '
 
+run_case "JSON slash escapes in an import map do not hide its host" fail '
+  <script type="importmap">{"imports":{"app":"https:\/\/cdn.example\/app.js"}}</script>
+'
+
+run_case "JSON unicode escapes in an import map do not hide its host" fail '
+  <script type="importmap">{"imports":{"app":"https:\u002f\u002fcdn.example/app.js"}}</script>
+'
+
+run_case "escaped backslashes in a fetch URL do not hide its host" fail '
+  <script>fetch("https:\\/\\/cdn.example/x")</script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
