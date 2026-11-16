@@ -1,0 +1,33 @@
+version: 2
+
+# One grouped pull request a week, at most one open at a time.
+#
+# Only the github-actions ecosystem is configured: the four actions the
+# workflows pin (checkout, upload-artifact, upload-pages-artifact,
+# deploy-pages) are this repository's whole third-party dependency surface.
+# The Swift package has no external dependencies, so a swift entry would
+# never open anything today — and on the day a dependency is added it would
+# become a second weekly pull request. Add it then, knowingly.
+#
+# Version updates follow the weekly schedule. Security updates are not
+# scheduled — GitHub opens them when an advisory lands — but the group and
+# the open limit below keep them to the same single pull request.
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Mexico_City"
+    open-pull-requests-limit: 1
+    groups:
+      all-actions:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+      all-actions-security:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
