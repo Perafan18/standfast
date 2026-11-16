@@ -80,6 +80,20 @@ run_case "an unquoted srcset is still inspected" fail '
   <source srcset=https://cdn.example/a.png>
 '
 
+run_case "an external load split across lines is rejected" fail '
+  <script
+    src="https://cdn.example/app.js"></script>
+'
+
+run_case "a protocol-relative external load is rejected" fail '
+  <script src="//cdn.example/app.js"></script>
+'
+
+run_case "an external base retargeting relative loads is rejected" fail '
+  <base href=https://cdn.example/assets/>
+  <img src="a.png">
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

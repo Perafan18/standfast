@@ -23,6 +23,10 @@ note_matches() {
 }
 
 quote_class='["'\'']'
+# Tags and attributes may be split across lines. The checks below only ever
+# extract URLs, never report line numbers, so scan one flattened copy of the
+# page instead of letting a newline become a hiding place.
+page_text="$(tr '\n' ' ' <"$PAGE")"
 
 # Loading a resource is stricter than linking to it: GitHub is a fine place
 # for a reader to choose to go, and no place for this page to fetch code,
@@ -34,30 +38,32 @@ quote_class='["'\'']'
 # has to be read candidate by candidate rather than only at its first URL.
 extract_urls() {
   # Case-insensitive like the context greps that feed it: a browser reads
-  # `HTTPS://` exactly as happily as the lowercase spelling.
-  grep -oiE "(https?|wss?)://[^\"'[:space:],)]+" || true
+  # `HTTPS://` exactly as happily as the lowercase spelling, and a leading
+  # `//` inherits this page's HTTPS scheme on GitHub Pages.
+  grep -oiE "(((https?|wss?)://)|//)[^\"'[:space:],)]+" || true
 }
 
-single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?https?://[^\"'[:space:]]*)"
+single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?(https?://|//)[^\"'[:space:]]*)"
 srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
 context_pattern="((url\(|@import|fetch\(|WebSocket\(|EventSource\()[^)]*)"
 
 load_urls="$(
   {
-    grep -oiE "$single_url_pattern" "$PAGE" || true
-    grep -oiE "$srcset_pattern" "$PAGE" || true
-    grep -oiE "$context_pattern" "$PAGE" || true
+    printf '%s' "$page_text" | grep -oiE "$single_url_pattern" || true
+    printf '%s' "$page_text" | grep -oiE "$srcset_pattern" || true
+    printf '%s' "$page_text" | grep -oiE "$context_pattern" || true
   } | extract_urls | sort -u
 )"
 subresources="$(
   printf '%s\n' "$load_urls" \
-    | grep -viE '^https://perafan18\.github\.io/' || true
+    | grep -viE '^((https?:)?//)perafan18\.github\.io/' || true
 )"
 note_matches "external subresources:" "$subresources"
 
 links="$(
-  grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}https?://[^\"']*${quote_class}" "$PAGE" \
-    | grep -vEi "${quote_class}https://(github\\.com|perafan18\\.github\\.io)/" || true
+  printf '%s' "$page_text" \
+    | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}((https?:)?//)[^\"']*${quote_class}" \
+    | grep -vEi "${quote_class}((https?:)?//)(github\\.com|perafan18\\.github\\.io)/" || true
 )"
 note_matches "unexpected outbound links:" "$links"
 
