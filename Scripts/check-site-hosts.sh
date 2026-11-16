@@ -92,8 +92,8 @@ attr_compact_text="$(printf '%s' "$compact_text" | normalize_attribute_slashes)"
 # their own so every URL inside one is judged as a load.
 importmap_text="$(
   printf '%s' "$decoded_text" | perl -0777 -ne '
-    my $attr = qr/(?:\s+[^\s=\/>]+(?:\s*=\s*(?:"[^"]*"|'\''[^'\'']*'\''|[^\s>]+))?)/;
-    while (/<script\b$attr*?\s+type\s*=\s*["\x27]?importmap["\x27]?$attr*\s*>(.*?)<\/script\s*>/gis) {
+    my $attr = qr/(?:[\s\/]*[^\s=\/>]+(?:\s*=\s*(?:"[^"]*"|'\''[^'\'']*'\''|[^\s>]+))?)/;
+    while (/<script\b$attr*?[\s\/]*type\s*=\s*["\x27]?importmap["\x27]?$attr*[\s\/]*>(.*?)<\/script\s*>/gis) {
       print "$1\n"
     }
   ' | normalize_code_escapes
@@ -119,9 +119,9 @@ extract_urls() {
 # load-bearing one as name/value pairs so quoted spans are stepped over
 # intact without letting bare quotes open spans of their own.
 attr_value="(\"[^\"]*\"|'[^']*'|[^[:space:]>]+)"
-tag_interior="([[:space:]][^[:space:]=/>]+([[:space:]]*=[[:space:]]*${attr_value})?)*"
-single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)${tag_interior}[[:space:]]+(src|href|data|poster)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
-srcset_pattern="(<(img|source)${tag_interior}[[:space:]]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)${tag_interior}[[:space:]]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)${tag_interior}[[:space:]]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
+tag_interior="([[:space:]/]*[^[:space:]=/>]+([[:space:]]*=[[:space:]]*${attr_value})?)*"
+single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)${tag_interior}[[:space:]/]*(src|href|data|poster)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
+srcset_pattern="(<(img|source)${tag_interior}[[:space:]/]*srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)${tag_interior}[[:space:]/]*srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)${tag_interior}[[:space:]/]*srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
 context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\(|Worker[[:space:]]*\(|SharedWorker[[:space:]]*\(|addModule[[:space:]]*\(|serviceWorker[[:space:]]*\.[[:space:]]*register[[:space:]]*\()[^)]*|@import[[:space:]]*\"[^\"]*\"|@import[[:space:]]*'[^']*'|import[[:space:]]*${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
 
 load_urls="$(
