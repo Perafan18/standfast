@@ -221,6 +221,14 @@ run_case "a quoted greater-than does not cut off a following src" fail '
   <script data-tip="a > b" src="https://cdn.example/app.js"></script>
 '
 
+run_case "a quoted greater-than does not cut off an import map" fail '
+  <script data-tip="a > b" type="importmap">{"imports":{"app":"https://cdn.example/app.js"}}</script>
+'
+
+run_case "an apostrophe inside an unquoted value does not hide a src" fail '
+  <script data-tip=don&apos;t src="https://cdn.example/app.js"></script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
