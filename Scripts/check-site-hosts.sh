@@ -28,14 +28,28 @@ quote_class='["'\'']'
 # for a reader to choose to go, and no place for this page to fetch code,
 # fonts or images from. `srcset`, CSS and the network APIs are load paths
 # just as much as a plain `src`.
-subresource_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input)[^>]+(src|href|srcset|data)[[:space:]]*=[[:space:]]*${quote_class}?https?://)"
-subresource_pattern+="|(url\\([[:space:]]*${quote_class}?https?://)"
-subresource_pattern+="|(@import[[:space:]]+(url\\([[:space:]]*)?${quote_class}?https?://)"
-subresource_pattern+="|((fetch|WebSocket|EventSource)\\([[:space:]]*${quote_class}(https?|wss?)://)"
+# Extract each URL on its own before applying the one-host allowance. A
+# line-level filter would let an allowed canonical or OG URL launder any
+# other load sharing its line or hiding in its query string, and a srcset
+# has to be read candidate by candidate rather than only at its first URL.
+extract_urls() {
+  grep -oE "(https?|wss?)://[^\"'[:space:],)]+" || true
+}
 
+single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?https?://[^\"'[:space:]]*)"
+srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*')"
+context_pattern="((url\(|@import|fetch\(|WebSocket\(|EventSource\()[^)]*)"
+
+load_urls="$(
+  {
+    grep -oiE "$single_url_pattern" "$PAGE" || true
+    grep -oiE "$srcset_pattern" "$PAGE" || true
+    grep -oiE "$context_pattern" "$PAGE" || true
+  } | extract_urls | sort -u
+)"
 subresources="$(
-  grep -inE "$subresource_pattern" "$PAGE" \
-    | grep -vE 'https://perafan18\.github\.io/' || true
+  printf '%s\n' "$load_urls" \
+    | grep -vE '^https://perafan18\.github\.io/' || true
 )"
 note_matches "external subresources:" "$subresources"
 

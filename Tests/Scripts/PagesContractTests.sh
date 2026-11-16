@@ -60,6 +60,18 @@ run_case "an external script with single quotes is rejected" fail "
   <script src='https://cdn.example/app.js'></script>
 "
 
+run_case "an allowed URL on the same line does not launder an external script" fail '
+  <link rel="canonical" href="https://perafan18.github.io/standfast/"><script src="https://cdn.example/app.js"></script>
+'
+
+run_case "an offsite candidate later in srcset is rejected" fail '
+  <source srcset="img/a.png 1x, https://cdn.example/a@2x.png 2x">
+'
+
+run_case "an allowed URL inside a query string does not launder the host" fail '
+  <script src="https://cdn.example/app.js?next=https://perafan18.github.io/standfast/"></script>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
