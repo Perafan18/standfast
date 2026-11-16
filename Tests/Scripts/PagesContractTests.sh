@@ -94,6 +94,16 @@ run_case "an external base retargeting relative loads is rejected" fail '
   <img src="a.png">
 '
 
+run_case "a newline inside a URL does not hide its host" fail '
+  <script src="https://
+cdn.example/app.js"></script>
+'
+
+run_case "a parenthesis-free CSS import does not drag later links in" pass '
+  <style>@import "local.css";</style>
+  <a href="https://github.com/Perafan18/standfast">Source</a>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

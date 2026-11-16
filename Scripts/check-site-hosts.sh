@@ -27,6 +27,9 @@ quote_class='["'\'']'
 # extract URLs, never report line numbers, so scan one flattened copy of the
 # page instead of letting a newline become a hiding place.
 page_text="$(tr '\n' ' ' <"$PAGE")"
+# URL parsers also delete tab and newline characters *inside* a URL, so a
+# second copy with those removed catches `https://` split from its host.
+compact_text="$(tr -d '\t\r\n' <"$PAGE")"
 
 # Loading a resource is stricter than linking to it: GitHub is a fine place
 # for a reader to choose to go, and no place for this page to fetch code,
@@ -45,13 +48,16 @@ extract_urls() {
 
 single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)[^>]+(src|href|data)[[:space:]]*=[[:space:]]*${quote_class}?(https?://|//)[^\"'[:space:]]*)"
 srcset_pattern="(<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)[^>]+srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
-context_pattern="((url\(|@import|fetch\(|WebSocket\(|EventSource\()[^)]*)"
+context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\()[^)]*|@import[[:space:]]+\"[^\"]*\"|@import[[:space:]]+'[^']*')"
 
 load_urls="$(
   {
     printf '%s' "$page_text" | grep -oiE "$single_url_pattern" || true
     printf '%s' "$page_text" | grep -oiE "$srcset_pattern" || true
     printf '%s' "$page_text" | grep -oiE "$context_pattern" || true
+    printf '%s' "$compact_text" | grep -oiE "$single_url_pattern" || true
+    printf '%s' "$compact_text" | grep -oiE "$srcset_pattern" || true
+    printf '%s' "$compact_text" | grep -oiE "$context_pattern" || true
   } | extract_urls | sort -u
 )"
 subresources="$(
@@ -61,9 +67,12 @@ subresources="$(
 note_matches "external subresources:" "$subresources"
 
 links="$(
-  printf '%s' "$page_text" \
-    | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}((https?:)?//)[^\"']*${quote_class}" \
-    | grep -vEi "${quote_class}((https?:)?//)(github\\.com|perafan18\\.github\\.io)/" || true
+  {
+    printf '%s' "$page_text" \
+      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}((https?:)?//)[^\"']*${quote_class}" || true
+    printf '%s' "$compact_text" \
+      | grep -oiE "href[[:space:]]*=[[:space:]]*${quote_class}((https?:)?//)[^\"']*${quote_class}" || true
+  } | grep -vEi "${quote_class}((https?:)?//)(github\\.com|perafan18\\.github\\.io)/" || true
 )"
 note_matches "unexpected outbound links:" "$links"
 
