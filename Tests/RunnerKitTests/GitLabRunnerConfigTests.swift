@@ -151,6 +151,21 @@ private let realistic = """
   #expect(try GitLabRunnerConfigFile.entries(in: annotated).map(\.id) == [7])
 }
 
+@Test func inlineCommentsAfterRunnerValuesDoNotCostTheRunner() throws {
+  let annotated = """
+    [[runners]]
+      id = 7 # prod
+      name = "mac # one" # display name
+      url = "https://gitlab.com" # prod
+    """
+
+  let reading = try GitLabRunnerConfigFile.reading(annotated)
+
+  #expect(reading.entries.map(\.id) == [7])
+  #expect(reading.entries.map(\.name) == ["mac # one"])
+  #expect(reading.skipped.isEmpty)
+}
+
 @Test func aScriptWrittenAcrossLinesIsNotReadAsTheRunnersKeys() throws {
   // The script is text: `url=` in it is shell, and would have pointed this
   // runner, and its token, at another host. `[ -d … ]` is a test, not a table.

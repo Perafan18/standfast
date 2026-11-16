@@ -3550,3 +3550,38 @@ func aSlowReleaseCheckDoesNotHoldUpTheMenu() async throws {
 
   #expect(!activity.isHeld)
 }
+
+@Test @MainActor func anUnresolvedRunningLogStopsHoldingTheMacAwakeAfterThirtyMinutes()
+  async throws
+{
+  // The resolved-but-unreadable twin of the retention bound above: GitHub
+  // cannot say, the log still names a running job, and each scan used to
+  // re-date that one log line as fresh busy evidence forever. A remote
+  // `.busy` can hold the guard indefinitely; a log-only claim gets the same
+  // thirty minutes as retained evidence, measured from its first observation.
+  let box = try FleetSandbox(
+    serviceRunning: true, remote: .init(online: false, busy: false))
+  defer { box.cleanUp() }
+  let directory = try box.addRunner()
+  try box.writeListenerLog(
+    in: directory, job: "testflight", startedAt: "2026-08-05 20:36:14Z",
+    finished: nil)
+  let clock = TestClock(Date(timeIntervalSince1970: 1_785_962_174))
+  let activity = FakeSleepPreventer()
+  let sleepGuard = SleepGuard(activity: activity, defaults: scratchDefaults())
+  sleepGuard.setEnabled(true)
+  let fleet = model(box, clock: clock.read, sleep: sleepGuard)
+  await fleet.quiesce()
+  #expect(fleet.snapshots[0].display == .resolved(.disconnected))
+  #expect(activity.isHeld)
+
+  clock.advance(29 * 60)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(activity.isHeld)
+
+  clock.advance(2 * 60)
+  fleet.refresh()
+  await fleet.quiesce()
+  #expect(!activity.isHeld)
+}

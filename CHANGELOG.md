@@ -13,6 +13,20 @@ All notable changes to this project are documented here. The format follows
   Disconnected, because a busy runner asks nothing of anyone and a disconnected one asks
   for a fix. Every other ranking is unchanged, and the quick menu still lists each runner.
 
+### Fixed
+
+- A command whose child left a descendant holding stdout open no longer waits for that
+  descendant to close it, and a non-zero exit from `svc.sh` is now reported as a failed
+  Start, Stop or Restart instead of an accepted request.
+- GitLab runners survive inline comments in `config.toml`, an unreadable config is named
+  instead of making the fleet silently vanish, confirmed housekeeping asks GitLab about
+  GitLab runners, and a runner paused in GitLab is no longer counted or painted as needing
+  attention.
+- A running job claimed only by its log, with no remote answer to confirm it, holds the
+  Mac awake for at most thirty minutes from when Standfast first observed it. Events that
+  arrive while the notification prompt is still open are held until macOS answers instead
+  of being posted into a permission nobody has granted yet.
+
 ## [0.6.0] — 2026-10-13
 
 A native redesign. Standfast now draws with macOS's own controls, text styles and semantic

@@ -225,4 +225,8 @@ private let everyDisplayState: [DisplayState] = [
 
   #expect(!paused.canReceiveWork)
   #expect(paused.canStop && paused.canRestart && !paused.canStart)
+  // Somebody paused it on purpose to drain it. Counting or painting that as
+  // attention makes a deliberate drain read like a rejected token.
+  #expect(!paused.needsAttention)
+  #expect(paused.tone == .neutral)
 }

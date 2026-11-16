@@ -4,6 +4,11 @@ public enum ServiceControlError: Error, Equatable {
   /// The runner directory has no `svc.sh`: an uninstall that stopped halfway,
   /// or a directory that was never a runner.
   case scriptMissing(URL)
+  /// Bash ran and refused the script (128 and friends are its own vocabulary:
+  /// 127 for a file that vanished after the check, 2 for one it cannot parse).
+  /// `svc.sh` folding a `launchctl` failure into exit 0 is why zero cannot be
+  /// read as proof; it is no reason to read a non-zero as success.
+  case commandFailed(exitCode: Int32)
 }
 
 /// Restart's Stop completed, but its later settle-or-Start phase did not.
@@ -103,7 +108,10 @@ public struct ServiceController: Sendable {
     //
     // The working directory matters as much as the verb — svc.sh resolves its
     // template and its plist path from `pwd`, not from where it lives.
-    _ = try commandRunner.run(
+    let result = try commandRunner.run(
       "/bin/bash", [script.path, verb], workingDirectory: directory)
+    guard result.exitCode == 0 else {
+      throw ServiceControlError.commandFailed(exitCode: result.exitCode)
+    }
   }
 }

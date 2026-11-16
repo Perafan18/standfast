@@ -122,6 +122,11 @@ final class NotificationSettings: ObservableObject {
   private var request: Task<Void, Never>?
   private var authorizationGeneration = 0
   private var awaitsPermission = false
+  private var authorizationReadInFlight = false
+  /// Events that arrived while macOS had not yet said whether banners may
+  /// be shown. FleetWatcher consumes each event as it emits it, so posting
+  /// into an undecided permission would lose the one copy there is.
+  private var pendingEvents: [FleetEvent] = []
 
   init(
     delivery: any NotificationDelivering = UserNotificationDelivery(),
@@ -162,6 +167,7 @@ final class NotificationSettings: ObservableObject {
     let generation = authorizationGeneration
     request?.cancel()
     awaitsPermission = requestPermission
+    authorizationReadInFlight = true
     request = Task { [weak self, delivery] in
       if requestPermission { _ = await delivery.requestAuthorization() }
       let status = await delivery.authorizationStatus()
@@ -169,7 +175,18 @@ final class NotificationSettings: ObservableObject {
         self.authorizationGeneration == generation
       else { return }
       self.awaitsPermission = false
+      self.authorizationReadInFlight = false
       self.authorization = status
+      self.resolvePendingEvents(under: status)
+    }
+  }
+
+  private func resolvePendingEvents(under status: NotificationAuthorization) {
+    let pending = pendingEvents
+    pendingEvents = []
+    guard status == .authorized else { return }
+    for event in pending where enabled.contains(event.kind) {
+      delivery.post(title: event.title, body: event.body, id: identifier(for: event))
     }
   }
 
@@ -184,7 +201,14 @@ final class NotificationSettings: ObservableObject {
   /// Shows the events whose switch is on, and drops the rest.
   func deliver(_ events: [FleetEvent]) {
     for event in events where enabled.contains(event.kind) {
-      delivery.post(title: event.title, body: event.body, id: identifier(for: event))
+      switch authorization {
+      case .authorized:
+        delivery.post(title: event.title, body: event.body, id: identifier(for: event))
+      case .notDetermined where authorizationReadInFlight:
+        pendingEvents.append(event)
+      case .notDetermined, .denied:
+        break
+      }
     }
   }
 

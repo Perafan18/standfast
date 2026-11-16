@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// What a finished command left behind.
@@ -87,10 +88,13 @@ public struct ProcessCommandRunner: CommandRunning {
     let watchdog = Watchdog(process)
     watchdog.arm(timeout: timeout, terminationGrace: terminationGrace)
 
-    // Drain before waiting: a child that fills the pipe buffer blocks forever
-    // if we wait first.
-    let data = out.fileHandleForReading.readDataToEndOfFile()
+    // Drain concurrently, but let the direct child decide when the command is
+    // finished. A descendant it spawned can inherit stdout and delay EOF
+    // indefinitely; it must not keep a completed or timed-out command (and
+    // the thread waiting on it) hanging around.
+    let output = ProcessOutputCollector(out.fileHandleForReading)
     process.waitUntilExit()
+    let data = output.finish()
 
     if watchdog.disarm() { throw CommandError.timedOut(executable: executable) }
     // Lossy decoding on purpose: one stray byte turning a whole `launchctl
@@ -98,6 +102,73 @@ public struct ProcessCommandRunner: CommandRunning {
     return CommandResult(
       standardOutput: String(decoding: data, as: UTF8.self),
       exitCode: process.terminationStatus)
+  }
+}
+
+/// Collects stdout without letting EOF define the lifetime of the command.
+///
+/// The reader polls a non-blocking descriptor, which keeps a chatty child
+/// from filling the pipe while the caller waits for that child itself. After
+/// the direct child exits, a brief grace lets bytes it had already put in
+/// the pipe land here; then the reader is told to stop and is joined. A
+/// descendant still holding the pipe after that cannot keep either the
+/// command or one more detached thread hanging around.
+private final class ProcessOutputCollector: @unchecked Sendable {
+  private let lock = NSLock()
+  private let finished = DispatchSemaphore(value: 0)
+  private var data = Data()
+  private var stopped = false
+
+  init(_ handle: FileHandle) {
+    let descriptor = handle.fileDescriptor
+    let flags = fcntl(descriptor, F_GETFL)
+    if flags >= 0 { _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) }
+    Thread.detachNewThread { [self] in
+      autoreleasepool { drain(descriptor) }
+    }
+  }
+
+  private var isStopped: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return stopped
+  }
+
+  private func drain(_ descriptor: Int32) {
+    var buffer = [UInt8](repeating: 0, count: 65_536)
+    while !isStopped {
+      var pollDescriptor = pollfd(
+        fd: descriptor, events: Int16(POLLIN), revents: 0)
+      let ready = poll(&pollDescriptor, 1, 10)
+      if ready < 0 {
+        if errno == EINTR { continue }
+        break
+      }
+      guard ready > 0 else { continue }
+      let count = read(descriptor, &buffer, buffer.count)
+      if count > 0 {
+        lock.lock()
+        data.append(Data(bytes: buffer, count: count))
+        lock.unlock()
+      } else if count == 0 {
+        break
+      } else if errno != EAGAIN && errno != EINTR {
+        break
+      }
+    }
+    finished.signal()
+  }
+
+  func finish() -> Data {
+    if finished.wait(timeout: .now() + .milliseconds(100)) == .timedOut {
+      lock.lock()
+      stopped = true
+      lock.unlock()
+      _ = finished.wait(timeout: .now() + .milliseconds(100))
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    return data
   }
 }
 

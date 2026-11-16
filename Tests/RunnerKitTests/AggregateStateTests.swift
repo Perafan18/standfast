@@ -39,6 +39,17 @@ import Testing
       == .unknown(.managedFleetWaiting))
 }
 
+@Test func aGitLabPauseDoesNotOutrankAReadyRunner() {
+  // Paused is GitLab's deliberate answer, not an actionable failure to read:
+  // like a managed slot between registrations, it is a headline only when no
+  // ready runner can speak for the Mac.
+  #expect(
+    AggregateState.summarising([.unknown(.gitLabPaused), .idle]) == .idle)
+  #expect(
+    AggregateState.summarising([.unknown(.gitLabPaused), .stopped])
+      == .unknown(.gitLabPaused))
+}
+
 @Test func idleBeatsStopped() {
   // One runner waiting for work is the more useful headline: it says the
   // machine is available, which "stopped" would deny.

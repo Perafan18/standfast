@@ -60,6 +60,7 @@ jobs:
         run: swift build -Xswiftc -warnings-as-errors
 
       - name: Test
+        timeout-minutes: 20
         run: swift test
 
       # This intentionally stalls the shared dispatch pool. Keep it isolated
@@ -167,6 +168,9 @@ jobs:
       - name: Public-diff checker handles content, refs, renames, and binaries
         run: Tests/Scripts/PublicDiffContractTests.sh
 
+      - name: Pages host checker rejects every external load path
+        run: Tests/Scripts/PagesContractTests.sh
+
       - name: Installing over a copy prunes the backups it makes
         run: Tests/Scripts/InstallAppContractTests.sh
 
@@ -182,6 +186,15 @@ jobs:
       - name: No private workspace references in the PR diff
         if: github.event_name == 'pull_request'
         run: ./Scripts/check-public-diff.sh "origin/${GITHUB_BASE_REF}...HEAD"
+
+      # Branch protection makes a pull request the normal road in, but an
+      # administrator bypass is still a push. The scan that stands between a
+      # screenshot of this Mac and the public site has to see that road too.
+      - name: No private workspace references in the pushed diff
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: ./Scripts/check-public-diff.sh "$BEFORE_SHA...HEAD"
 
       # `swift format`, with a space: the toolchain ships it as a subcommand of
       # `swift`, not as a `swift-format` binary on PATH. It picks up the

@@ -294,6 +294,19 @@ private func snapshot(
   #expect(Set(rows.map(\.id)).count == 3)
 }
 
+@Test func twoJobsStartedInTheSameSecondStillGetDistinctHistoryRows() {
+  // Listener timestamps are second-granular, and a fast failure can be
+  // followed by another job inside that same second (INV-002).
+  let first = record("testflight", ago: 60, lasting: 1, .failed)
+  let second = record("deploy", ago: 60, lasting: 1, .failed)
+  #expect(first.startedAt == second.startedAt)
+
+  let rows = snapshot(.resolved(.idle), jobs: JobHistory(records: [first, second]))
+    .row.recentJobs
+
+  #expect(Set(rows.map(\.id)).count == 2)
+}
+
 @Test func aRunnerWithNoHistoryGetsNoSubmenu() {
   #expect(snapshot(.resolved(.idle)).row.recentJobs.isEmpty)
   #expect(snapshot(.resolved(.idle)).row.progress == nil)

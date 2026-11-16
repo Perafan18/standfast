@@ -24,8 +24,6 @@ concurrency:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   # This half runs from the first commit, long before anything is published.
@@ -36,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # The page promises the product collects nothing and talks to nobody it
       # does not name. A stylesheet, font or script pulled from another host
@@ -47,18 +47,16 @@ jobs:
       # names. There is no custom domain — buying one waits for evidence that
       # anybody wants this — so the site's address is its github.io URL.
       - name: The page depends on no other host
-        run: |
-          offsite="$(
-            grep -oE '(src|href)="https?://[^"]*"' site/index.html \
-              | grep -vE '"https://(github\.com|perafan18\.github\.io)/' \
-              || true
-          )"
-          if [ -n "$offsite" ]; then
-            echo "FAIL: the page loads or links to an unexpected host:" >&2
-            printf '%s\n' "$offsite" >&2
-            exit 1
-          fi
-          echo "==> No offsite subresources"
+        run: ./Scripts/check-site-hosts.sh site/index.html
+
+      # Publishing needs this job, so the private-reference scan belongs on
+      # this lane as well as in CI: a site-only push must not be able to put a
+      # screenshot of this Mac on the web before CI has seen the same diff.
+      - name: No private workspace references in the pushed site diff
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: ./Scripts/check-public-diff.sh "$BEFORE_SHA...HEAD"
 
   # Publishes from `main` only, and only while the repository variable
   # STANDFAST_PUBLISH_SITE is `true` (set since 2026-10-09, when the repository
@@ -69,6 +67,10 @@ jobs:
     name: Publish the site
     needs: verify
     if: github.ref == 'refs/heads/main' && vars.STANDFAST_PUBLISH_SITE == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     runs-on: ubuntu-latest
     environment:
       name: github-pages

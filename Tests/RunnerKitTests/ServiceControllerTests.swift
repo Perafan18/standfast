@@ -94,6 +94,31 @@ private enum TestWaitFailure: Error { case timedOut }
   #expect(fake.invocations == [box.invocation("start"), box.invocation("stop")])
 }
 
+@Test func aNonZeroSvcExitIsACommandFailure() throws {
+  let box = try RunnerSandbox()
+  defer { box.cleanUp() }
+  let fake = FakeCommandRunner()
+  fake.exitCodes[["/bin/bash", box.script.path, "start"]] = 127
+
+  #expect(throws: ServiceControlError.self) {
+    try ServiceController(commandRunner: fake).blockingStart(in: box.directory)
+  }
+  #expect(fake.invocations == [box.invocation("start")])
+}
+
+@Test func restartDoesNotStartWhenStopExitsNonZero() async throws {
+  let box = try RunnerSandbox()
+  defer { box.cleanUp() }
+  let fake = FakeCommandRunner()
+  fake.exitCodes[["/bin/bash", box.script.path, "stop"]] = 2
+
+  await #expect(throws: ServiceControlError.self) {
+    try await ServiceController(commandRunner: fake, settleDelay: 0)
+      .restart(in: box.directory)
+  }
+  #expect(fake.invocations == [box.invocation("stop")])
+}
+
 @Test func restartStopsThenStarts() async throws {
   // svc.sh has no restart verb, and firing both at once leaves launchd
   // racing itself, so the order is load-bearing.

@@ -108,7 +108,7 @@ public enum GitLabRunnerConfigFile {
       }
       guard let equals = line.firstIndex(of: "=") else { continue }
       let key = line[..<equals].trimmingCharacters(in: .whitespaces)
-      var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+      let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
       if let delimiter = ["\"\"\"", "'''"].first(where: value.hasPrefix),
         !value.dropFirst(delimiter.count).contains(delimiter)
       {
@@ -116,10 +116,7 @@ public enum GitLabRunnerConfigFile {
         continue
       }
       guard inRunnerBody, current != nil else { continue }
-      if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
-        value = String(value.dropFirst().dropLast())
-      }
-      current?[key] = value
+      current?[key] = Self.scalarValue(from: value)
     }
     finish()
 
@@ -130,6 +127,33 @@ public enum GitLabRunnerConfigFile {
   /// whitespace and an editor may leave in front of the first header.
   private static let blank = CharacterSet.whitespaces.union(
     CharacterSet(charactersIn: "\u{FEFF}"))
+
+  /// The scalar itself, without the comment TOML allows after it. A `#`
+  /// inside a quoted value belongs to the value (`"mac # one"` is one name);
+  /// outside quotes it starts the comment. The quote characters themselves
+  /// are not part of the scalar gitlab-runner reads.
+  private static func scalarValue(from raw: String) -> String {
+    let value = raw.trimmingCharacters(in: .whitespaces)
+    guard let quote = value.first, quote == "\"" || quote == "'" else {
+      let uncommented = value.split(separator: "#", maxSplits: 1).first ?? ""
+      return uncommented.trimmingCharacters(in: .whitespaces)
+    }
+
+    var escaped = false
+    var index = value.index(after: value.startIndex)
+    while index < value.endIndex {
+      let character = value[index]
+      if quote == "\"", escaped {
+        escaped = false
+      } else if quote == "\"", character == "\\" {
+        escaped = true
+      } else if character == quote {
+        return String(value[value.index(after: value.startIndex)..<index])
+      }
+      index = value.index(after: index)
+    }
+    return value
+  }
 
   /// A header without a trailing `# comment`. Table names this scanner looks
   /// for never contain `#`, so the first one starts the comment.
