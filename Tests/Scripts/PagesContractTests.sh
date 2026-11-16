@@ -241,6 +241,26 @@ run_case "a slash after script does not hide an import map" fail '
   <script/type="importmap">{"imports":{"app":"https://cdn.example/app.js"}}</script>
 '
 
+run_case "a data src is not a load" pass '
+  <img data-src="https://cdn.example/a.png">
+'
+
+run_case "a data type is not an import map" pass '
+  <script data-type="importmap">{"imports":{"app":"https://cdn.example/app.js"}}</script>
+'
+
+run_case "space before a fetch parenthesis is still an external load" fail '
+  <script>fetch ("https://cdn.example/x")</script>
+'
+
+run_case "space before a CSS url parenthesis is still an external load" fail '
+  <style>@import url ("https://cdn.example/site.css");</style>
+'
+
+run_case "a link imagesrcset is an external load" fail '
+  <link rel="preload" as="image" imagesrcset="https://cdn.example/a.png 1x">
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1

@@ -92,7 +92,7 @@ attr_compact_text="$(printf '%s' "$compact_text" | normalize_attribute_slashes)"
 # their own so every URL inside one is judged as a load.
 importmap_text="$(
   printf '%s' "$decoded_text" | perl -0777 -ne '
-    my $attr = qr/(?:[\s\/]*[^\s=\/>]+(?:\s*=\s*(?:"[^"]*"|'\''[^'\'']*'\''|[^\s>]+))?)/;
+    my $attr = qr/(?:[\s\/]*[^\s=\/>]+(?:\s*=\s*(?:"[^"]*"|'\''[^'\'']*'\''|[^\s>]+)|(?=[\s\/])))/;
     while (/<script\b$attr*?[\s\/]*type\s*=\s*["\x27]?importmap["\x27]?$attr*[\s\/]*>(.*?)<\/script\s*>/gis) {
       print "$1\n"
     }
@@ -119,10 +119,13 @@ extract_urls() {
 # load-bearing one as name/value pairs so quoted spans are stepped over
 # intact without letting bare quotes open spans of their own.
 attr_value="(\"[^\"]*\"|'[^']*'|[^[:space:]>]+)"
-tag_interior="([[:space:]/]*[^[:space:]=/>]+([[:space:]]*=[[:space:]]*${attr_value})?)*"
+# A preceding attribute must end at its value or at a separator; otherwise
+# the repetition can backtrack through one name and read its tail (`src` in
+# `data-src`) as a load-bearing attribute of its own.
+tag_interior="([[:space:]/]*[^[:space:]=/>]+([[:space:]]*=[[:space:]]*${attr_value}|[[:space:]/]+))*"
 single_url_pattern="(<(script|link|img|source|video|audio|iframe|embed|object|track|input|base)${tag_interior}[[:space:]/]*(src|href|data|poster)[[:space:]]*=[[:space:]]*${quote_class}?[[:space:]]*(https?://|//)[^\"'[:space:]]*)"
-srcset_pattern="(<(img|source)${tag_interior}[[:space:]/]*srcset[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source)${tag_interior}[[:space:]/]*srcset[[:space:]]*=[[:space:]]*'[^']*'|<(img|source)${tag_interior}[[:space:]/]*srcset[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
-context_pattern="((url\(|fetch\(|WebSocket\(|EventSource\(|import[[:space:]]*\(|Worker[[:space:]]*\(|SharedWorker[[:space:]]*\(|addModule[[:space:]]*\(|serviceWorker[[:space:]]*\.[[:space:]]*register[[:space:]]*\()[^)]*|@import[[:space:]]*\"[^\"]*\"|@import[[:space:]]*'[^']*'|import[[:space:]]*${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
+srcset_pattern="(<(img|source|link)${tag_interior}[[:space:]/]*(srcset|imagesrcset)[[:space:]]*=[[:space:]]*\"[^\"]*\"|<(img|source|link)${tag_interior}[[:space:]/]*(srcset|imagesrcset)[[:space:]]*=[[:space:]]*'[^']*'|<(img|source|link)${tag_interior}[[:space:]/]*(srcset|imagesrcset)[[:space:]]*=[[:space:]]*[^\"'[:space:]>]+)"
+context_pattern="((url[[:space:]]*\(|fetch[[:space:]]*\(|WebSocket[[:space:]]*\(|EventSource[[:space:]]*\(|import[[:space:]]*\(|Worker[[:space:]]*\(|SharedWorker[[:space:]]*\(|addModule[[:space:]]*\(|serviceWorker[[:space:]]*\.[[:space:]]*register[[:space:]]*\()[^)]*|@import[[:space:]]*\"[^\"]*\"|@import[[:space:]]*'[^']*'|import[[:space:]]*${quote_class}[^\"']*${quote_class}|from[[:space:]]*${quote_class}[^\"']*${quote_class})"
 
 load_urls="$(
   {
