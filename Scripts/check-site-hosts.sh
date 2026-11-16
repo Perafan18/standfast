@@ -30,6 +30,8 @@ decoded_text="$(
   perl -0777 -pe '
     s/&#([0-9]+);?/$1 < 128 ? chr($1) : $&/ge;
     s/&#[xX]([0-9a-fA-F]+);?/hex($1) < 128 ? chr(hex($1)) : $&/ge;
+    s/&quot;/"/g;
+    s/&apos;/chr(39)/ge;
     s/&colon;/:/g;
     s/&sol;/\//g;
     s/&Tab;/\t/g;

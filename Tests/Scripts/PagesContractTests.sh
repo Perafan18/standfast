@@ -132,6 +132,10 @@ run_case "a spaced dynamic import is still an external load" fail '
   <script type="module">await import ("https://cdn.example/app.js");</script>
 '
 
+run_case "quote entities inside srcdoc do not hide a script host" fail '
+  <iframe srcdoc="<script src=&quot;https://cdn.example/app.js&quot;></script>"></iframe>
+'
+
 if [ "$failures" -ne 0 ]; then
   printf 'FAIL: %d Pages contract case(s) failed\n' "$failures" >&2
   exit 1
